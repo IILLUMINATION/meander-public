@@ -19,6 +19,7 @@ export interface MarketListOptions {
     search?: string;
     category?: string;
     showNsfw?: boolean;
+    viewerId?: string | null;
 }
 
 export interface BuiltQuery {
@@ -26,7 +27,7 @@ export interface BuiltQuery {
     params: any[];
 }
 
-export function marketListQuery({ search, category, showNsfw = false }: MarketListOptions): BuiltQuery {
+export function marketListQuery({ search, category, showNsfw = false, viewerId = null }: MarketListOptions): BuiltQuery {
     let text = SELECT;
     const params: any[] = [];
 
@@ -47,6 +48,18 @@ export function marketListQuery({ search, category, showNsfw = false }: MarketLi
     if (category && category !== 'All') {
         text += ` AND $${params.length + 1} = ANY(mq.genres)`;
         params.push(category);
+    }
+
+    // Guideline 1.2: заблокированный автор пропадает из каталога у того, кто
+    // его заблокировал. Гостю скрывать некого — без зрителя условия нет, и
+    // нумерация плейсхолдеров поиска остаётся прежней. Условие идёт последним,
+    // чтобы номера поиска и жанра не зависели от входа в аккаунт.
+    if (viewerId) {
+        text += ` AND NOT EXISTS (
+            SELECT 1 FROM user_blocks ub
+            WHERE ub.user_id = $${params.length + 1} AND ub.blocked_id = mq.author_id
+        )`;
+        params.push(viewerId);
     }
 
     text += ' ORDER BY mq.created_at DESC';

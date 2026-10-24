@@ -42,6 +42,21 @@ final Map<String, String> enCommon = {
   'Снять': 'Remove',
   'Разблокировать': 'Unlock',
   'Заблокировать': 'Lock',
+  'Заблокировать пользователя': 'Block user',
+  'Разблокировать пользователя': 'Unblock user',
+  'Заблокировать автора': 'Block user',
+  'Разблокировать автора': 'Unblock user',
+  'Заблокировать автора?': 'Block this user?',
+  'Разблокировать автора?': 'Unblock this user?',
+  'Их квесты и посты исчезнут из ваших лент. Разблокировать можно в «Чаты → Приватность».':
+      'Their quests and posts will disappear from your feeds. You can unblock them in Chats → Privacy.',
+  'Их квесты и посты снова появятся в лентах.':
+      'Their quests and posts will appear in your feeds again.',
+  'Автор заблокирован': 'User blocked',
+  'Автор разблокирован': 'User unblocked',
+  'Не удалось изменить блокировку': 'Could not change the block',
+  'Блокировка привязана к аккаунту: войдите, чтобы скрыть автора из лент.':
+      'Blocking is tied to an account: sign in to hide this user from your feeds.',
   'Пожаловаться': 'Report',
   'Поиск': 'Search',
   'Поиск...': 'Search...',

@@ -132,7 +132,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 blocked ? Icons.lock_open_rounded : Icons.block_outlined,
                 color: blocked ? null : scheme.error,
               ),
-              title: Text(blocked ? tr('Разблокировать') : tr('Заблокировать')),
+              title: Text(
+                blocked
+                    ? tr('Разблокировать пользователя')
+                    : tr('Заблокировать пользователя'),
+              ),
               subtitle: Text(
                 blocked
                     ? tr('Переписка и новый чат снова будут доступны')

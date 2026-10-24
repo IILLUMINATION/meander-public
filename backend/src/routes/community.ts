@@ -96,23 +96,24 @@ router.get('/feed', optionalAuthMiddleware, async (req: Request, res: Response) 
         // иначе один и тот же текст человек видит и в сообществе квеста, и в ленте.
         let whereClause = 'ap.is_active = true AND ap.forum_id IS NULL';
         const queryParams: any[] = [limit, offset];
-        let paramIndex = 3;
+        const viewerIndex = 3;
+        queryParams.push(viewerId);
 
         // 1. Following Filter
         if (filter === 'following') {
             if (!viewerId) return res.status(401).json({ error: 'Unauthorized to view following feed' });
             
             whereClause += ` AND ap.author_id IN (
-                SELECT user_id FROM user_followers WHERE follower_id = $${paramIndex}
+                SELECT user_id FROM user_followers WHERE follower_id = $${viewerIndex}
             )`;
-            queryParams.push(viewerId);
-            paramIndex++;
         }
-        
-        // viewerId for like check
-        queryParams.push(viewerId);
-        const viewerIndex = paramIndex;
-        paramIndex++;
+
+        // Guideline 1.2: посты заблокированных авторов не показываются тому,
+        // кто их заблокировал. Для гостя $3 = NULL — условие ничего не режет.
+        whereClause += ` AND NOT EXISTS (
+            SELECT 1 FROM user_blocks ub
+            WHERE ub.user_id = $${viewerIndex} AND ub.blocked_id = ap.author_id
+        )`;
 
         const result = await pool.query(
             `SELECT 
@@ -180,7 +181,11 @@ router.get('/post/:id', optionalAuthMiddleware, async (req: Request, res: Respon
                ) as is_liked_by_viewer
              FROM author_posts ap
              JOIN profiles p ON p.id = ap.author_id
-             WHERE ap.id = $1 AND ap.is_active = true`,
+             WHERE ap.id = $1 AND ap.is_active = true
+               AND NOT EXISTS (
+                 SELECT 1 FROM user_blocks ub
+                 WHERE ub.user_id = $2::uuid AND ub.blocked_id = ap.author_id
+               )`,
             [id, viewerId]
         );
 

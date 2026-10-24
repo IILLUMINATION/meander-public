@@ -28,6 +28,7 @@ import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetics_repository.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetics_screen.dart';
 import 'package:canvas_app/features/profile/widgets/banner_and_socials.dart';
+import 'package:canvas_app/features/profile/widgets/user_block_actions.dart';
 import 'package:canvas_app/shared/entity_links/entity_ref_card.dart';
 import 'package:canvas_app/features/profile/widgets/profile_widgets.dart';
 import 'package:canvas_app/features/shell/screens/admin_screen.dart';
@@ -40,6 +41,7 @@ import 'package:canvas_app/features/wall/widgets/post_composer.dart';
 import 'package:canvas_app/features/wall/widgets/post_card.dart';
 import 'package:canvas_app/models/user_profile_model.dart';
 import 'package:canvas_app/features/messages/models/dm_models.dart';
+import 'package:canvas_app/features/messages/providers/dm_provider.dart';
 import 'package:canvas_app/features/messages/screens/chat_screen.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/dialogs/account_gate.dart';
@@ -1635,6 +1637,7 @@ class _ProfileHeader extends ConsumerWidget {
                       _BannerCircleMenuButton(
                         isCurrentUser: isCurrentUser,
                         userId: profile.id,
+                        authorName: profile.fullName,
                         onCopyId: onCopyId,
                         onReport: onReport,
                         onLogout: onLogout,
@@ -2130,6 +2133,7 @@ class _AvatarEditButton extends StatelessWidget {
 class _BannerCircleMenuButton extends ConsumerWidget {
   final bool isCurrentUser;
   final String userId;
+  final String authorName;
   final VoidCallback onCopyId;
   final VoidCallback onReport;
   final VoidCallback onLogout;
@@ -2137,6 +2141,7 @@ class _BannerCircleMenuButton extends ConsumerWidget {
   const _BannerCircleMenuButton({
     required this.isCurrentUser,
     required this.userId,
+    required this.authorName,
     required this.onCopyId,
     required this.onReport,
     required this.onLogout,
@@ -2152,6 +2157,7 @@ class _BannerCircleMenuButton extends ConsumerWidget {
         ref.watch(authorNotifsSettingsProvider).valueOrNull ??
         AuthorNotifsSettings.unknown;
     final isMuted = notifs.isMuted(userId);
+    final isBlocked = ref.watch(dmBlocksProvider).any((p) => p.id == userId);
 
     return Material(
       color: Colors.black.withOpacity(0.32),
@@ -2173,6 +2179,16 @@ class _BannerCircleMenuButton extends ConsumerWidget {
               break;
             case 'report':
               onReport();
+              break;
+            case 'block':
+              if (!context.mounted) return;
+              await confirmUserBlock(
+                context,
+                ref,
+                userId: userId,
+                blocked: isBlocked,
+                name: authorName,
+              );
               break;
             case 'logout':
               onLogout();
@@ -2232,6 +2248,16 @@ class _BannerCircleMenuButton extends ConsumerWidget {
               child: _ProfileMenuItemRow(
                 icon: Icons.flag_outlined,
                 label: tr('Пожаловаться'),
+                color: scheme.error,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'block',
+              child: _ProfileMenuItemRow(
+                icon: isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+                label: isBlocked
+                    ? tr('Разблокировать автора')
+                    : tr('Заблокировать автора'),
                 color: scheme.error,
               ),
             ),
@@ -2593,6 +2619,9 @@ class _DesktopActionsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final isBlocked = ref.watch(dmBlocksProvider).any(
+      (p) => p.id == profile.id,
+    );
     final children = <Widget>[
       if (!isCurrentUser) ...[
         if (followButton != null) followButton!,
@@ -2609,6 +2638,25 @@ class _DesktopActionsCard extends ConsumerWidget {
           onPressed: onReport,
           icon: const Icon(Icons.flag_outlined, size: 18),
           label: Text(tr('Пожаловаться')),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => confirmUserBlock(
+            context,
+            ref,
+            userId: profile.id,
+            blocked: isBlocked,
+            name: profile.fullName,
+          ),
+          icon: Icon(
+            isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+            size: 18,
+          ),
+          label: Text(
+            isBlocked
+                ? tr('Разблокировать автора')
+                : tr('Заблокировать автора'),
+          ),
         ),
       ] else ...[
         FilledButton.tonalIcon(
