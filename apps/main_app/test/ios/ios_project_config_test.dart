@@ -151,13 +151,12 @@ void main() {
       expect(sb, contains('red="0.09411764705882353"'));
     });
 
-    test('заявлен фоновый режим audio', () {
-      // mpv/audioplayers держат AVAudioSession категории Playback: без ключа
-      // iOS обрывает музыку квеста, стоит свернуть приложение.
+    test('фоновый режим audio не заявлен', () {
+      // Guideline 2.5.4: заявленный фоновый audio без слышимого звука в фоне
+      // приводит к отказу. Музыка квеста играет только в активном окне.
       final plist = read('Runner/Info.plist');
-      final at = plist.indexOf('<key>UIBackgroundModes</key>');
-      expect(at, greaterThan(0), reason: 'ключа нет — фон не играет');
-      expect(plist.substring(at, at + 120), contains('<string>audio</string>'));
+      expect(plist, isNot(contains('<key>UIBackgroundModes</key>')));
+      expect(plist, isNot(contains('<string>audio</string>')));
     });
   });
 

@@ -46,6 +46,8 @@
 
 ```
 apps/main_app/        Flutter client: Android, iOS, Linux, Windows, macOS
+apps/builder_web/     web interface for automated quest APK builds
+apps/quest_player/    standalone Flutter player for individual quests
 apps/web_player/      wasm build of the engine for the browser
 backend/              legacy Node/TS API; replaced by crates/mnd-server
 crates/mnd-core/      engine: models, script executor, runtime
