@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import pool from '../config/database';
 import { resetCleanupStageOnActivity } from '../services/cloud_sync_cleanup';
+import { touchDailyActivity } from '../services/activity';
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -27,6 +28,8 @@ function touchLastSeen(userId?: string) {
     });
   // Сбрасываем cleanup_stage при возврате юзера (best-effort)
   resetCleanupStageOnActivity(userId).catch(() => {});
+  // Заход в приложение для дашборда активности (best-effort, свой троттлинг)
+  touchDailyActivity(userId);
 }
 
 const getBearerToken = (authHeader?: string): string | null => {

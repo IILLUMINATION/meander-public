@@ -8,6 +8,7 @@ import { validate as uuidValidate, v4 as uuidv4 } from 'uuid';
 import { COSMETICS, grantCosmetics } from '../services/cosmetics';
 import { createNotification } from '../services/notifications';
 import { recomputeTier } from '../services/cloud_sync_tier';
+import { getActivityOverview } from '../services/activity';
 
 const router = Router();
 
@@ -43,6 +44,17 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
         });
     } catch (e) {
         res.status(500).json(e);
+    }
+});
+
+// GET /admin/activity?days=30 — сводка активности: заходы, действия, топ юзеров.
+router.get('/activity', async (req: AuthRequest, res: Response) => {
+    try {
+        const overview = await getActivityOverview(req.query.days);
+        res.json(overview);
+    } catch (e) {
+        console.error('admin activity:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
