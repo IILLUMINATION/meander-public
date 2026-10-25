@@ -5,15 +5,8 @@ run-name: ${{ inputs.request_id && format('quest-apk {0}', inputs.request_id) ||
 # на основе плеера (apps/quest_player). Способы запуска:
 #   1. Веб-страница сборщика (apps/builder_web) — кнопка «Собрать APK».
 #   2. Actions → Build Quest APK → Run workflow.
-#   3. Положить .mnd в папку quests/ и запушить — APK соберётся сам.
+# Пуш не запускает сборку: минуты Actions тратятся только по запросу.
 on:
-  push:
-    paths:
-      - 'quests/*.mnd'
-      - 'apps/quest_player/**'
-      - 'packages/mnd_player/**'
-      - 'scripts/build_quest_apk.sh'
-      - '.github/workflows/build_quest_apk.yml'
   workflow_dispatch:
     inputs:
       request_id:
