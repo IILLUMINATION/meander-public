@@ -40,6 +40,7 @@ import 'package:canvas_app/features/wall/widgets/post_composer.dart';
 import 'package:canvas_app/features/wall/widgets/post_card.dart';
 import 'package:canvas_app/models/user_profile_model.dart';
 import 'package:canvas_app/features/messages/models/dm_models.dart';
+import 'package:canvas_app/features/messages/providers/dm_provider.dart';
 import 'package:canvas_app/features/messages/screens/chat_screen.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/dialogs/account_gate.dart';
@@ -1635,6 +1636,14 @@ class _ProfileHeader extends ConsumerWidget {
                       _BannerCircleMenuButton(
                         isCurrentUser: isCurrentUser,
                         userId: profile.id,
+                        peer: DmPeer(
+                          id: profile.id,
+                          name: profile.fullName,
+                          avatarUrl: profile.avatarUrl,
+                          equipped: profile.cosmetics,
+                          role: profile.role,
+                          lastSeenAt: profile.lastSeenAt,
+                        ),
                         onCopyId: onCopyId,
                         onReport: onReport,
                         onLogout: onLogout,
@@ -2130,6 +2139,7 @@ class _AvatarEditButton extends StatelessWidget {
 class _BannerCircleMenuButton extends ConsumerWidget {
   final bool isCurrentUser;
   final String userId;
+  final DmPeer peer;
   final VoidCallback onCopyId;
   final VoidCallback onReport;
   final VoidCallback onLogout;
@@ -2137,10 +2147,67 @@ class _BannerCircleMenuButton extends ConsumerWidget {
   const _BannerCircleMenuButton({
     required this.isCurrentUser,
     required this.userId,
+    required this.peer,
     required this.onCopyId,
     required this.onReport,
     required this.onLogout,
   });
+
+  /// Apple 1.2 требует, чтобы человека можно было заблокировать прямо из его
+  /// профиля, а не только из уже открытой переписки. Блокировка та же, что в
+  /// чате: сервер скрывает переписку в обе стороны.
+  Future<void> _toggleBlock(BuildContext context, WidgetRef ref) async {
+    final blocks = ref.read(dmBlocksProvider);
+    final blocked = blocks.any((p) => p.id == peer.id);
+
+    final hasAccount = await ensureAccount(
+      context,
+      why: tr('Блокировки хранятся на аккаунте. Войдите на вкладке «Вход».'),
+    );
+    if (!hasAccount || !context.mounted) return;
+
+    if (!blocked) {
+      final confirmed = await showAppDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(tr('Заблокировать пользователя?')),
+          content: Text(
+            trf(
+              '{p0} не сможет писать вам, а переписка с ним скроется. Разблокировать можно в любой момент.',
+              {'p0': peer.name},
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(tr('Отмена')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(tr('Заблокировать пользователя')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+    }
+
+    final notifier = ref.read(dmBlocksProvider.notifier);
+    final error = blocked
+        ? await notifier.unblock(peer.id)
+        : await notifier.block(peer);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error ??
+              (blocked
+                  ? tr('Пользователь разблокирован')
+                  : tr('Пользователь заблокирован')),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2152,6 +2219,7 @@ class _BannerCircleMenuButton extends ConsumerWidget {
         ref.watch(authorNotifsSettingsProvider).valueOrNull ??
         AuthorNotifsSettings.unknown;
     final isMuted = notifs.isMuted(userId);
+    final isBlocked = ref.watch(dmBlocksProvider).any((p) => p.id == userId);
 
     return Material(
       color: Colors.black.withOpacity(0.32),
@@ -2173,6 +2241,9 @@ class _BannerCircleMenuButton extends ConsumerWidget {
               break;
             case 'report':
               onReport();
+              break;
+            case 'block':
+              await _toggleBlock(context, ref);
               break;
             case 'logout':
               onLogout();
@@ -2225,6 +2296,18 @@ class _BannerCircleMenuButton extends ConsumerWidget {
                     ? tr('Включить уведомления')
                     : tr('Отключить уведомления'),
                 color: scheme.onSurfaceVariant,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'block',
+              child: _ProfileMenuItemRow(
+                icon: isBlocked
+                    ? Icons.lock_open_rounded
+                    : Icons.block_outlined,
+                label: isBlocked
+                    ? tr('Разблокировать пользователя')
+                    : tr('Заблокировать пользователя'),
+                color: isBlocked ? scheme.onSurfaceVariant : scheme.error,
               ),
             ),
             PopupMenuItem(
