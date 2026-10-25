@@ -1,69 +1,85 @@
-# Кандидат в рецепт fdroiddata (в их репозитории это data/com.IILLUMINAT.meadner.yml).
-# Лежит здесь как заготовка: подаётся он в https://gitlab.com/fdroid/fdroiddata,
-# и там его проверяет и правит тот, кто добавляет пакет. Поля, помеченные
-# «сверить», без реального прогоного билда не подтверждены.
+AntiFeatures:
+  Ads:
+    en-US: Interstitial ads from the Yandex Advertising Network.
+  Tracking:
+    en-US: The Yandex advertising SDK collects device data.
+  NonFreeDep:
+    en-US: Uses Google Play services, Firebase Cloud Messaging and the Yandex Login
+      SDK.
 Categories:
-  - Games
+  - Visual Novel
   - Writing
 License: AGPL-3.0-or-later
-WebURL: https://meander.sbs
+AuthorName: IILLUMINATION
+WebSite: https://meander.sbs
 SourceCode: https://github.com/IILLUMINATION/meander-public
 IssueTracker: https://github.com/IILLUMINATION/meander-public/issues
+Changelog: https://github.com/IILLUMINATION/meander-public/releases
 
-AutoName: false
-Name: Meander
-Summary: Движок и редактор текстовых квестов
-Description: |
-  Meander — свободный движок интерактивных историй: игрок проходит квесты,
-  автор их делает без программирования.
+AutoName: Meander
+Summary: Editor and player for interactive stories
+Description: |-
+  Meander is a free engine for text quests and interactive stories. You can play
+  them, and you can write your own without knowing how to program.
 
-  <ul>
-  <li>Плеер: ветвящиеся сцены, переменные, инвентарь, таблицы, условные
-  переходы, скрипты на Lua.</li>
-  <li>Редактор: граф нод, канвас со слоями, визуальные блоки скриптов,
-  формулы, библиотека ресурсов.</li>
-  <li>Сообщество: каталог квестов, форумы, личные сообщения, публикации.</li>
-  <li>Офлайн: квест — файл на устройстве, проходит без сети; аккаунт нужен
-  только для облачной синхронизации и публикаций.</li>
-  <li>Платформы: Android, iOS, Linux, Windows, macOS.</li>
-  </ul>
+  For players:
+  • branching scenes with variables, inventory and tables;
+  • images, sound and video inside a scene, text animation, background blur;
+  • a community catalogue with discussions and reviews;
+  • offline mode: a quest is a file on your device and needs no network.
 
-RepoSource: git https://github.com/IILLUMINATION/meander-public
-RepoTracks:
-  - versionNameTemplate: '*.*.*'
-RepoAllowPatches: false
+  For authors:
+  • a node graph, so the shape of the story is visible;
+  • a layered canvas for scene layout;
+  • visual script blocks instead of code, formulas in plain fields;
+  • a resource library, HTML and PDF export;
+  • publishing to the catalogue, view statistics and reviews.
 
-# Сверить перед подачей: commit должен быть тегом сборки, output — фактическим
-# путём APK, а версии Flutter/Rust — тем, что есть в сборочном контейнере
-# F-Droid (https://gitlab.com/fdroid/fdroidserver/-/blob/master/docker/Dockerfile).
+  The editor, the player and the quest library run locally with no account and
+  no network. An account is only needed for cloud sync, publishing, forums and
+  direct messages; those are served by meander.sbs, whose backend lives in this
+  repository (crates/mnd-server), so you can host your own.
+
+RepoType: git
+Repo: https://github.com/IILLUMINATION/meander-public.git
+
 Builds:
   - versionName: 2.8.15
     versionCode: 260
-    commit: 2.8.15
-    subdirectory: apps/main_app
-    # Проверено локальным прогоном 2026-10-20 с чистого публичного дерева:
-    # 21 мин, на выходе app-prod-release-unsigned.apk (78.8 МБ), внутри
-    # lib/<abi>/libmnd_ffi.so со строкой mnd-core v0.3.32 — той же, что в
-    # [workspace.package]. Подписи нет намеренно: подписывает F-Droid.
-    # Инструменты прогона: Flutter 3.47.7 (stable), rustc 1.98.0, JDK 17.0.20,
-    # Android NDK 28.2.13676358 — сверить с образом fdroidserver.
+    commit: b58a8923e54931e6f44508eddea8da8369c968a9
+    subdir: apps/main_app
     output: build/app/outputs/apk/prod/release/app-prod-release-unsigned.apk
+    srclibs:
+      - flutter@3.47.7
     build:
-      - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-      - cargo install --locked cargo-ndk
-      - flutter pub get
-      - flutter build apk --flavor prod --release
+      - rustup default 1.98.0
+      - export PATH="$HOME/.cargo/bin:$PATH"
+      - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+        i686-linux-android
+      - cargo install cargo-ndk@4.1.2 --locked
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - $$flutter$$/bin/flutter build apk --flavor prod --release
+    ndk: 28.2.13676358
 
-# Декларация как есть: основной репозиторий F-Droid с таким набором пакет не
-# возьмёт (несвободные зависимости и реклама). Нужен flavour без них — это
-# открытая задача, а не готовое решение.
-AntiFeatures:
-  Ads: https://yandex.ru/dev/mobile/
-  Tracking: https://yandex.ru/dev/mobile/
-  NonFreeDep:
-    google-play-services: https://developers.google.com/android/guides/overview
-    firebase-cloud-messaging: https://firebase.google.com/docs/cloud-messaging
-  NonFreeNet:
-    meander-community: https://meander.sbs
+MaintainerNotes: |-
+  Do not submit until a FLOSS flavour exists.
+  Blockers:
+  1. Proprietary SDKs are hard-wired: yandex_mobileads (interstitials),
+     yandex_login_sdk and google_sign_in (menu_screen.dart), Firebase/FCM
+     (bootstrap.dart, firebase_messaging_service.dart). F-Droid rejects
+     proprietary ad/tracking SDKs and GMS/Firebase dependencies.
+     The public tree has no android/google-services.json, so FCM does not
+     activate, but the libraries are still compiled in.
+  2. There are no release tags in the repository, so UpdateCheckMode: Tags
+     cannot work and checkupdates fails. Tag the release commit and keep
+     tagging every release.
+  3. Fastlane metadata is at apps/main_app/fastlane, but fdroidserver scans
+     only fastlane/ at the checkout root. Move it to the repository root.
+  4. Phone screenshots are missing: only desktop 1280x647 captures exist,
+     and they are not committed.
+  5. Rust 1.98.0, cargo-ndk 4.1.2 and NDK 28.2.13676358 must exist in the
+     fdroidserver build image; this was not verified here.
 
-RequiresInternetPermission: true
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
