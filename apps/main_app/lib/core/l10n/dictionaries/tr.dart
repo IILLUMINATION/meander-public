@@ -963,7 +963,6 @@ final Map<String, String> trStrings = {
   'Пакет больше лимита': 'Paket limitten büyük',
   'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.': 'Paket sunucuya gitti ama {p0} sn içinde yanıt gelmedi. Yayın kaydedilmemiş olabilir: "Questlerim"e bak, orada yoksa yeniden yayımla.',
   'Подготовка...': 'Hazırlanıyor...',
-  'Просмотр рекламы...': 'Reklam izleniyor...',
   'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.': 'Quest boyutu sunucu limitini aşıyor. Şu anda limit normal hesaplar için 100 MB, doğrulanmış hesaplar için 500 MB.',
   'Сборка пакета квеста...': 'Quest paketi derleniyor...',
   'Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.': 'Sunucu yüklemeyi reddetti: dosya çok büyük (HTTP 413). backend/nginx üzerindeki limitleri kontrol et.',

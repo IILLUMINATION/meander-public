@@ -762,7 +762,6 @@ final Map<String, String> deStrings = {
   'Пакет больше лимита': 'Paket über dem Limit',
   'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.': 'Das Paket wurde an den Server gesendet, aber innerhalb von {p0} s keine Antwort gekommen. Die Veröffentlichung wurde möglicherweise nicht gespeichert: Prüfe „Meine Quests“ und veröffentliche erneut, falls sie dort fehlt.',
   'Подготовка...': 'Vorbereitung...',
-  'Просмотр рекламы...': 'Werbung wird angesehen...',
   'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.': 'Die Quest-Größe überschreitet das Server-Limit. Aktuell gilt: 100 MB für normale Konten und 500 MB für verifizierte.',
   'Сборка пакета квеста...': 'Quest-Paket wird erstellt...',
   'Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.': 'Der Server hat den Upload abgelehnt: Die Datei ist zu groß (HTTP 413). Prüfe die Limits auf backend/nginx.',

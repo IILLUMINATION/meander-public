@@ -64,25 +64,13 @@ class MarketDownloadNotifier
 
   /// Запускает загрузку квеста в фоне. Метод сразу возвращается.
   /// Прогресс обновляется через state, виджет может его слушать.
-  ///
-  /// [showAdCallback] — если передан, вызывается перед началом загрузки
-  /// (для показа рекламы из UI-контекста). Ожидается await.
   Future<void> startDownload({
     required MarketQuest quest,
     required String token,
-    required bool isAlreadyLocal,
-    Future<void> Function()? showAdCallback,
   }) async {
     if (isDownloading(quest.id)) return;
 
     _updateState(quest.id, const QuestDownloadState(progress: 0.0, status: ''));
-
-    // Реклама показывается синхронно до ухода с экрана
-    if (!isAlreadyLocal && showAdCallback != null) {
-      try {
-        await showAdCallback();
-      } catch (_) {}
-    }
 
     // Сама загрузка запускается «fire and forget»
     unawaited(_runDownload(quest: quest, token: token));

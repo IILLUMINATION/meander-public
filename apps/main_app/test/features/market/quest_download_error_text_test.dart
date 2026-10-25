@@ -123,7 +123,7 @@ void main() {
       addTearDown(container.dispose);
       await container
           .read(marketDownloadProvider.notifier)
-          .startDownload(quest: quest, token: '', isAlreadyLocal: true);
+          .startDownload(quest: quest, token: '');
 
       for (var i = 0; i < 80; i++) {
         final state = container.read(marketDownloadProvider)[quest.id];

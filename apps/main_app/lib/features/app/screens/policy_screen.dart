@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 import 'package:canvas_app/features/app/screens/onboarding_screen.dart'; // Убедись, что импорт правильный (или класс ниже)
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
@@ -7,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:yandex_mobileads/mobile_ads.dart';
-import 'package:flutter/foundation.dart'; // для kIsWeb
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
@@ -59,22 +56,13 @@ class _PolicyScreenState extends State<PolicyScreen> {
       await prefs.setBool('adult_confirmed', isAdult);
     }
 
-    // 2. Инициализируем рекламу ТОЛЬКО СЕЙЧАС (после согласия)
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-      try {
-        await YandexAds.initialize();
-      } catch (e) {
-        print("Ads init error: $e");
-      }
-    }
-
-    // 3. Проверяем, был ли пройден онбординг
+    // 2. Проверяем, был ли пройден онбординг
     final hasCompletedOnboarding =
         prefs.getBool('has_completed_onboarding') ?? false;
 
     if (!mounted) return;
 
-    // 4. Навигация
+    // 3. Навигация
     if (hasCompletedOnboarding) {
       Navigator.of(
         context,

@@ -75,7 +75,6 @@ dependencies:
   visibility_detector: ^0.4.0+2
   collection: ^1.18.0
   app_links: ^7.2.1
-  yandex_mobileads: ^8.1.0
   photo_view: ^0.15.0
   wakelock_plus: ^1.7.0
   audio_session: ^0.2.4
