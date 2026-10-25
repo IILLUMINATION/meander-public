@@ -49,3 +49,31 @@ test('категория All не добавляет условия', () => {
     assert.ok(!text.includes('ANY(mq.genres)'), text);
     assert.deepStrictEqual(params, ['%x%']);
 });
+
+// Guideline 1.2. Негативный контроль: без блока `viewerId` тест падает на
+// NOT EXISTS, с перепутанными колонками — на `blocked_id = mq.author_id`,
+// со забытым параметром — на последнем элементе params.
+test('квесты заблокированного автора скрыты от вошедшего зрителя', () => {
+    const viewerId = '11111111-1111-1111-1111-111111111111';
+    const { text, params } = marketListQuery({ viewerId });
+    assert.ok(text.includes('NOT EXISTS'), text);
+    assert.ok(text.includes('ub.blocked_id = mq.author_id'), text);
+    assert.deepStrictEqual(params, [viewerId]);
+    assert.ok(text.includes('ub.user_id = $1'), text);
+});
+
+test('блокировка идёт отдельным плейсхолдером после поиска и жанра', () => {
+    const { text, params } = marketListQuery({
+        search: 'дождь',
+        category: 'Horror',
+        viewerId: 'v',
+    });
+    assert.deepStrictEqual(params, ['%дождь%', 'Horror', 'v']);
+    assert.ok(text.includes('ub.user_id = $3'), text);
+});
+
+test('гость не платит за фильтр блокировок сдвигом плейсхолдеров', () => {
+    const { text, params } = marketListQuery({ search: 'x' });
+    assert.ok(!text.includes('user_blocks'), text);
+    assert.deepStrictEqual(params, ['%x%']);
+});

@@ -87,7 +87,7 @@ class _ChatPrivacyScreenState extends ConsumerState<ChatPrivacyScreen> {
           ),
           FilledButton.tonal(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(tr('Разблокировать')),
+            child: Text(tr('Разблокировать пользователя')),
           ),
         ],
       ),
@@ -308,7 +308,7 @@ class _BlocksList extends ConsumerWidget {
                 ),
                 TextButton(
                   onPressed: () => onUnblock(peer),
-                  child: Text(tr('Разблокировать')),
+                  child: Text(tr('Разблокировать пользователя')),
                 ),
               ],
             ),

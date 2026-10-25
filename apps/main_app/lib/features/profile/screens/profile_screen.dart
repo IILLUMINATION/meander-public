@@ -28,6 +28,7 @@ import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetics_repository.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetics_screen.dart';
 import 'package:canvas_app/features/profile/widgets/banner_and_socials.dart';
+import 'package:canvas_app/features/profile/widgets/user_block_actions.dart';
 import 'package:canvas_app/shared/entity_links/entity_ref_card.dart';
 import 'package:canvas_app/features/profile/widgets/profile_widgets.dart';
 import 'package:canvas_app/features/shell/screens/admin_screen.dart';
@@ -1636,14 +1637,7 @@ class _ProfileHeader extends ConsumerWidget {
                       _BannerCircleMenuButton(
                         isCurrentUser: isCurrentUser,
                         userId: profile.id,
-                        peer: DmPeer(
-                          id: profile.id,
-                          name: profile.fullName,
-                          avatarUrl: profile.avatarUrl,
-                          equipped: profile.cosmetics,
-                          role: profile.role,
-                          lastSeenAt: profile.lastSeenAt,
-                        ),
+                        authorName: profile.fullName,
                         onCopyId: onCopyId,
                         onReport: onReport,
                         onLogout: onLogout,
@@ -2139,7 +2133,7 @@ class _AvatarEditButton extends StatelessWidget {
 class _BannerCircleMenuButton extends ConsumerWidget {
   final bool isCurrentUser;
   final String userId;
-  final DmPeer peer;
+  final String authorName;
   final VoidCallback onCopyId;
   final VoidCallback onReport;
   final VoidCallback onLogout;
@@ -2147,67 +2141,11 @@ class _BannerCircleMenuButton extends ConsumerWidget {
   const _BannerCircleMenuButton({
     required this.isCurrentUser,
     required this.userId,
-    required this.peer,
+    required this.authorName,
     required this.onCopyId,
     required this.onReport,
     required this.onLogout,
   });
-
-  /// Apple 1.2 требует, чтобы человека можно было заблокировать прямо из его
-  /// профиля, а не только из уже открытой переписки. Блокировка та же, что в
-  /// чате: сервер скрывает переписку в обе стороны.
-  Future<void> _toggleBlock(BuildContext context, WidgetRef ref) async {
-    final blocks = ref.read(dmBlocksProvider);
-    final blocked = blocks.any((p) => p.id == peer.id);
-
-    final hasAccount = await ensureAccount(
-      context,
-      why: tr('Блокировки хранятся на аккаунте. Войдите на вкладке «Вход».'),
-    );
-    if (!hasAccount || !context.mounted) return;
-
-    if (!blocked) {
-      final confirmed = await showAppDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(tr('Заблокировать пользователя?')),
-          content: Text(
-            trf(
-              '{p0} не сможет писать вам, а переписка с ним скроется. Разблокировать можно в любой момент.',
-              {'p0': peer.name},
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(tr('Отмена')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(tr('Заблокировать пользователя')),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !context.mounted) return;
-    }
-
-    final notifier = ref.read(dmBlocksProvider.notifier);
-    final error = blocked
-        ? await notifier.unblock(peer.id)
-        : await notifier.block(peer);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          error ??
-              (blocked
-                  ? tr('Пользователь разблокирован')
-                  : tr('Пользователь заблокирован')),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2243,7 +2181,14 @@ class _BannerCircleMenuButton extends ConsumerWidget {
               onReport();
               break;
             case 'block':
-              await _toggleBlock(context, ref);
+              if (!context.mounted) return;
+              await confirmUserBlock(
+                context,
+                ref,
+                userId: userId,
+                blocked: isBlocked,
+                name: authorName,
+              );
               break;
             case 'logout':
               onLogout();
@@ -2299,22 +2244,20 @@ class _BannerCircleMenuButton extends ConsumerWidget {
               ),
             ),
             PopupMenuItem(
-              value: 'block',
-              child: _ProfileMenuItemRow(
-                icon: isBlocked
-                    ? Icons.lock_open_rounded
-                    : Icons.block_outlined,
-                label: isBlocked
-                    ? tr('Разблокировать пользователя')
-                    : tr('Заблокировать пользователя'),
-                color: isBlocked ? scheme.onSurfaceVariant : scheme.error,
-              ),
-            ),
-            PopupMenuItem(
               value: 'report',
               child: _ProfileMenuItemRow(
                 icon: Icons.flag_outlined,
                 label: tr('Пожаловаться'),
+                color: scheme.error,
+              ),
+            ),
+            PopupMenuItem(
+              value: 'block',
+              child: _ProfileMenuItemRow(
+                icon: isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+                label: isBlocked
+                    ? tr('Разблокировать автора')
+                    : tr('Заблокировать автора'),
                 color: scheme.error,
               ),
             ),
@@ -2676,6 +2619,9 @@ class _DesktopActionsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final isBlocked = ref.watch(dmBlocksProvider).any(
+      (p) => p.id == profile.id,
+    );
     final children = <Widget>[
       if (!isCurrentUser) ...[
         if (followButton != null) followButton!,
@@ -2692,6 +2638,25 @@ class _DesktopActionsCard extends ConsumerWidget {
           onPressed: onReport,
           icon: const Icon(Icons.flag_outlined, size: 18),
           label: Text(tr('Пожаловаться')),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => confirmUserBlock(
+            context,
+            ref,
+            userId: profile.id,
+            blocked: isBlocked,
+            name: profile.fullName,
+          ),
+          icon: Icon(
+            isBlocked ? Icons.lock_open_rounded : Icons.block_rounded,
+            size: 18,
+          ),
+          label: Text(
+            isBlocked
+                ? tr('Разблокировать автора')
+                : tr('Заблокировать автора'),
+          ),
         ),
       ] else ...[
         FilledButton.tonalIcon(

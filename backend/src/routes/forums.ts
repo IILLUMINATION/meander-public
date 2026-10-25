@@ -613,6 +613,10 @@ router.get('/:slug/posts', optionalAuthMiddleware, async (req: AuthRequest, res:
                FROM author_posts ap
                JOIN profiles a ON a.id = ap.author_id
               WHERE ap.forum_id = $2 AND ap.is_active = true
+                AND NOT EXISTS (
+                  SELECT 1 FROM user_blocks ub
+                  WHERE ub.user_id = $1::uuid AND ub.blocked_id = ap.author_id
+                )
               ORDER BY ${sort}
               LIMIT $3 OFFSET $4`,
             [viewer, forum.id, limit, offset]

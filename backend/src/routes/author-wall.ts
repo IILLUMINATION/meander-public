@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import pool from '../config/database';
-import authMiddleware, { AuthRequest } from '../middleware/auth';
+import authMiddleware, { optionalAuthMiddleware, AuthRequest } from '../middleware/auth';
 import { moderateWallPost } from '../services/moderation';
 import { getKarmaAndLimits } from '../services/gating';
 import { createNotification, createBulkNotifications } from '../services/notifications';
@@ -123,13 +123,22 @@ router.post('/posts/:postId/view', authMiddleware, async (req: Request, res: Res
 });
 
 // GET /api/author-walls/:authorId/posts — лента постов
-router.get('/:authorId/posts', async (req: Request, res: Response) => {
+router.get('/:authorId/posts', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const { authorId } = req.params;
     if (!uuidValidate(authorId)) return res.status(400).json({ error: 'Invalid author ID format' });
     const limit = parseInt(req.query.limit as string, 10) || 20;
     const offset = parseInt(req.query.offset as string, 10) || 0;
-    const viewerId = (req.query.viewer_id as string) || null;
+    const viewerId = (req as AuthRequest).user?.id || (req.query.viewer_id as string) || null;
+
+    // Guideline 1.2: стена заблокированного автора для блокирующего пуста.
+    if ((req as AuthRequest).user?.id) {
+      const blocked = await pool.query(
+        'SELECT 1 FROM user_blocks WHERE user_id = $1 AND blocked_id = $2',
+        [(req as AuthRequest).user!.id, authorId]
+      );
+      if (blocked.rows.length > 0) return res.json([]);
+    }
 
     const result = await pool.query(
       `SELECT 

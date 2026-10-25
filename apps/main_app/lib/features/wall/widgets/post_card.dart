@@ -17,6 +17,7 @@ import 'package:canvas_app/features/community/screens/post_comments_screen.dart'
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/features/profile/screens/profile_screen.dart';
+import 'package:canvas_app/features/profile/widgets/user_block_actions.dart';
 import 'package:canvas_app/features/wall/screens/create_post_screen.dart';
 import 'package:canvas_app/features/wall/providers/wall_paginated_provider.dart';
 import 'package:canvas_app/features/wall/widgets/expandable_post_text.dart';
@@ -122,7 +123,7 @@ class _PostCardState extends ConsumerState<PostCard> {
                 _Header(
                   post: post,
                   isOwn: widget.isOwn,
-                  onAction: (a) {
+                  onAction: (a) async {
                     switch (a) {
                       case _PostAction.edit:
                         Navigator.push(
@@ -147,6 +148,15 @@ class _PostCardState extends ConsumerState<PostCard> {
                         break;
                       case _PostAction.share:
                         _sharePost();
+                        break;
+                      case _PostAction.block:
+                        await confirmUserBlock(
+                          context,
+                          ref,
+                          userId: post.authorId,
+                          blocked: false,
+                          name: post.authorName,
+                        );
                         break;
                     }
                   },
@@ -254,7 +264,7 @@ class _PostCardState extends ConsumerState<PostCard> {
   }
 }
 
-enum _PostAction { edit, delete, report, share }
+enum _PostAction { edit, delete, report, share, block }
 
 class _Header extends StatelessWidget {
   final WallPost post;
@@ -406,6 +416,26 @@ class _Header extends StatelessWidget {
                 ],
               ),
             ),
+            if (!isOwn)
+              PopupMenuItem(
+                value: _PostAction.block,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.block_rounded,
+                      color: scheme.error,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        tr('Заблокировать автора'),
+                        style: TextStyle(color: scheme.error),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ],

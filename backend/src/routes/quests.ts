@@ -662,6 +662,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res: Response) 
         search: typeof search === 'string' ? search : undefined,
         category: typeof category === 'string' ? category : undefined,
         showNsfw,
+        viewerId: req.user?.id ?? null,
     });
 
     try {
@@ -713,11 +714,13 @@ router.get('/featured', optionalAuthMiddleware, async (req: AuthRequest, res: Re
             : 0;
 
         let q = "SELECT mq.*, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published' AND mq.is_featured = TRUE";
+        const params: any[] = [];
         if (!showNsfw) {
             q += " AND mq.is_nsfw = FALSE";
         }
+        q += ` AND NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE ub.user_id = $${params.length + 1} AND ub.blocked_id = mq.author_id)`;
+        params.push(req.user?.id ?? null);
         q += " ORDER BY mq.created_at DESC";
-        const params: any[] = [];
         if (limit !== null) {
             params.push(limit);
             q += ` LIMIT $${params.length}`;
@@ -852,11 +855,16 @@ router.get('/activity/recent', optionalAuthMiddleware, async (req: AuthRequest, 
                     LIMIT 1
                 ) q ON TRUE
             )
-            SELECT * FROM recent_activity
+            SELECT * FROM recent_activity ra
+            WHERE NOT EXISTS (
+                SELECT 1 FROM user_blocks ub
+                WHERE ub.user_id = $3::uuid
+                  AND (ub.blocked_id = ra.actor_id OR ub.blocked_id = ra.target_user_id)
+            )
             ORDER BY created_at DESC
             LIMIT $2
             `,
-            [showNsfw, limit]
+            [showNsfw, limit, req.user?.id ?? null]
         );
 
         console.log(`[RecentActivity] rows=${result.rows.length}`);
@@ -1013,6 +1021,20 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Respons
     const userId = req.user?.id;
 
     try {
+        // Заблокированный автор недоступен и по прямой ссылке — иначе обход
+        // ленты возвращал бы тот же квест через сохранённый id.
+        if (userId) {
+            const blocked = await pool.query(
+                `SELECT 1 FROM user_blocks ub
+                   JOIN quests q ON q.author_id = ub.blocked_id
+                  WHERE ub.user_id = $1 AND q.id = $2`,
+                [userId, req.params.id],
+            );
+            if (blocked.rows.length > 0) {
+                return res.status(404).json({ error: "Quest not found or access denied" });
+            }
+        }
+
         const r = await pool.query(
             "SELECT mq.*, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.id = $1",
             [req.params.id],

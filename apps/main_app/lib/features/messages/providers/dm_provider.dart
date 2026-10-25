@@ -572,6 +572,21 @@ class DmBlocksNotifier extends StateNotifier<List<DmPeer>> {
     }
   }
 
+  /// Блокировка прямо из ленты/профиля: переписки с человеком может и не быть,
+  /// поэтому здесь только id, а не готовый [DmPeer].
+  Future<String?> blockUser(String userId, {String? name}) async {
+    if (state.any((p) => p.id == userId)) return null;
+    final api = ref.read(apiServiceProvider);
+    try {
+      await api.post('api/messages/blocks/$userId');
+      if (!mounted) return null;
+      state = [DmPeer(id: userId, name: name ?? ''), ...state];
+      return null;
+    } catch (e) {
+      return _friendly(e);
+    }
+  }
+
   Future<String?> unblock(String userId) async {
     final api = ref.read(apiServiceProvider);
     try {
