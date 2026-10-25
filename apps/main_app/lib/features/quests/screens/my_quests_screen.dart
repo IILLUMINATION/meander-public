@@ -1341,33 +1341,38 @@ class _LibraryHero extends StatelessWidget {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    // Пилюли не flex-дети, а IntrinsicWidth: иначе свободное
-                    // место делится между ними и Spacer поровну, неиспанная
-                    // доля уходит в конец строки, и «3 точки» на широком
-                    // экране вставали не у края, а по центру остатка.
-                    IntrinsicWidth(
-                      child: _HeroActionButton(
-                        icon: isSyncing
-                            ? Icons.sync
-                            : (syncEnabled
-                                  ? Icons.cloud_done_rounded
-                                  : Icons.cloud_off_rounded),
-                        label: tr('Синк'),
-                        onTap: onSync,
-                        onLongPress: onSyncLongPress,
-                        busy: isSyncing,
+                    // Пилюли занимают весь остаток строки: внутри Expanded они
+                    // сжимаются на узком экране, но не делят свободное место
+                    // со Spacer — иначе неиспанная доля уезжала в конец, и
+                    // «3 точки» стояли не у правого края.
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: _HeroActionButton(
+                              icon: isSyncing
+                                  ? Icons.sync
+                                  : (syncEnabled
+                                        ? Icons.cloud_done_rounded
+                                        : Icons.cloud_off_rounded),
+                              label: tr('Синк'),
+                              onTap: onSync,
+                              onLongPress: onSyncLongPress,
+                              busy: isSyncing,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: _HeroActionButton(
+                              icon: Icons.file_upload_outlined,
+                              label: tr('Импорт'),
+                              onTap: onImport,
+                              busy: isOperationInProgress,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    IntrinsicWidth(
-                      child: _HeroActionButton(
-                        icon: Icons.file_upload_outlined,
-                        label: tr('Импорт'),
-                        onTap: onImport,
-                        busy: isOperationInProgress,
-                      ),
-                    ),
-                    const Spacer(),
                     // Симметричный правый зазор: у «Синк» слева есть врезка
                     // от края рамки, а круглая кнопка прилипала к скруглению.
                     Padding(
