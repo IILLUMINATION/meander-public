@@ -8,6 +8,7 @@ import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/utils/playtime_formatter.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
 // ============================================================================
@@ -31,6 +32,13 @@ final adminStatsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((
   final response = await api.get('admin/stats');
   return response as Map<String, dynamic>;
 });
+
+final adminActivityProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+      final api = ref.watch(apiServiceProvider);
+      final response = await api.get('admin/activity?days=30');
+      return response as Map<String, dynamic>;
+    });
 
 final reportsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((
   ref,
@@ -87,7 +95,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -104,6 +112,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     ref.invalidate(musicModerationQueueProvider);
     ref.invalidate(assetModerationQueueProvider);
     ref.invalidate(adminStatsProvider);
+    ref.invalidate(adminActivityProvider);
     ref.invalidate(reportsProvider);
     ref.invalidate(blockedUsersProvider);
     setState(() => _cosmeticsNonce++);
@@ -114,6 +123,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     final scheme = Theme.of(context).colorScheme;
     final queueAsync = ref.watch(moderationQueueProvider);
     final statsAsync = ref.watch(adminStatsProvider);
+    final activityAsync = ref.watch(adminActivityProvider);
     final reportsAsync = ref.watch(reportsProvider);
 
     return Scaffold(
@@ -156,6 +166,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
               tabs: [
                 Tab(text: tr('Модерация')),
+                Tab(text: tr('Активность')),
                 Tab(text: tr('Музыка')),
                 Tab(text: tr('Ассеты')),
                 Tab(text: tr('Жалобы')),
@@ -172,6 +183,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           controller: _tabController,
           children: [
             _buildModerationTab(statsAsync, queueAsync),
+            _buildActivityTab(activityAsync),
             _buildMusicModerationTab(),
             _buildAssetModerationTab(),
             _buildReportsTab(reportsAsync),
@@ -180,6 +192,248 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           ],
         ),
       )),
+    );
+  }
+
+  // -- Активность --------------------------------------------------------
+
+  Widget _buildActivityTab(AsyncValue<Map<String, dynamic>> activityAsync) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return activityAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, _) =>
+          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+      data: (data) {
+        final summary =
+            (data['summary'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final actions =
+            (data['actions'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final series = ((data['series'] as List?) ?? const [])
+            .map((e) => (e as Map).cast<String, dynamic>())
+            .toList();
+        final topUsers = ((data['top_users'] as List?) ?? const [])
+            .map((e) => (e as Map).cast<String, dynamic>())
+            .toList();
+
+        int count(String key) => (actions[key] as num? ?? 0).toInt();
+        int stat(String key) => (summary[key] as num? ?? 0).toInt();
+
+        final reactions =
+            count('quest_votes') + count('music_votes') + count('asset_votes');
+        final reviews =
+            count('reviews') + count('music_reviews') + count('asset_reviews');
+
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Онлайн сейчас'),
+                    value: '${stat('online_now')}',
+                    icon: Icons.bolt_rounded,
+                    container: scheme.primaryContainer,
+                    onContainer: scheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Активны сегодня'),
+                    value: '${stat('active_today')}',
+                    icon: Icons.today_rounded,
+                    container: scheme.secondaryContainer,
+                    onContainer: scheme.onSecondaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Заходов сегодня'),
+                    value: '${stat('visits_today')}',
+                    icon: Icons.login_rounded,
+                    container: scheme.tertiaryContainer,
+                    onContainer: scheme.onTertiaryContainer,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Всего пользователей'),
+                    value: '${stat('total_users')}',
+                    icon: Icons.people_alt_rounded,
+                    container: scheme.surfaceContainerHighest,
+                    onContainer: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Активны за 7 дней'),
+                    value: '${stat('active_7d')}',
+                    icon: Icons.date_range_rounded,
+                    container: scheme.secondaryContainer,
+                    onContainer: scheme.onSecondaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Новых за 7 дней'),
+                    value: '${stat('new_7d')}',
+                    icon: Icons.person_add_alt_1_rounded,
+                    container: scheme.primaryContainer,
+                    onContainer: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Активны за 30 дней'),
+                    value: '${stat('active_period')}',
+                    icon: Icons.groups_rounded,
+                    container: scheme.surfaceContainerHighest,
+                    onContainer: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Новых за 30 дней'),
+                    value: '${stat('new_period')}',
+                    icon: Icons.fiber_new_rounded,
+                    container: scheme.tertiaryContainer,
+                    onContainer: scheme.onTertiaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StatCard(
+                    title: tr('Заходов за 7 дней'),
+                    value: '${stat('visits_7d')}',
+                    icon: Icons.repeat_rounded,
+                    container: scheme.primaryContainer,
+                    onContainer: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _SectionTitle(
+                icon: Icons.insights_rounded,
+                text: tr('Активность по дням'),
+              ),
+            ),
+            _ActivityChart(series: series),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _SectionTitle(
+                icon: Icons.auto_awesome_rounded,
+                text: tr('Что делали'),
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ActivityMetric(
+                  icon: Icons.favorite_rounded,
+                  label: tr('Реакции'),
+                  value: '$reactions',
+                ),
+                _ActivityMetric(
+                  icon: Icons.star_rounded,
+                  label: tr('Оценки'),
+                  value: '${count('ratings')}',
+                ),
+                _ActivityMetric(
+                  icon: Icons.rate_review_rounded,
+                  label: tr('Отзывы'),
+                  value: '$reviews',
+                ),
+                _ActivityMetric(
+                  icon: Icons.forum_rounded,
+                  label: tr('Сообщения'),
+                  value: '${count('messages')}',
+                ),
+                _ActivityMetric(
+                  icon: Icons.videogame_asset_rounded,
+                  label: tr('Квесты'),
+                  value: '${count('quests_created')}',
+                ),
+                _ActivityMetric(
+                  icon: Icons.dynamic_feed_rounded,
+                  label: tr('Посты'),
+                  value: '${count('posts_created')}',
+                ),
+                _ActivityMetric(
+                  icon: Icons.visibility_rounded,
+                  label: tr('Просмотры квестов'),
+                  value: '${count('quest_views')}',
+                ),
+                _ActivityMetric(
+                  icon: Icons.download_rounded,
+                  label: tr('Скачивания'),
+                  value: '${count('downloads')}',
+                ),
+                _ActivityMetric(
+                  icon: Icons.schedule_rounded,
+                  label: tr('Игровое время'),
+                  value: PlaytimeFormatter.format(count('playtime_seconds')),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _SectionTitle(
+                icon: Icons.emoji_events_rounded,
+                text: tr('Кто активнее всех'),
+              ),
+            ),
+            if (topUsers.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  tr('За этот период активности нет'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
+              for (final user in topUsers)
+                _ActivityUserCard(
+                  user: user,
+                  onTap: () {
+                    final id = user['id']?.toString();
+                    if (id == null) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ProfileScreen(userId: id),
+                      ),
+                    );
+                  },
+                ),
+          ],
+        );
+      },
     );
   }
 
@@ -475,6 +729,371 @@ class _StatCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ChartLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _ChartLegend({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityChart extends StatelessWidget {
+  final List<Map<String, dynamic>> series;
+  const _ActivityChart({required this.series});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    if (series.isEmpty) {
+      return Text(
+        tr('Нет данных'),
+        style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+      );
+    }
+
+    var maxValue = 1;
+    for (final point in series) {
+      final visits = (point['visits'] as num? ?? 0).toInt();
+      final actions = (point['actions'] as num? ?? 0).toInt();
+      if (visits > maxValue) maxValue = visits;
+      if (actions > maxValue) maxValue = actions;
+    }
+
+    double barHeight(num value) {
+      final height = (value / maxValue) * 96;
+      return height < 2 ? 2 : height.toDouble();
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _ChartLegend(color: scheme.primary, label: tr('Заходы')),
+              const SizedBox(width: 12),
+              _ChartLegend(color: scheme.tertiary, label: tr('Действия')),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 100,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final point in series)
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          '${point['day']} · ${tr('Заходы')}: ${(point['visits'] as num? ?? 0).toInt()} · ${tr('Действия')}: ${(point['actions'] as num? ?? 0).toInt()}',
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Container(
+                              width: 3,
+                              height: barHeight(point['visits'] as num? ?? 0),
+                              decoration: BoxDecoration(
+                                color: scheme.primary,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 1),
+                            Container(
+                              width: 3,
+                              height: barHeight(point['actions'] as num? ?? 0),
+                              decoration: BoxDecoration(
+                                color: scheme.tertiary,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                series.first['day']?.toString() ?? '',
+                style: textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              Text(
+                series.last['day']?.toString() ?? '',
+                style: textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityMetric extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _ActivityMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: scheme.primary),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: scheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserMetric extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _UserMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 3),
+        Flexible(
+          child: Text(
+            '$label $value',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityUserCard extends StatelessWidget {
+  final Map<String, dynamic> user;
+  final VoidCallback onTap;
+  const _ActivityUserCard({required this.user, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    final rawName = user['full_name']?.toString().trim() ?? '';
+    final avatar = user['avatar_url']?.toString() ?? '';
+    final visits = (user['visits'] as num? ?? 0).toInt();
+    final reactions = (user['reactions'] as num? ?? 0).toInt();
+    final messages = (user['messages'] as num? ?? 0).toInt();
+    final quests = (user['quests'] as num? ?? 0).toInt();
+    final posts = (user['posts'] as num? ?? 0).toInt();
+    final score = (user['score'] as num? ?? 0).toInt();
+    final lastSeen = DateTime.tryParse(
+      user['last_seen_at']?.toString() ?? '',
+    )?.toLocal();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: scheme.primaryContainer,
+                  backgroundImage: avatar.isEmpty
+                      ? null
+                      : CachedNetworkImageProvider(avatar),
+                  child: avatar.isEmpty
+                      ? Icon(
+                          Icons.person_rounded,
+                          color: scheme.onPrimaryContainer,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              rawName.isEmpty ? tr('Без имени') : rawName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              trf('Баллы: {p0}', {'p0': '$score'}),
+                              style: textTheme.labelSmall?.copyWith(
+                                color: scheme.onPrimaryContainer,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        lastSeen == null
+                            ? tr('Ещё не заходил(а)')
+                            : trf('Последний вход: {when}', {
+                                'when': _formatMoment(lastSeen),
+                              }),
+                        style: textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 4,
+                        children: [
+                          _UserMetric(
+                            icon: Icons.login_rounded,
+                            label: tr('Заходы'),
+                            value: '$visits',
+                          ),
+                          _UserMetric(
+                            icon: Icons.favorite_rounded,
+                            label: tr('Реакции'),
+                            value: '$reactions',
+                          ),
+                          _UserMetric(
+                            icon: Icons.forum_rounded,
+                            label: tr('Сообщения'),
+                            value: '$messages',
+                          ),
+                          _UserMetric(
+                            icon: Icons.videogame_asset_rounded,
+                            label: tr('Квесты'),
+                            value: '$quests',
+                          ),
+                          _UserMetric(
+                            icon: Icons.dynamic_feed_rounded,
+                            label: tr('Посты'),
+                            value: '$posts',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatMoment(DateTime value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(value.day)}.${two(value.month)} '
+      '${two(value.hour)}:${two(value.minute)}';
 }
 
 class _EmptyBlock extends StatelessWidget {
