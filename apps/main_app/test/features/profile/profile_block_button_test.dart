@@ -105,7 +105,7 @@ void main() {
   testWidgets('в чужом профиле есть «Заблокировать»', (tester) async {
     await _pumpProfile(tester, _FakeApi(), 'u-author');
     await _openMenu(tester);
-    expect(find.text('Заблокировать пользователя'), findsOneWidget);
+    expect(find.text('Заблокировать автора'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _disposeTree(tester);
   });
@@ -116,7 +116,7 @@ void main() {
     await _pumpProfile(tester, _FakeApi(), 'u-viewer');
     await _openMenu(tester);
     // Себя блокировать нельзя — и предлагать это в своём профиле нельзя.
-    expect(find.text('Заблокировать пользователя'), findsNothing);
+    expect(find.text('Заблокировать автора'), findsNothing);
     expect(find.text('Выйти'), findsOneWidget);
     await _disposeTree(tester);
   });
@@ -128,21 +128,21 @@ void main() {
     await _pumpProfile(tester, api, 'u-author');
     await _openMenu(tester);
 
-    await tester.tap(find.text('Заблокировать пользователя'));
+    await tester.tap(find.text('Заблокировать автора'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Заблокировать пользователя?'), findsOneWidget);
+    expect(find.text('Заблокировать автора?'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Заблокировать пользователя'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Заблокировать автора'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(api.posts, ['api/messages/blocks/u-author']);
-    expect(find.text('Пользователь заблокирован'), findsOneWidget);
+    expect(find.text('Автор заблокирован'), findsOneWidget);
 
     await _openMenu(tester);
-    expect(find.text('Разблокировать пользователя'), findsOneWidget);
-    expect(find.text('Заблокировать пользователя'), findsNothing);
+    expect(find.text('Разблокировать автора'), findsOneWidget);
+    expect(find.text('Заблокировать автора'), findsNothing);
     await _disposeTree(tester);
   });
 
@@ -151,7 +151,7 @@ void main() {
     await _pumpProfile(tester, api, 'u-author');
     await _openMenu(tester);
 
-    await tester.tap(find.text('Заблокировать пользователя'));
+    await tester.tap(find.text('Заблокировать автора'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.widgetWithText(TextButton, 'Отмена'));
@@ -160,7 +160,7 @@ void main() {
 
     expect(api.posts, isEmpty);
     await _openMenu(tester);
-    expect(find.text('Заблокировать пользователя'), findsOneWidget);
+    expect(find.text('Заблокировать автора'), findsOneWidget);
     await _disposeTree(tester);
   });
 
@@ -173,13 +173,18 @@ void main() {
     await _pumpProfile(tester, api, 'u-author');
     await _openMenu(tester);
 
-    expect(find.text('Разблокировать пользователя'), findsOneWidget);
-    await tester.tap(find.text('Разблокировать пользователя'));
+    expect(find.text('Разблокировать автора'), findsOneWidget);
+    await tester.tap(find.text('Разблокировать автора'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Разблокировать автора?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Разблокировать автора'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(api.deletes, ['api/messages/blocks/u-author']);
-    expect(find.text('Пользователь разблокирован'), findsOneWidget);
+    expect(find.text('Автор разблокирован'), findsOneWidget);
     await _disposeTree(tester);
   });
 }

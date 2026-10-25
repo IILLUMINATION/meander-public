@@ -121,10 +121,4 @@ final Map<String, String> enProfile = {
   'Угли костра': 'Campfire embers',
   'Холодный дождь': 'Cold rain',
   'Чернильный': 'Ink',
-  'Блокировки хранятся на аккаунте. Войдите на вкладке «Вход».': 'Blocks are tied to the account. Sign in on the "Sign in" tab.',
-  'Заблокировать пользователя': 'Block user',
-  'Заблокировать пользователя?': 'Block this user?',
-  'Пользователь заблокирован': 'User blocked',
-  'Разблокировать пользователя': 'Unblock user',
-  '{p0} не сможет писать вам, а переписка с ним скроется. Разблокировать можно в любой момент.': '{p0} won\'t be able to message you, and your conversation will be hidden. You can unblock them at any time.',
 };
