@@ -17,6 +17,12 @@ import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 //  ИСТОРИЯ ВЕРСИЙ — Material 3 редизайн
 // ============================================================================
 
+/// Дата старой точки — без локали intl: таблицы локалей не инициализируются
+/// на всех путях запуска, и `DateFormat(..., 'ru')` роняет всю карточку
+/// (в release это серая плашка RenderErrorBox вместо версии).
+String snapshotTimestampLabel(DateTime dt) =>
+    DateFormat('dd.MM.yyyy').format(dt);
+
 class QuestHistoryScreen extends ConsumerStatefulWidget {
   final String questId;
   const QuestHistoryScreen({super.key, required this.questId});
@@ -188,7 +194,7 @@ class _QuestHistoryScreenState extends ConsumerState<QuestHistoryScreen> {
     if (diff.inMinutes < 60) return trf('{p0} мин назад', {'p0': diff.inMinutes});
     if (diff.inHours < 24) return trf('{p0} ч назад', {'p0': diff.inHours});
     if (diff.inDays < 7) return trf('{p0} д назад', {'p0': diff.inDays});
-    return DateFormat('dd MMM yyyy', 'ru').format(dt);
+    return snapshotTimestampLabel(dt);
   }
 
   void _showSnack(String text, {bool success = false, bool error = false}) {
