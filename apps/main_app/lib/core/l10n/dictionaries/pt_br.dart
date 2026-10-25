@@ -762,7 +762,6 @@ final Map<String, String> ptBrStrings = {
   'Пакет больше лимита': 'Pacote acima do limite',
   'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.': 'O pacote chegou ao servidor, mas a resposta não veio em {p0} s. A publicação talvez não tenha sido registrada: veja «Minhas Quests» e, se ela não estiver lá, publique de novo.',
   'Подготовка...': 'Preparando...',
-  'Просмотр рекламы...': 'Assistindo ao anúncio...',
   'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.': 'O tamanho da Quest passa do limite do servidor. Hoje o limite é 100 MB para contas comuns e 500 MB para verificadas.',
   'Сборка пакета квеста...': 'Montando o pacote da Quest...',
   'Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.': 'O servidor recusou o envio: arquivo grande demais (HTTP 413). Confira os limites em backend/nginx.',

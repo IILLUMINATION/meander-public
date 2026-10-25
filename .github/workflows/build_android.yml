@@ -2,16 +2,8 @@ name: Build Android APK
 
 # Полное приложение Meander (apps/main_app): редактор + плеер + каталог.
 # Без секретов подписи APK подписывается debug-ключом — для тестов на устройстве.
+# Собирается только вручную: пуш не должен тратить минуты Actions.
 on:
-  push:
-    paths:
-      - 'apps/main_app/**'
-      - 'apps/quest_player/**'
-      - 'scripts/build_quest_apk.sh'
-      - 'packages/**'
-      - 'crates/mnd-core/**'
-      - 'crates/mnd-ffi/**'
-      - '.github/workflows/build_android.yml'
   workflow_dispatch:
     inputs:
       flavor:

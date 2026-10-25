@@ -10,7 +10,6 @@ import 'package:canvas_app/core/services/publish_upload.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
-import 'package:canvas_app/providers/ads_provider.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,7 +17,6 @@ import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart' as ja;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yandex_mobileads/mobile_ads.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -37,7 +35,7 @@ Future<Map<String, dynamic>> _readMap(String rel) async =>
 //   • Прогресс-вид: чистая M3 круговая шкала + плавающий статус.
 //   • Результат: M3 иконка-плашка + цветной title-bg + действия на любом исходе.
 //   • Цвета — только через ColorScheme.
-//   • Логика публикации (HTTP, реклама, оценка playtime) сохранена без правок.
+//   • Логика публикации (HTTP, оценка playtime) сохранена без правок.
 //
 // ============================================================================
 
@@ -451,42 +449,6 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  //  ADS
-  // ---------------------------------------------------------------------------
-
-  Future<void> _showInterstitialAd() async {
-    final areAdsDisabled = await syncAdsDisabledState(ref, force: true);
-    if (areAdsDisabled) return;
-    if (!mounted) return;
-
-    setState(() {
-      _status = tr('Просмотр рекламы...');
-    });
-    final adCompleter = Completer<void>();
-
-    try {
-      final adRequest = const AdRequest(adUnitId: 'R-M-13846876-3');
-      final loader = InterstitialAdLoader();
-      final ad = await loader.loadAd(adRequest: adRequest);
-      ad.setAdEventListener(
-        eventListener: InterstitialAdEventListener(
-          onAdDismissed: () =>
-              !adCompleter.isCompleted ? adCompleter.complete() : null,
-          onAdFailedToShow: (err) =>
-              !adCompleter.isCompleted ? adCompleter.complete() : null,
-        ),
-      );
-      await ad.show();
-      await adCompleter.future.timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {},
-      );
-    } catch (e) {
-      // Ignore ad errors
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   //  ПРОГРЕСС И СТОРОЖ ЗАГРУЗКИ
   // ---------------------------------------------------------------------------
 
@@ -589,7 +551,6 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
     }
 
     try {
-      await _showInterstitialAd();
       if (!mounted) return;
 
       setState(() {

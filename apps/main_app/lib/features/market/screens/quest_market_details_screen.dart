@@ -18,7 +18,6 @@ import 'package:canvas_app/features/profile/cosmetics/cosmetics_repository.dart'
 import 'package:canvas_app/models/market_quest_model.dart';
 import 'package:canvas_app/models/review_model.dart';
 import 'package:canvas_app/models/vote_model.dart';
-import 'package:canvas_app/providers/ads_provider.dart';
 import 'package:canvas_app/features/market/providers/market_provider.dart';
 import 'package:canvas_app/features/profile/providers/profile_provider.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
@@ -39,7 +38,6 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yandex_mobileads/mobile_ads.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
 Widget _buildSafeCircleAvatar({
@@ -136,7 +134,7 @@ class _QuestMarketDetailsScreenState
     } catch (_) {}
   }
 
-  // ... (методы _loadCurrentUser, _findAndSetLocalQuest, _updateCurrentQuestData, _showInterstitialAd, _showReportDialog, _shareQuest без изменений) ...
+  // ... (методы _loadCurrentUser, _findAndSetLocalQuest, _updateCurrentQuestData, _showReportDialog, _shareQuest без изменений) ...
   Future<void> _loadCurrentUser() async {
     final prefs = await SharedPreferences.getInstance();
     final localId = prefs.getString('user_id');
@@ -187,37 +185,6 @@ class _QuestMarketDetailsScreenState
       }
     } catch (e) {
       print("Update error: $e");
-    }
-  }
-
-  Future<void> _showInterstitialAd() async {
-    final areAdsDisabled = await syncAdsDisabledState(ref, force: true);
-    if (areAdsDisabled) return;
-
-    final adCompleter = Completer<void>();
-    try {
-      final adRequest = const AdRequest(adUnitId: 'R-M-13846876-3');
-      final loader = InterstitialAdLoader();
-      final ad = await loader.loadAd(adRequest: adRequest);
-      ad.setAdEventListener(
-        eventListener: InterstitialAdEventListener(
-          onAdDismissed: () {
-            if (!adCompleter.isCompleted) adCompleter.complete();
-          },
-          onAdFailedToShow: (error) {
-            if (!adCompleter.isCompleted) adCompleter.complete();
-          },
-        ),
-      );
-      await ad.show();
-      await adCompleter.future.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          if (!adCompleter.isCompleted) adCompleter.complete();
-        },
-      );
-    } catch (e) {
-      if (!adCompleter.isCompleted) adCompleter.complete();
     }
   }
 
@@ -307,8 +274,6 @@ class _QuestMarketDetailsScreenState
         .startDownload(
           quest: widget.quest,
           token: token,
-          isAlreadyLocal: _isQuestLocal,
-          showAdCallback: _showInterstitialAd,
         );
   }
 

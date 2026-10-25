@@ -762,7 +762,6 @@ final Map<String, String> esStrings = {
   'Пакет больше лимита': 'Paquete fuera del límite',
   'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.': 'El paquete llegó al servidor, pero no hubo respuesta en {p0} s. Puede que la publicación no se haya guardado: revisa «Mis aventuras» y, si no está, publícala de nuevo.',
   'Подготовка...': 'Preparando...',
-  'Просмотр рекламы...': 'Viendo el anuncio...',
   'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.': 'El tamaño de la aventura supera el límite del servidor. Ahora mismo: 100 MB para cuentas normales y 500 MB para las verificadas.',
   'Сборка пакета квеста...': 'Creando el paquete de la aventura...',
   'Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.': 'El servidor rechazó la subida: el archivo es demasiado grande (HTTP 413). Revisa los límites de backend/nginx.',

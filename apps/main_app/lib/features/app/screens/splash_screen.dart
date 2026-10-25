@@ -16,7 +16,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:yandex_mobileads/mobile_ads.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -119,8 +118,6 @@ class _SplashScreenState extends State<SplashScreen> {
       return;
     }
 
-    _initAds();
-
     final hasCompletedOnboarding =
         prefs.getBool('has_completed_onboarding') ?? false;
 
@@ -187,14 +184,6 @@ class _SplashScreenState extends State<SplashScreen> {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
     } catch (_) {}
-  }
-
-  Future<void> _initAds() async {
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-      try {
-        await YandexAds.initialize();
-      } catch (_) {}
-    }
   }
 
   @override

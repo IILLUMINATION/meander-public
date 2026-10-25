@@ -72,12 +72,6 @@ val patchGeneratedPluginRegistrant = tasks.register("patchGeneratedPluginRegistr
     }
 }
 
-// AppMetrica в приложении не используется, но приходит транзитивно в
-// com.yandex.android:mobileads. Держим её вырезанной из графа зависимостей.
-configurations.configureEach {
-    exclude(group = "io.appmetrica.analytics")
-}
-
 // jniLibs/libmnd_ffi.so больше не лежит в репозитории: их порождает эта сборка.
 // Нужны cargo-ndk (`cargo install cargo-ndk`) и NDK указанной версии.
 val androidNdkVersion = "28.2.13676358"

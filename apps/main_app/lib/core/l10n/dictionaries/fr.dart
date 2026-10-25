@@ -762,7 +762,6 @@ final Map<String, String> frStrings = {
   'Пакет больше лимита': 'Paquet au-delà de la limite',
   'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.': 'Le paquet est parti vers le serveur, mais aucune réponse n\'est arrivée en {p0} s. La publication n\'a peut-être pas été enregistrée : vérifie « Mes quêtes » et, si elle n\'y est pas, publie à nouveau.',
   'Подготовка...': 'Préparation...',
-  'Просмотр рекламы...': 'Visionnage de la publicité...',
   'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.': 'La taille de la quête dépasse la limite du serveur. Elle est de 100 Mo pour les comptes ordinaires et de 500 Mo pour les comptes vérifiés.',
   'Сборка пакета квеста...': 'Compilation du paquet de la quête...',
   'Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.': 'Le serveur a refusé le téléversement : fichier trop volumineux (HTTP 413). Vérifie les limites de backend/nginx.',

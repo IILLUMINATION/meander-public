@@ -86,7 +86,6 @@ final Map<String, String> enB8Publish = {
   'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.':
       'The package went to the server but no answer arrived within {p0} s. The publication may not have been saved: check "My quests" and, if it is not there, publish again.',
   'Подготовка...': 'Preparing...',
-  'Просмотр рекламы...': 'Watching the ad...',
   'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.':
       'The quest size exceeds the server limit. Right now the limit is 100 MB for regular accounts and 500 MB for verified ones.',
   'Сборка пакета квеста...': 'Building the quest package...',
