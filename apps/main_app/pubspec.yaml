@@ -101,7 +101,6 @@ dependencies:
   local_notifier: ^0.1.6
   vm_service: ^15.2.0
   sign_in_with_apple: ^8.2.0
-  yaru: ^10.2.0
 
 # Значки платформ. Android и Windows здесь ВЫКЛЮЧЕНЫ намеренно: их делает
 # tool/build_icons.py из assets/icon/logo.svg — адаптивный VectorDrawable
