@@ -123,6 +123,41 @@ void main() {
     });
   });
 
+  group('OAuth-дефолты iOS', () {
+    test('Debug/Release подключают дефолты до локального оверрайда', () {
+      for (final name in [
+        'Flutter/Debug.xcconfig',
+        'Flutter/Release.xcconfig',
+      ]) {
+        final cfg = read(name);
+        final defaults = cfg.indexOf('OAuthDefaults.xcconfig');
+        final local = cfg.indexOf('OAuth.xcconfig"');
+        expect(defaults, greaterThan(0), reason: '$name: сборка без .env');
+        expect(
+          local,
+          greaterThan(defaults),
+          reason: '$name: локальный OAuth.xcconfig должен быть главнее',
+        );
+      }
+    });
+
+    test('дефолты заполнены — иначе Google Sign-In не стартует', () {
+      final defaults = read('Flutter/OAuthDefaults.xcconfig');
+      for (final key in [
+        'GOOGLE_IOS_CLIENT_ID',
+        'GOOGLE_IOS_REVERSED_CLIENT_ID',
+        'GOOGLE_MOBILE_SERVER_CLIENT_ID',
+        'YANDEX_CLIENT_ID',
+      ]) {
+        expect(
+          RegExp('^$key=.+', multiLine: true).hasMatch(defaults),
+          isTrue,
+          reason: '$key пуст — кнопка входа отключится',
+        );
+      }
+    });
+  });
+
   group('Rust-ядро в iOS-сборке', () {
     test('framework не закоммичен, а собирается фейзом', () {
       expect(

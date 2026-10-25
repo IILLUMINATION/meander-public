@@ -1,5 +1,7 @@
-// Скопируйте этот файл в OAuth.xcconfig и заполните своими значениями.
-// OAuth.xcconfig исключён из git; в репозитории лежит только шаблон.
+// Необязательный локальный конфиг. Скопируйте этот файл в OAuth.xcconfig,
+// только если нужно переопределить значения по умолчанию. OAuth.xcconfig
+// исключён из git; в репозитории лежат шаблон и OAuthDefaults.xcconfig,
+// которого достаточно для сборки с чистого клона.
 //
 // GOOGLE_IOS_REVERSED_CLIENT_ID — клиентский ID в обратном порядке:
 // PROJECT_NUMBER-CLIENT_HASH.apps.googleusercontent.com →

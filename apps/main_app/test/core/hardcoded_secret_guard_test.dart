@@ -1,13 +1,16 @@
 import 'dart:io';
 
+import 'package:canvas_app/core/oauth_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Гард на зашитые секреты в клиентском коде.
 ///
 /// Клиентский бинарник распаковывается, а публичный репозиторий читается
 /// машинно: любой ключ, попавший в `lib/`, считается утёкшим в момент коммита.
-/// OAuth-учётные данные приходят из `.env` при сборке
-/// (`--dart-define-from-file`) и в `lib/` не хранятся.
+/// Исключение — публичные OAuth client id: это идентификаторы, а не секреты,
+/// поэтому в `lib/core/oauth_config.dart` они лежат дефолтами, чтобы сборка с
+/// чистого клона работала без `.env`. Секреты по-прежнему приходят только из
+/// окружения при сборке (`--dart-define-from-file`).
 ///
 /// Проверяется статически и только `lib/`: бэкенд держит секреты в `.env`, а
 /// этот тест запускается из `apps/main_app` и не должен подменять собой
@@ -110,15 +113,57 @@ void main() {
       expect(_clientSources().length, greaterThan(300));
     });
 
-    test('конфиг OAuth хранит только имена переменных', () {
+    test('конфиг OAuth: публичные id как дефолты, секрета нет', () {
       final text = _clientSources()['lib/core/oauth_config.dart'] ?? '';
       expect(text, contains('String.fromEnvironment'));
       expect(text, contains('GOOGLE_DESKTOP_CLIENT_ID'));
       expect(text, contains('YANDEX_CLIENT_ID'));
       expect(text, contains('TELEGRAM_CLIENT_ID'));
+      expect(text, contains('defaultValue'));
       expect(text, isNot(contains('GOCSPX' '-')));
-      expect(text, isNot(contains('.apps.googleusercontent.com')));
+      expect(text, isNot(contains("'client_secret'")));
+      // У секрета desktop-клиента дефолта быть не должно: только окружение.
+      expect(
+        RegExp(r"'GOOGLE_DESKTOP_CLIENT_SECRET',\s*\)").hasMatch(text),
+        isTrue,
+        reason: 'секрет не должен иметь defaultValue',
+      );
     });
+
+    test('client id разрешён только в oauth_config.dart', () {
+      // Тот же литерал: в конфиге — легальный дефолт, в любом другом файле —
+      // утёкший идентификатор, который сканер обязан поймать.
+      const id =
+          '123456789012-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.apps.googleusercontent.com';
+      expect(
+        _findSecrets('lib/core/oauth_config.dart', "const id = '$id';"),
+        isEmpty,
+      );
+      expect(_findSecrets('lib/other.dart', "const id = '$id';"), isNotEmpty);
+    });
+
+    test('секрет в oauth_config.dart всё равно ловится', () {
+      const secretPrefix = 'GOCSPX';
+      expect(
+        _findSecrets(
+          'lib/core/oauth_config.dart',
+          "const s = '$secretPrefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';",
+        ),
+        isNotEmpty,
+      );
+    });
+  });
+
+  test('без --dart-define публичные ключи не пусты', () {
+    expect(OAuthConfig.googleDesktopClientId, isNotEmpty);
+    expect(OAuthConfig.googleMobileServerClientId, isNotEmpty);
+    expect(OAuthConfig.yandexClientId, isNotEmpty);
+    expect(OAuthConfig.telegramClientId, isNotEmpty);
+    expect(
+      OAuthConfig.googleDesktopClientSecret,
+      isEmpty,
+      reason: 'секрет обязан приходить только из окружения',
+    );
   });
 }
 
@@ -151,6 +196,13 @@ List<String> _findSecrets(String file, String text) {
     // почему их больше нет.
     if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
     for (final rule in _rules.entries) {
+      // Client id — публичный идентификатор, а не секрет. Разрешаем его только
+      // в конфиге OAuth, где он служит дефолтом для сборки без `.env`; секреты
+      // и идентификаторы во всех остальных файлах остаются нарушениями.
+      if (rule.key == 'Google OAuth client id' &&
+          file == 'lib/core/oauth_config.dart') {
+        continue;
+      }
       if (rule.value.hasMatch(line)) {
         out.add('$file:${i + 1}  ${rule.key}');
       }
