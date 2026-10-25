@@ -61,57 +61,66 @@ class AnimatedNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Жестовая навигация на Android не сообщает нижний inset — «пилюля»
+    // рисуется поверх контента, поэтому добираем зазор под неё сами.
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final gestureReserve =
+        bottomInset == 0 && Theme.of(context).platform == TargetPlatform.android
+        ? 24.0
+        : 0.0;
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
         border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
-      child: SafeArea(
-        top: false,
-        minimum: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: SizedBox(
-          height: 64,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final tileWidth = constraints.maxWidth / items.length;
-              return Stack(
-                children: [
-                  // Плавающий пузырь-индикатор.
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 380),
-                    curve: Curves.easeOutCubic,
-                    left: tileWidth * currentIndex + (tileWidth - 56) / 2,
-                    top: 4,
-                    bottom: 4,
-                    width: 56,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: scheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+      padding: EdgeInsets.fromLTRB(
+        12,
+        10,
+        12,
+        10 + bottomInset + gestureReserve,
+      ),
+      child: SizedBox(
+        height: 64,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final tileWidth = constraints.maxWidth / items.length;
+            return Stack(
+              children: [
+                // Плавающий пузырь-индикатор.
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 380),
+                  curve: Curves.easeOutCubic,
+                  left: tileWidth * currentIndex + (tileWidth - 56) / 2,
+                  top: 4,
+                  bottom: 4,
+                  width: 56,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(20),
                     ),
                   ),
-                  // Ряд иконок.
-                  Row(
-                    children: List.generate(items.length, (i) {
-                      return Expanded(
-                        child: _NavBarTile(
-                          item: items[i],
-                          isSelected: i == currentIndex,
-                          onTap: () {
-                            if (i != currentIndex) {
-                              HapticFeedback.selectionClick();
-                            }
-                            onTap(i);
-                          },
-                        ),
-                      );
-                    }),
-                  ),
-                ],
-              );
-            },
-          ),
+                ),
+                // Ряд иконок.
+                Row(
+                  children: List.generate(items.length, (i) {
+                    return Expanded(
+                      child: _NavBarTile(
+                        item: items[i],
+                        isSelected: i == currentIndex,
+                        onTap: () {
+                          if (i != currentIndex) {
+                            HapticFeedback.selectionClick();
+                          }
+                          onTap(i);
+                        },
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -135,18 +144,25 @@ class _NavBarTile extends StatelessWidget {
     final iconColor = isSelected
         ? scheme.onSecondaryContainer
         : scheme.onSurfaceVariant;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const StadiumBorder(),
-        child: Tooltip(
-          message: item.label,
-          waitDuration: const Duration(milliseconds: 600),
-          child: Center(
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
+    // Тап-зона совпадает с пузырём-индикатором: 56×56 со stadium-скруглением.
+    return Center(
+      child: SizedBox(
+        width: 56,
+        height: 56,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Tooltip(
+              message: item.label,
+              waitDuration: const Duration(milliseconds: 600),
+              child: Center(
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
                 // Иконка с плавным переключением outline → filled и масштабом.
                 AnimatedScale(
                   scale: isSelected ? 1.1 : 1.0,
@@ -192,7 +208,9 @@ class _NavBarTile extends StatelessWidget {
                       ),
                     ),
                   ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),
