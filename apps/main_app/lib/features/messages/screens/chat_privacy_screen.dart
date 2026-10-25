@@ -108,73 +108,68 @@ class _ChatPrivacyScreenState extends ConsumerState<ChatPrivacyScreen> {
         backgroundColor: scheme.surface,
         surfaceTintColor: scheme.surfaceTint,
       ),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 40),
-        children: [
-          AdaptiveContent(
-            maxWidth: 720,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 8),
-                Text(
-                  tr('Кто может начать переписку'),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                for (final mode in DmPrivacy.modes)
-                  _ModeTile(
-                    mode: mode,
-                    selected: _mode == mode,
-                    onTap: () => setState(() {
-                      _mode = mode;
-                      _dirty = true;
-                    }),
-                  ),
-                const SizedBox(height: 20),
-                Text(
-                  tr('Дополнительные пороги'),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 6, bottom: 4),
-                  child: Text(
-                    tr('Работают поверх режима: человеку должно быть столько дней с регистрации и столько часов в квестах. Проверяются только в новом диалоге — отвеченная переписка не рвётся посередине. 0 — порог не нужен.'),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                _ThresholdField(
-                  controller: _days,
-                  label: tr('Возраст аккаунта, дней'),
-                  icon: Icons.calendar_month_outlined,
-                  onChanged: () => setState(() => _dirty = true),
-                ),
-                const SizedBox(height: 10),
-                _ThresholdField(
-                  controller: _hours,
-                  label: tr('Наиграно в квестах, часов'),
-                  icon: Icons.schedule_rounded,
-                  onChanged: () => setState(() => _dirty = true),
-                ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: privacy == null ? null : _save,
-                  icon: const Icon(Icons.check_rounded, size: 18),
-                  label: Text(tr('Сохранить')),
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  tr('Заблокированные'),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                _BlocksList(onUnblock: _confirmUnblock),
-              ],
+      body: AdaptiveContent(
+        maxWidth: 720,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          children: [
+            const SizedBox(height: 8),
+            Text(
+              tr('Кто может начать переписку'),
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            for (final mode in DmPrivacy.modes)
+              _ModeTile(
+                mode: mode,
+                selected: _mode == mode,
+                onTap: () => setState(() {
+                  _mode = mode;
+                  _dirty = true;
+                }),
+              ),
+            const SizedBox(height: 20),
+            Text(
+              tr('Дополнительные пороги'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 4),
+              child: Text(
+                tr('Работают поверх режима: человеку должно быть столько дней с регистрации и столько часов в квестах. Проверяются только в новом диалоге — отвеченная переписка не рвётся посередине. 0 — порог не нужен.'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            _ThresholdField(
+              controller: _days,
+              label: tr('Возраст аккаунта, дней'),
+              icon: Icons.calendar_month_outlined,
+              onChanged: () => setState(() => _dirty = true),
+            ),
+            const SizedBox(height: 10),
+            _ThresholdField(
+              controller: _hours,
+              label: tr('Наиграно в квестах, часов'),
+              icon: Icons.schedule_rounded,
+              onChanged: () => setState(() => _dirty = true),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: privacy == null ? null : _save,
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: Text(tr('Сохранить')),
+            ),
+            const SizedBox(height: 28),
+            Text(
+              tr('Заблокированные'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            _BlocksList(onUnblock: _confirmUnblock),
+          ],
+        ),
       ),
     );
   }

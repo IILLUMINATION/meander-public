@@ -710,16 +710,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               subtitle: bio ?? tr('Не задано'),
                               onTap: _editBio,
                             ),
-                            _SettingsTile(
-                              icon: showNsfw
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              title: tr('Контент 18+'),
-                              subtitle: showNsfw ? tr('Включен') : tr('Скрыт из ленты'),
-                              iconColor: showNsfw
-                                  ? Theme.of(context).colorScheme.error
-                                  : null,
-                              onTap: () => _toggleNsfw(showNsfw),
+                            SwitchListTile(
+                              secondary: _SettingsSwitchIcon(
+                                icon: showNsfw
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                iconColor: showNsfw
+                                    ? Theme.of(context).colorScheme.error
+                                    : null,
+                              ),
+                              title: Text(tr('Контент 18+')),
+                              subtitle: Text(
+                                showNsfw
+                                    ? tr('Включен')
+                                    : tr('Скрыт из ленты'),
+                              ),
+                              value: showNsfw,
+                              onChanged: (_) => _toggleNsfw(showNsfw),
                             ),
                             _SettingsTile(
                               icon: Icons.mail_outline_rounded,
@@ -803,7 +810,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: Column(
                         children: [
                           SwitchListTile(
-                            secondary: const Icon(Icons.tab_rounded),
+                            secondary: const _SettingsSwitchIcon(
+                              icon: Icons.tab_rounded,
+                            ),
                             title: Text(tr('Вкладки')),
                             subtitle: Text(
                               tr('Панель вкладок для открытых документов'),
@@ -825,7 +834,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ).colorScheme.outlineVariant.withOpacity(0.4),
                           ),
                           SwitchListTile(
-                            secondary: const Icon(Icons.open_in_new_rounded),
+                            secondary: const _SettingsSwitchIcon(
+                              icon: Icons.open_in_new_rounded,
+                            ),
                             title: Text(tr('Авто-открывать вкладку')),
                             subtitle: Text(
                               tr('Новый документ сразу в новой вкладке'),
@@ -865,25 +876,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                         return _SettingsGroup(
                           tiles: [
-                            _SettingsTile(
-                              icon: notificationsEnabled
-                                  ? Icons.notifications_active_outlined
-                                  : Icons.notifications_off_outlined,
-                              title: tr('Push-уведомления'),
-                              subtitle: notificationsEnabled
-                                  ? tr('Включены')
-                                  : tr('Выключены'),
-                              onTap: () => ref
+                            SwitchListTile(
+                              secondary: _SettingsSwitchIcon(
+                                icon: notificationsEnabled
+                                    ? Icons.notifications_active_outlined
+                                    : Icons.notifications_off_outlined,
+                              ),
+                              title: Text(tr('Push-уведомления')),
+                              subtitle: Text(
+                                notificationsEnabled
+                                    ? tr('Включены')
+                                    : tr('Выключены'),
+                              ),
+                              value: notificationsEnabled,
+                              onChanged: (_) => ref
                                   .read(notificationsSettingsProvider.notifier)
                                   .toggle(!notificationsEnabled),
                             ),
-                            _SettingsTile(
-                              icon: Icons.nightlight_round,
-                              title: tr('Не беспокоить ночью'),
-                              subtitle: quietHoursEnabled
-                                  ? tr('Push выключены с 22:00 до 08:00')
-                                  : tr('Пуши приходят в любое время'),
-                              onTap: () => _toggleQuietHours(quietHoursEnabled),
+                            SwitchListTile(
+                              secondary: const _SettingsSwitchIcon(
+                                icon: Icons.nightlight_round,
+                              ),
+                              title: Text(tr('Не беспокоить ночью')),
+                              subtitle: Text(
+                                quietHoursEnabled
+                                    ? tr('Push выключены с 22:00 до 08:00')
+                                    : tr('Пуши приходят в любое время'),
+                              ),
+                              value: quietHoursEnabled,
+                              onChanged: (_) =>
+                                  _toggleQuietHours(quietHoursEnabled),
                             ),
                           ],
                         );
@@ -1012,13 +1034,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         horizontal: 16,
                         vertical: 8,
                       ),
-                      child: FilledButton.tonalIcon(
+                      child: OutlinedButton.icon(
                         onPressed: _handleLogout,
                         icon: const Icon(Icons.logout_rounded),
                         label: Text(tr('Выйти из аккаунта')),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: scheme.errorContainer,
-                          foregroundColor: scheme.onErrorContainer,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: scheme.error,
                           minimumSize: const Size.fromHeight(52),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -1037,12 +1058,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           horizontal: 16,
                           vertical: 8,
                         ),
-                        child: OutlinedButton.icon(
+                        child: FilledButton.tonalIcon(
                           onPressed: _handleDeleteAccount,
                           icon: const Icon(Icons.delete_forever_outlined),
                           label: Text(tr('Удалить аккаунт')),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: scheme.error,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: scheme.errorContainer,
+                            foregroundColor: scheme.onErrorContainer,
                             minimumSize: const Size.fromHeight(52),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -1168,7 +1190,7 @@ class _SectionHeader extends StatelessWidget {
 // ============================================================================
 
 class _SettingsGroup extends StatelessWidget {
-  final List<_SettingsTile> tiles;
+  final List<Widget> tiles;
   const _SettingsGroup({required this.tiles});
 
   @override
@@ -1206,6 +1228,28 @@ class _SettingsGroup extends StatelessWidget {
 //  ПЛИТКА НАСТРОЙКИ
 // ============================================================================
 
+class _SettingsSwitchIcon extends StatelessWidget {
+  final IconData icon;
+  final Color? iconColor;
+
+  const _SettingsSwitchIcon({required this.icon, this.iconColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = iconColor ?? scheme.onSurface;
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: (iconColor ?? scheme.primary).withOpacity(0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, size: 20, color: color),
+    );
+  }
+}
+
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1238,7 +1282,7 @@ class _SettingsTile extends StatelessWidget {
                 color: (iconColor ?? scheme.primary).withOpacity(0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, size: 20, color: color),
+      child: Icon(icon, size: 20, color: scheme.onSurface),
             ),
             const SizedBox(width: 14),
             Expanded(

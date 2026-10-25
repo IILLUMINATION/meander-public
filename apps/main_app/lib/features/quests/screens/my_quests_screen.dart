@@ -1341,7 +1341,11 @@ class _LibraryHero extends StatelessWidget {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Flexible(
+                    // Пилюли не flex-дети, а IntrinsicWidth: иначе свободное
+                    // место делится между ними и Spacer поровну, неиспанная
+                    // доля уходит в конец строки, и «3 точки» на широком
+                    // экране вставали не у края, а по центру остатка.
+                    IntrinsicWidth(
                       child: _HeroActionButton(
                         icon: isSyncing
                             ? Icons.sync
@@ -1355,7 +1359,7 @@ class _LibraryHero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Flexible(
+                    IntrinsicWidth(
                       child: _HeroActionButton(
                         icon: Icons.file_upload_outlined,
                         label: tr('Импорт'),
@@ -1364,7 +1368,15 @@ class _LibraryHero extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    _HeroMenuButton(onBackup: onBackup, onRestore: onRestore),
+                    // Симметричный правый зазор: у «Синк» слева есть врезка
+                    // от края рамки, а круглая кнопка прилипала к скруглению.
+                    Padding(
+                      padding: const EdgeInsets.only(left: 10),
+                      child: _HeroMenuButton(
+                        onBackup: onBackup,
+                        onRestore: onRestore,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -1593,7 +1605,7 @@ class _LibrarySearchFieldState extends State<_LibrarySearchField> {
 //  ЧИПЫ ФИЛЬТРОВ ТИПА
 // ============================================================================
 
-class _LibraryFilterChipsRow extends StatelessWidget {
+class _LibraryFilterChipsRow extends StatefulWidget {
   final LibraryTypeFilter active;
   final ValueChanged<LibraryTypeFilter> onSelected;
   final _LibraryStats stats;
@@ -1605,33 +1617,59 @@ class _LibraryFilterChipsRow extends StatelessWidget {
   });
 
   @override
+  State<_LibraryFilterChipsRow> createState() => _LibraryFilterChipsRowState();
+}
+
+class _LibraryFilterChipsRowState extends State<_LibraryFilterChipsRow> {
+  // Галочка-подтверждение живёт мигом: появилась при тапе и через секунду
+  // сменилась обратно иконкой категории, как у фильтров Хаба.
+  LibraryTypeFilter? _flash;
+  Timer? _flashTimer;
+
+  @override
+  void dispose() {
+    _flashTimer?.cancel();
+    super.dispose();
+  }
+
+  void _select(LibraryTypeFilter f) {
+    widget.onSelected(f);
+    _flashTimer?.cancel();
+    setState(() => _flash = f);
+    _flashTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _flash = null);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final w = widget;
     final entries = <(LibraryTypeFilter, String, IconData, int)>[
-      (LibraryTypeFilter.all, tr('Все'), Icons.apps_rounded, stats.total),
+      (LibraryTypeFilter.all, tr('Все'), Icons.apps_rounded, w.stats.total),
       (
         LibraryTypeFilter.recent,
         tr('Недавние'),
         Icons.schedule_rounded,
-        stats.recent,
+        w.stats.recent,
       ),
       (
         LibraryTypeFilter.marketDownloaded,
         tr('Маркет'),
         Icons.shop_rounded,
-        stats.market,
+        w.stats.market,
       ),
       (
         LibraryTypeFilter.local,
         tr('Локальные'),
         Icons.devices_other_rounded,
-        stats.local,
+        w.stats.local,
       ),
-      if (stats.corrupted > 0)
+      if (w.stats.corrupted > 0)
         (
           LibraryTypeFilter.corrupted,
           tr('Повреждённые'),
           Icons.error_outline_rounded,
-          stats.corrupted,
+          w.stats.corrupted,
         ),
     ];
 
@@ -1644,12 +1682,15 @@ class _LibraryFilterChipsRow extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final e = entries[i];
-          final isSelected = active == e.$1;
+          final isSelected = w.active == e.$1;
           return FilterChip(
             label: Text('${e.$2} · ${e.$4}'),
-            avatar: Icon(e.$3, size: 18),
+            avatar: _flash == e.$1
+                ? const Icon(Icons.check_rounded, size: 18)
+                : Icon(e.$3, size: 18),
             selected: isSelected,
-            onSelected: (_) => onSelected(e.$1),
+            showCheckmark: false,
+            onSelected: (_) => _select(e.$1),
           );
         },
       ),
