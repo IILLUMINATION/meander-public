@@ -23,6 +23,7 @@ import 'package:canvas_app/features/quests/screens/my_quests_screen.dart';
 import 'package:canvas_app/features/settings/providers/notifications_settings_provider.dart';
 import 'package:canvas_app/features/settings/screens/theme_settings_screen.dart';
 import 'package:canvas_app/features/settings/widgets/interface_language_dialog.dart';
+import 'package:canvas_app/features/settings/widgets/refresh_rate_card.dart';
 import 'package:canvas_app/features/shell/screens/admin_screen.dart';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 
@@ -783,6 +784,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                 ),
+
+                SliverToBoxAdapter(child: RefreshRateCard()),
 
                 _SectionHeader(
                   title: tr('Редактор'),

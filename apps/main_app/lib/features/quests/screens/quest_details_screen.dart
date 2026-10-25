@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:canvas_app/core/services/export_service.dart';
+import 'package:canvas_app/core/services/offline_apk_builder.dart';
 import 'package:canvas_app/core/services/quest_document_exporter.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/save_game_service.dart';
@@ -15,6 +16,7 @@ import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
 import 'package:canvas_app/features/game/screens/load_game_screen.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
+import 'package:canvas_app/features/quests/screens/apk_build_options_screen.dart';
 import 'package:canvas_app/features/quests/screens/quest_history_screen.dart';
 import 'package:canvas_app/features/quests/screens/quest_publish_screen.dart';
 import 'package:canvas_app/features/quests/widgets/pdf_export_options_sheet.dart';
@@ -57,6 +59,11 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
   bool _isExporting = false;
   bool _isExportingTxt = false;
   bool _isExportingPdf = false;
+  bool _isBuildingApk = false;
+
+  /// Собирать APK офлайн умеет только Android — и только если в сборку
+  /// приложения вшит шаблон плеера (это делает CI, см. build_android.yml).
+  bool _canBuildApk = false;
 
   /// Ключ кнопки «Сценарий и Главы» — на неё указывает обучение.
   final GlobalKey _openEditorKey = GlobalKey();
@@ -64,6 +71,13 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isAndroid) {
+      unawaited(
+        OfflineApkBuilder.isAvailable().then((available) {
+          if (mounted) setState(() => _canBuildApk = available);
+        }),
+      );
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref
@@ -153,6 +167,38 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
       _showSnack(trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}), error: true);
     } finally {
       if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
+  Future<void> _buildApk(Quest quest) async {
+    if (_isBuildingApk) return;
+    final initial = await OfflineApkBuilder.loadOptions(
+      questId: quest.id,
+      questTitle: quest.title,
+      questVersion: quest.version,
+    );
+    if (!mounted) return;
+    final options = await showApkBuildOptionsScreen(context, initial);
+    if (options == null || !mounted) return;
+
+    setState(() => _isBuildingApk = true);
+    try {
+      final result = await OfflineApkBuilder.buildAndSave(quest.id, options);
+      if (!mounted) return;
+      if (result != null) {
+        _showSnack(
+          trf('APK собран: {p0}', {'p0': result.packageName}),
+          success: true,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(
+        trf('Ошибка сборки APK: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
+    } finally {
+      if (mounted) setState(() => _isBuildingApk = false);
     }
   }
 
@@ -329,7 +375,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
   }
 
   void _shareSheet(Quest quest) {
-    if (quest.isReadOnly) return;
+    if (quest.isReadOnly || _isBuildingApk) return;
     showAdaptiveSheet(
       context: context,
       showDragHandle: true,
@@ -388,6 +434,16 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
                   _exportQuestPdf(quest);
                 },
               ),
+              if (_canBuildApk)
+                ListTile(
+                  leading: const Icon(Icons.android_rounded),
+                  title: Text(tr('Собрать APK')),
+                  subtitle: Text(tr('Приложение с квестом для Android')),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _buildApk(quest);
+                  },
+                ),
               const SizedBox(height: 8),
             ],
           ),

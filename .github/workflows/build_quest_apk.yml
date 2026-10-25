@@ -93,10 +93,23 @@ jobs:
             [ -n "$QUEST_PATH" ] || QUEST_PATH="$(ls quests/*.mnd 2>/dev/null | head -n1 || true)"
           fi
           if [ -n "$QUEST_BLOB_SHA" ]; then
+            case "$QUEST_BLOB_SHA" in
+              *[!0-9a-fA-F]*)
+                echo "::error::quest_blob_sha должен быть hex-строкой"
+                exit 1
+                ;;
+            esac
             gh api -H "Accept: application/vnd.github.raw" \
               "repos/$GITHUB_REPOSITORY/git/blobs/$QUEST_BLOB_SHA" > "$RUNNER_TEMP/quest/quest.mnd"
             source_name="quest.mnd"
           elif [ -n "$QUEST_URL" ]; then
+            case "$QUEST_URL" in
+              https://*) ;;
+              *)
+                echo "::error::quest_url должен начинаться с https://"
+                exit 1
+                ;;
+            esac
             curl -fsSL --retry 3 "$QUEST_URL" -o "$RUNNER_TEMP/quest/quest.mnd"
             source_name="$(basename "${QUEST_URL%%\?*}")"
           elif [ -n "$QUEST_PATH" ] && [ -f "$QUEST_PATH" ]; then
@@ -108,6 +121,12 @@ jobs:
           fi
           if [ -z "$APP_NAME" ]; then
             APP_NAME="${source_name%.*}"
+          fi
+          # Имя уходит в GITHUB_ENV построчно: перевод строки разорвал бы файл.
+          APP_NAME="$(printf '%s' "$APP_NAME" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | cut -c1-60)"
+          if [ -z "$APP_NAME" ]; then
+            echo "::error::Не удалось определить название приложения"
+            exit 1
           fi
           echo "QUEST_APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
           echo "Квест: $source_name ($(stat -c%s "$RUNNER_TEMP/quest/quest.mnd") байт), название: $APP_NAME"

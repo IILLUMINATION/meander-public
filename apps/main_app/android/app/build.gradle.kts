@@ -72,6 +72,8 @@ val patchGeneratedPluginRegistrant = tasks.register("patchGeneratedPluginRegistr
     }
 }
 
+// AppMetrica в приложении не используется, но приходит транзитивно в
+// com.yandex.android:mobileads. Держим её вырезанной из графа зависимостей.
 configurations.configureEach {
     exclude(group = "io.appmetrica.analytics")
 }
@@ -210,8 +212,6 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
 
-            // AppMetrica/Yandex Ads conflict with release minification in this app.
-            // Re-enabling minification for testing AppMetrica integration.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

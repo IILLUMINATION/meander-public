@@ -36,10 +36,19 @@ class MainActivity : FlutterFragmentActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Прошивки вроде MIUI сбрасывают режим окна при возврате из фона.
+        DisplayRefreshRate.apply(this)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         registerFilePickerPlugin(flutterEngine)
+        OfflineApkBuilder.register(flutterEngine.dartExecutor.binaryMessenger, this)
+        DisplayRefreshRate.register(flutterEngine.dartExecutor.binaryMessenger, this)
+        DisplayRefreshRate.apply(this)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,

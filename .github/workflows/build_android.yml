@@ -105,7 +105,7 @@ jobs:
       # приложение подменяет в нём quest.mnd и переподписывает.
       - name: Build quest player template
         run: |
-          ./scripts/build_quest_apk.sh quests/demo.mnd \
+          bash ./scripts/build_quest_apk.sh quests/demo.mnd \
             --name "Meander Quest" \
             --id sbs.meander.quest.player \
             --abi arm64 \
