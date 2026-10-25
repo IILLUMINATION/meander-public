@@ -2,12 +2,12 @@ import 'server-only'
 import { unzipSync } from 'fflate'
 
 const WORKFLOW_FILE = 'build_quest_apk.yml'
-const FALLBACK_REFS = ['main', 'v0/quest-apk-builder-button']
+const FALLBACK_REFS = ['main']
 
-export const repo = process.env.GITHUB_REPO || 'DreaMMaella/Menader'
+export const repo = (process.env.GITHUB_REPO || 'IILLUMINATION/meander-public').trim()
 
 export function isConfigured() {
-  return Boolean(process.env.GITHUB_TOKEN)
+  return Boolean(process.env.GITHUB_TOKEN) && /^[\w.-]+\/[\w.-]+$/.test(repo)
 }
 
 export class GitHubError extends Error {

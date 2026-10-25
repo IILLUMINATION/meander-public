@@ -2,6 +2,7 @@ import { del, get } from '@vercel/blob'
 import { NextResponse } from 'next/server'
 import { listBuilds, saveBuild, type BuildRecord } from '@/lib/builds'
 import { dispatchBuild, GitHubError, isConfigured, uploadQuestBlob } from '@/lib/github'
+import { allowRequest } from '@/lib/rate-limit'
 
 export const maxDuration = 60
 
@@ -18,6 +19,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (!isConfigured()) return bad('Сборщик не настроен: добавь GITHUB_TOKEN', 500)
+  if (!allowRequest(request, 'build', 5)) return bad('Слишком много сборок, попробуйте позже', 429)
 
   const body = (await request.json().catch(() => null)) as {
     pathname?: unknown
