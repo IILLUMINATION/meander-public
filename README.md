@@ -46,6 +46,8 @@
 
 ```
 apps/main_app/        Flutter-клиент: Android, iOS, Linux, Windows, macOS
+apps/builder_web/     веб-интерфейс для автоматической сборки APK квестов
+apps/quest_player/    отдельный Flutter-плеер для индивидуальных квестов
 apps/web_player/      wasm-сборка движка для браузера
 backend/              старый Node/TS API; заменяется на crates/mnd-server
 crates/mnd-core/      движок: модели, исполнитель скриптов, рантайм
