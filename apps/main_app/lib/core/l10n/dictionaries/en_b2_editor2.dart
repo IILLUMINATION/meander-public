@@ -69,7 +69,6 @@ final Map<String, String> enB2Editor2 = {
   'Подсказки': 'Hints',
   'Позиция на экране': 'Position on screen',
   'Пока нет сохранённых пресетов.': 'No saved presets yet.',
-  'Пока ничего не выбрано.': 'Nothing selected yet.',
   'Показано {p0}': '{p0} shown',
   'Показать слой': 'Show layer',
   'Показывать таймер обратного отсчёта': 'Show countdown timer',

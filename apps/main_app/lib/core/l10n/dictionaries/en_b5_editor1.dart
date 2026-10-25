@@ -74,7 +74,6 @@ final Map<String, String> enB5Editor1 = {
   'Блоки вставлены ({p0})': 'Blocks inserted ({p0})',
   'Буфер': 'Clipboard',
   'Буфер обмена пуст': 'Clipboard is empty',
-  'Быстрое': 'Quick',
   'В архиве нет пресетов': 'No presets in the archive',
   'В буфере невалидный JSON': 'Invalid JSON in the clipboard',
   'В выделении нет групп': 'The selection contains no groups',

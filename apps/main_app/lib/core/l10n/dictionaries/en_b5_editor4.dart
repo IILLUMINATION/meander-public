@@ -46,8 +46,6 @@ final Map<String, String> enB5Editor4 = {
   'копировать / вырезать': 'copy / cut',
   'куда пишем: gold или items[0]': 'where we write: gold or items[0]',
   'лавка[\'ключ\'] — то же хранилище, с которым работает блок «Данные»': 'shop[\'key\'] — the same storage the "Data" block works with',
-  'любое изменение в квесте': 'any change in the quest',
-  'любой ключ таблицы': 'any table key',
   'массив значений — дальше в sum(), join(), length()': 'array of values — pass it on to sum(), join(), length()',
   'массив номеров; length(table_where(…)) — сколько их': 'array of row numbers; length(table_where(…)) — how many there are',
   'масштаб': 'scale',
@@ -91,6 +89,5 @@ final Map<String, String> enB5Editor4 = {
   'снизу': 'bottom',
   'снять выделение; бросить рамку, драг, направляющую, холст': 'deselect; drop the marquee, a drag, a guide, the canvas',
   'сохранить пропорции': 'keep proportions',
-  'столбец сетки; одна ячейка — {path}.1, номера рядов с 1': 'grid column; a single cell is {path}.1, row numbers start at 1',
   'строго по горизонтали или по вертикали': 'strictly horizontal or vertical',
 };

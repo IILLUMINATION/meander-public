@@ -123,7 +123,6 @@ final Map<String, String> enB8Editor = {
   'Срабатывает при показе элемента': 'Fires when the item is shown',
   'Срабатывает, когда меняется один из указанных путей: переменная, ключ таблицы или ячейка. * — следить за всем.':
       'Fires when one of the listed paths changes: a variable, a table key or a cell. * — watch everything.',
-  'Уже в подписке': 'Already subscribed',
   // features/editor/screens/visual_script_editor/widgets/table_operation_block_widget.dart
   'всё хранилище': 'the whole storage',
   'не указан': 'not set',
