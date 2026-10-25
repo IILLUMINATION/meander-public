@@ -1589,7 +1589,18 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     );
   }
 
-  void revealNextItem() {
+  /// [fromPresentationId] — презентация, для которой собран виджет-источник
+  /// шага. Уходящая сцена живёт в дереве всё время cross-fade (fade/page:
+  /// 300–820 мс) и после того, как `loadNode` снял `_revealSuspended`: её
+  /// таймеры догорают и зовут `onComplete` уже в новой ноде, съедая её айтем.
+  /// Очередь обгоняет `wait_input`/`delay`, и нода показывается целиком сразу.
+  /// Шаг из чужой презентации отбрасываем; шаги текущей (и `_applyNodeView`,
+  /// который зовёт без тега) проходят как раньше.
+  void revealNextItem({String? fromPresentationId}) {
+    if (fromPresentationId != null &&
+        fromPresentationId != state.presentationId) {
+      return;
+    }
     // Идёт смена ноды: цикл раскрытия имеет право запустить только
     // `_applyNodeView`, когда список новой ноды уже в state (#219).
     if (_revealSuspended) return;

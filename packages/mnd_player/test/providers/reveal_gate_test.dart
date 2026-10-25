@@ -223,4 +223,49 @@ void main() {
       expect(ids, containsAllInOrder(_nodeRows));
     });
   });
+
+  // Во время cross-fade (fade/page) уходящая нода остаётся в дереве на
+  // 300–820 мс — дольше, чем идёт `loadNode`. Её `TimerItemWidget` продолжает
+  // тикать и, догорев, зовёт `onComplete` уже в новой ноде: очередь съедает
+  // её айтем, обгоняет `wait_input`/`delay`, и нода показывается целиком
+  // сразу. Поэтому шаг помечается сценой, для которой собран виджет.
+  group('шаг из ушедшей сцены', skip: skipIfNoSo, () {
+    Future<void> waitItems(ProviderContainer container, int count) async {
+      for (var i = 0; i < 400; i++) {
+        if (container.read(gameScreenProvider(_key)).revealedItems.length >=
+            count) {
+          return;
+        }
+        await Future.delayed(const Duration(milliseconds: 5));
+      }
+      fail('очередь не отдала $count айтемов');
+    }
+
+    test('не съедает айтем новой ноды', () async {
+      final (container, notifier) = startSession();
+      await notifier.loadInitialNode('n1');
+      await waitFirstItem(container);
+      final oldPresentation =
+          container.read(gameScreenProvider(_key)).presentationId;
+      expect(oldPresentation, isNotEmpty);
+
+      await notifier.loadNode('n2');
+      await waitItems(container, 1);
+      final before = revealedIds(container);
+      expect(before, ['row1']);
+
+      // Догоревший таймер уходящей сцены.
+      notifier.revealNextItem(fromPresentationId: oldPresentation);
+      await Future.delayed(const Duration(milliseconds: 80));
+      expect(revealedIds(container), before, reason: 'чужой шаг съел row2');
+
+      // Шаг текущей сцены по-прежнему двигает очередь.
+      notifier.revealNextItem(
+        fromPresentationId:
+            container.read(gameScreenProvider(_key)).presentationId,
+      );
+      await waitItems(container, 2);
+      expect(revealedIds(container), ['row1', 'row2']);
+    });
+  });
 }

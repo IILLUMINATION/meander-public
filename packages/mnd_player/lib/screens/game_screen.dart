@@ -1365,6 +1365,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               }
 
               final itemsToDisplay = screenState.revealedItems;
+              // Шаг из виджета помечаем его сценой: уходящая нода живёт в
+              // дереве всё время cross-fade, и её таймеры не должны двигать
+              // очередь уже следующей ноды (см. `revealNextItem`).
+              final presentationId = screenState.presentationId;
               // Внутренний отступ между корневыми элементами ноды.
               // null → старое поведение (24 px), 0 → стык без зазоров.
               final double? nodeSpacing = screenState.currentNode?.itemSpacing;
@@ -1394,9 +1398,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                       questId: widget.questId,
                       onInteract: _onItemInteract,
                       onInputSubmitted: _onInputSubmitted,
-                      onComplete: ref
+                      onComplete: () => ref
                           .read(gameScreenProvider(_key).notifier)
-                          .revealNextItem,
+                          .revealNextItem(fromPresentationId: presentationId),
                       onTransition: (id) => ref
                           .read(gameScreenProvider(_key).notifier)
                           .loadNode(id),
@@ -1491,7 +1495,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       questId: widget.questId,
       onInteract: _onItemInteract,
       onInputSubmitted: _onInputSubmitted,
-      onComplete: notifier.revealNextItem,
+      onComplete: () =>
+          notifier.revealNextItem(fromPresentationId: screenState.presentationId),
       onTransition: (id) => notifier.loadNode(id),
       onNavigateToNode: (id) => notifier.loadNode(id),
       audioVolume: contentVolume,
