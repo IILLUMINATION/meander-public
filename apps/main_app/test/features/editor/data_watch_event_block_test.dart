@@ -184,9 +184,16 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('шит показывает подсказки из конфига и собирает список', (
+    testWidgets('экран показывает подсказки из конфига и собирает список', (
       tester,
     ) async {
+      // Высокое окно: полный экран пикера — ленивый список, в дефолтных
+      // 800×600 таблица ниже вьюпорта не построится вовсе.
+      tester.view.physicalSize = const Size(900, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       // Синхронный IO: `await` dart:io внутри testWidgets попадает в
       // fake-async зону и вешает тест.
       final dir = Directory('${appDir.path}/quests/q1');
@@ -223,34 +230,37 @@ void main() {
       await settleWithIo(tester);
 
       expect(find.text('Следить за изменениями'), findsOneWidget);
+      // Свёрнутая таблица показывает свой путь до раскрытия.
       expect(find.text('лавка.*'), findsOneWidget);
+
+      // Столбцы лежат внутри таблицы: раскрываем её, и путь столбца виден.
+      await tester.ensureVisible(find.text('лавка'));
+      await tester.tap(find.text('лавка'));
+      await tester.pumpAndSettle();
       // У таблицы ключ данных и столбец сетки называются одинаково: путь
       // должен быть в списке один раз.
       expect(find.text('лавка.цена'), findsOneWidget);
       expect(find.text('_служебная'), findsNothing);
 
-      await tester.tap(find.text('лавка.*'));
+      // Массовый выбор переменной — чекбоксом, а не отдельным тапом-чипом.
+      await tester.ensureVisible(find.text('Здоровье'));
+      await tester.tap(find.text('Здоровье'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), 'лавка.цена.3, Здоровье');
-      // Подсказки-чипы тоже носят Icons.add_rounded — тап только по кнопке
-      // поля ручного ввода.
-      await tester.tap(
-        find.descendant(
-          of: find.byType(TextField),
-          matching: find.byIcon(Icons.add_rounded),
-        ),
-      );
+      // Конкретная ячейка: таблица → столбец → ряд (номера с 1).
+      await tester.ensureVisible(find.text('цена'));
+      await tester.tap(find.text('цена'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Строка 2'));
+      await tester.tap(find.text('Строка 2'));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Готово'));
-      await tester.tap(find.text('Готово'));
+      // «Золото» уже был выбран изначально — вместе с «Здоровье» и ячейкой
+      // получается три пути.
+      await tester.tap(find.text('Выбрано: 3'));
       await tester.pumpAndSettle();
 
-      expect(
-        block.watchPaths,
-        ['Золото', 'лавка.*', 'лавка.цена.3', 'Здоровье'],
-      );
+      expect(block.watchPaths, ['Золото', 'Здоровье', 'лавка.цена.2']);
       expect(tester.takeException(), isNull);
 
       dir.deleteSync(recursive: true);
