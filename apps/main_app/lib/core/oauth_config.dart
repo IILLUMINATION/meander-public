@@ -5,28 +5,61 @@
 /// рабочим входом без `.env`. Значение из `--dart-define-from-file` эти дефолты
 /// переопределяет.
 ///
-/// Секрет desktop-клиента — единственное настоящее секретное значение; он
-/// приходит только из окружения и в репозитории не хранится.
+/// Пустая переменная окружения считается незаданной. `String.fromEnvironment`
+/// сам так не умеет: определённое, но пустое значение он возвращает как есть и
+/// `defaultValue` не подставляет. Из-за этого `.env`, скопированный из
+/// `.env.example` до появления дефолтов, после `git pull` выключал вход —
+/// теперь пустые строки ничего не ломают.
+///
+/// Секрет desktop-клиента в клиенте больше не нужен: обмен кода на токен
+/// делает наш сервер (`POST /auth/google/exchange`). Если секрет всё-таки
+/// задан при сборке, клиент по-прежнему может обменять код напрямую.
 class OAuthConfig {
-  static const String googleDesktopClientId = String.fromEnvironment(
+  static const String _googleDesktopClientIdEnv = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_ID',
-    defaultValue:
-        '410112450155-1balrm0p8ouc90luagcodiforfq0susn.apps.googleusercontent.com',
   );
+  static const String _googleDesktopClientIdDefault =
+      '410112450155-1balrm0p8ouc90luagcodiforfq0susn.apps.googleusercontent.com';
+
   static const String googleDesktopClientSecret = String.fromEnvironment(
     'GOOGLE_DESKTOP_CLIENT_SECRET',
   );
-  static const String googleMobileServerClientId = String.fromEnvironment(
+
+  static const String _googleMobileServerClientIdEnv = String.fromEnvironment(
     'GOOGLE_MOBILE_SERVER_CLIENT_ID',
-    defaultValue:
-        '410112450155-828dsu9o968v0vdg2g0870ioaafoa0is.apps.googleusercontent.com',
   );
-  static const String yandexClientId = String.fromEnvironment(
+  static const String _googleMobileServerClientIdDefault =
+      '410112450155-828dsu9o968v0vdg2g0870ioaafoa0is.apps.googleusercontent.com';
+
+  static const String _yandexClientIdEnv = String.fromEnvironment(
     'YANDEX_CLIENT_ID',
-    defaultValue: '003ba61515fb48e8b2ee026e97e3fada',
   );
-  static const String telegramClientId = String.fromEnvironment(
+  static const String _yandexClientIdDefault = '003ba61515fb48e8b2ee026e97e3fada';
+
+  static const String _telegramClientIdEnv = String.fromEnvironment(
     'TELEGRAM_CLIENT_ID',
-    defaultValue: '8815960550',
   );
+  static const String _telegramClientIdDefault = '8815960550';
+
+  static String get googleDesktopClientId => oauthValueOrDefault(
+    _googleDesktopClientIdEnv,
+    _googleDesktopClientIdDefault,
+  );
+
+  static String get googleMobileServerClientId => oauthValueOrDefault(
+    _googleMobileServerClientIdEnv,
+    _googleMobileServerClientIdDefault,
+  );
+
+  static String get yandexClientId =>
+      oauthValueOrDefault(_yandexClientIdEnv, _yandexClientIdDefault);
+
+  static String get telegramClientId =>
+      oauthValueOrDefault(_telegramClientIdEnv, _telegramClientIdDefault);
+}
+
+/// Значение из окружения, а при пустой строке — дефолт сборки.
+String oauthValueOrDefault(String envValue, String fallback) {
+  final value = envValue.trim();
+  return value.isEmpty ? fallback : value;
 }

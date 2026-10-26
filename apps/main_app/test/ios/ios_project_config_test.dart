@@ -131,12 +131,19 @@ void main() {
       ]) {
         final cfg = read(name);
         final defaults = cfg.indexOf('OAuthDefaults.xcconfig');
-        final local = cfg.indexOf('OAuth.xcconfig"');
+        final local = cfg.indexOf('OAuthLocal.xcconfig"');
         expect(defaults, greaterThan(0), reason: '$name: сборка без .env');
         expect(
           local,
           greaterThan(defaults),
-          reason: '$name: локальный OAuth.xcconfig должен быть главнее',
+          reason: '$name: локальный OAuthLocal.xcconfig должен быть главнее',
+        );
+        // Старое имя не подключаем: скопированный из примера OAuth.xcconfig
+        // с пустыми значениями перекрывал рабочие дефолты после git pull.
+        expect(
+          cfg,
+          isNot(contains('OAuth.xcconfig"')),
+          reason: '$name: старый OAuth.xcconfig не должен читаться',
         );
       }
     });

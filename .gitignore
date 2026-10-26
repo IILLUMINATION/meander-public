@@ -38,8 +38,10 @@ julia-*/
 # Шаблоны OAuth-конфигурации лежат в репозитории; реальные значения — нет.
 !apps/main_app/.env.example
 !backend/.env.example
+apps/main_app/ios/Flutter/OAuthLocal.xcconfig
+# Старое имя: файл больше не подключается, но и в git ему нельзя.
 apps/main_app/ios/Flutter/OAuth.xcconfig
-!apps/main_app/ios/Flutter/OAuth.xcconfig.example
+!apps/main_app/ios/Flutter/OAuthLocal.xcconfig.example
 
 # Editors
 .vscode/
