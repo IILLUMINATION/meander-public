@@ -368,8 +368,9 @@ class AuthPlaceholderScreen extends StatefulWidget {
 }
 
 class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
-  // OAuth-учётные данные приходят из .env при сборке
-  // (--dart-define-from-file); в репозитории их нет.
+  // Публичные client id: дефолты уже в OAuthConfig, .env нужен только для
+  // переопределения. Секрет desktop-клиента необязателен: без него код
+  // обменивает наш сервер.
   static String get _desktopClientId => OAuthConfig.googleDesktopClientId;
   static String get _desktopClientSecret =>
       OAuthConfig.googleDesktopClientSecret;
@@ -387,17 +388,14 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
     final bool isDesktop = !kIsWeb &&
         (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
     final bool googleConfigured = isDesktop
-        ? OAuthConfig.googleDesktopClientId.isNotEmpty &&
-            OAuthConfig.googleDesktopClientSecret.isNotEmpty
+        ? OAuthConfig.googleDesktopClientId.isNotEmpty
         : OAuthConfig.googleMobileServerClientId.isNotEmpty;
     if (!googleConfigured) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr(
-                'Google-вход не настроен в этой сборке. Задайте GOOGLE_* в .env.',
-              ),
+              tr('Google-вход недоступен в этой сборке.'),
             ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Theme.of(context).colorScheme.errorContainer,
@@ -832,25 +830,57 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
 
       if (authCode == null) throw Exception(tr('Не получен код авторизации.'));
 
-      final tokenResponse = await http.post(
-        Uri.parse('https://oauth2.googleapis.com/token'),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'code': authCode,
-          'client_id': _desktopClientId,
-          'client_secret': _desktopClientSecret,
-          'code_verifier': verifier,
-          'redirect_uri': redirectUri,
-          'grant_type': 'authorization_code',
-        },
-      );
+      final String idToken;
+      if (_desktopClientSecret.isNotEmpty) {
+        // Секрет задан при сборке — можно обменять код напрямую, без нашего
+        // бэкенда (полезно для самосборок).
+        final tokenResponse = await http.post(
+          Uri.parse('https://oauth2.googleapis.com/token'),
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: {
+            'code': authCode,
+            'client_id': _desktopClientId,
+            'client_secret': _desktopClientSecret,
+            'code_verifier': verifier,
+            'redirect_uri': redirectUri,
+            'grant_type': 'authorization_code',
+          },
+        );
 
-      if (tokenResponse.statusCode == 200) {
+        if (tokenResponse.statusCode != 200) {
+          throw Exception(tr('Ошибка обмена токена.'));
+        }
         final tokenData = jsonDecode(tokenResponse.body);
-        await _authenticateWithBackend(tokenData['id_token']);
+        idToken = tokenData['id_token'];
       } else {
-        throw Exception(tr('Ошибка обмена токена.'));
+        // Секрета в сборке нет: код и PKCE-verifier меняет наш сервер, у
+        // которого секрет есть. Так сборка не требует локальных ключей.
+        final exchangeResponse = await http.post(
+          Uri.parse('${AppConfig.apiUrl}/auth/google/exchange'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'code': authCode,
+            'clientId': _desktopClientId,
+            'codeVerifier': verifier,
+            'redirectUri': redirectUri,
+          }),
+        );
+        if (exchangeResponse.statusCode != 200) {
+          throw Exception(
+            trf('Сервер не завершил вход: {p0}', {
+              'p0': exchangeResponse.statusCode,
+            }),
+          );
+        }
+        final data = jsonDecode(utf8.decode(exchangeResponse.bodyBytes));
+        final value = data['idToken'];
+        if (value is! String || value.isEmpty) {
+          throw Exception(tr('Сервер не выдал idToken.'));
+        }
+        idToken = value;
       }
+
+      await _authenticateWithBackend(idToken);
     } finally {
       await server?.close();
     }

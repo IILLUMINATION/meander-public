@@ -1,0 +1,17 @@
+// Необязательный локальный конфиг для редких случаев, когда нужно
+// переопределить значения из OAuthDefaults.xcconfig (например, свой
+// Google-проект). Для обычной сборки копировать ничего не нужно: дефолты уже
+// рабочие, а этот файл отсутствует.
+//
+// Если всё же копируете — переименуйте в OAuthLocal.xcconfig и раскомментируйте
+// только те строки, которые действительно меняете. Пустые значения здесь
+// перекрыли бы дефолты и выключили вход.
+//
+// GOOGLE_IOS_REVERSED_CLIENT_ID — клиентский ID в обратном порядке:
+// PROJECT_NUMBER-CLIENT_HASH.apps.googleusercontent.com →
+// com.googleusercontent.apps.PROJECT_NUMBER-CLIENT_HASH
+
+// GOOGLE_IOS_CLIENT_ID=
+// GOOGLE_IOS_REVERSED_CLIENT_ID=
+// GOOGLE_MOBILE_SERVER_CLIENT_ID=
+// YANDEX_CLIENT_ID=

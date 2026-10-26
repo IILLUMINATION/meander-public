@@ -1,7 +1,8 @@
-// Публичные client id для iOS-сборки без локального OAuth.xcconfig.
+// Публичные client id для iOS-сборки без локального конфига.
 // Это идентификаторы, а не секреты: они всё равно попадают в каждый бандл.
-// Файл OAuth.xcconfig (gitignored) подключается после и переопределяет любые
-// значения отсюда.
+// Файл OAuthLocal.xcconfig (gitignored) подключается после и переопределяет
+// любые значения отсюда. Старый OAuth.xcconfig намеренно больше не читается:
+// скопированный из примера пустой файл перекрывал дефолты пустыми строками.
 GOOGLE_IOS_CLIENT_ID=410112450155-ocvckcnfk1aktj3a225bf6458eb8npbm.apps.googleusercontent.com
 GOOGLE_IOS_REVERSED_CLIENT_ID=com.googleusercontent.apps.410112450155-ocvckcnfk1aktj3a225bf6458eb8npbm
 GOOGLE_MOBILE_SERVER_CLIENT_ID=410112450155-828dsu9o968v0vdg2g0870ioaafoa0is.apps.googleusercontent.com

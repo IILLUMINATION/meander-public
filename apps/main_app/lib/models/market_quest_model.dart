@@ -13,6 +13,9 @@ class MarketQuest {
   /// id стиля ника автора из каталога оформления профиля.
   final String? authorNameStyle;
   final int downloadsCount;
+
+  /// Суммарные просмотры страницы квеста (без просмотров автора).
+  final int viewsCount;
   final int likeCount;
   final int dislikeCount;
   final double averageRating;
@@ -44,6 +47,7 @@ class MarketQuest {
     this.authorId,
     this.authorNameStyle,
     required this.downloadsCount,
+    this.viewsCount = 0,
     required this.likeCount,
     required this.dislikeCount,
     required this.averageRating,
@@ -137,6 +141,7 @@ class MarketQuest {
       authorId: json['author_id'] as String?,
       authorNameStyle: json['author_name_style'] as String?,
       downloadsCount: _parseInt(json['downloads_count']),
+      viewsCount: _parseInt(json['views_count']),
       likeCount: _parseInt(json['like_count']),
       dislikeCount: _parseInt(json['dislike_count']),
       averageRating: _parseDouble(json['average_rating']),

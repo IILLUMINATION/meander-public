@@ -119,7 +119,10 @@ void main() {
       expect(text, contains('GOOGLE_DESKTOP_CLIENT_ID'));
       expect(text, contains('YANDEX_CLIENT_ID'));
       expect(text, contains('TELEGRAM_CLIENT_ID'));
-      expect(text, contains('defaultValue'));
+      // Дефолты — обычные константы, а пустая env-переменная трактуется как
+      // «не задана»: иначе старый .env выключал вход после git pull.
+      expect(text, contains('oauthValueOrDefault'));
+      expect(text, contains('_googleDesktopClientIdDefault'));
       expect(text, isNot(contains('GOCSPX' '-')));
       expect(text, isNot(contains("'client_secret'")));
       // У секрета desktop-клиента дефолта быть не должно: только окружение.
@@ -128,6 +131,15 @@ void main() {
         isTrue,
         reason: 'секрет не должен иметь defaultValue',
       );
+    });
+
+    test('пустая env-переменная не перекрывает дефолт', () {
+      expect(oauthValueOrDefault('', 'default'), 'default');
+      expect(oauthValueOrDefault('   ', 'default'), 'default');
+      // Негативный контроль: непустое значение обязано побеждать, иначе
+      // --dart-define молча игнорировался бы.
+      expect(oauthValueOrDefault('custom', 'default'), 'custom');
+      expect(oauthValueOrDefault(' custom ', 'default'), 'custom');
     });
 
     test('client id разрешён только в oauth_config.dart', () {

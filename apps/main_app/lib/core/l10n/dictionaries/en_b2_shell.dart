@@ -4,7 +4,9 @@
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enB2Shell = {
   'Yandex Login ещё не настроен (нужен clientId из oauth.yandex.ru).': 'Yandex Login is not set up yet (needs a clientId from oauth.yandex.ru).',
-  'Google-вход не настроен в этой сборке. Задайте GOOGLE_* в .env.': 'Google sign-in is not configured in this build. Set GOOGLE_* in .env.',
+  'Google-вход недоступен в этой сборке.': 'Google sign-in is unavailable in this build.',
+  'Сервер не завершил вход: {p0}': 'The server did not complete sign-in: {p0}',
+  'Сервер не выдал idToken.': 'The server did not return an idToken.',
   '{p0}\nиспользовано {p1} из {p2}': '{p0}\nused {p1} of {p2}',
   'Ассет одобрен': 'Asset approved',
   'Ассет отклонён': 'Asset rejected',

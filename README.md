@@ -79,22 +79,29 @@ hot reload не подхватывает новую `.so`.
 
 ### OAuth
 
-Вход через Google, Яндекс и Telegram требует собственных OAuth-клиентов.
-Скопируйте `apps/main_app/.env.example` в `apps/main_app/.env`, заполните
-нужные переменные и передайте файл при сборке:
+Обычной сборке ничего настраивать не нужно. Публичные client id для Google,
+Яндекса и Telegram уже вшиты дефолтами в `apps/main_app/lib/core/oauth_config.dart`
+и `apps/main_app/ios/Flutter/OAuthDefaults.xcconfig`, поэтому вход работает с
+чистого клона без `.env` и без локальных файлов.
+
+Переопределения (свой OAuth-проект) — через `apps/main_app/.env`:
 
 ```bash
 cd apps/main_app
 flutter build linux --release --dart-define-from-file=.env
 ```
 
-`flutter run` принимает тот же флаг. Без `.env` приложение собирается, но
-соответствующие кнопки входа отключаются.
+`flutter run` принимает тот же флаг. Пустая переменная считается незаданной и
+дефолт не перекрывает. Секрет Google desktop-клиента в сборке не нужен: код на
+токен обменивает сервер (`POST /auth/google/exchange`), у которого секрет
+хранится в `backend/.env`. Секрет при сборке нужен только для своего бэкенда
+без этого эндпоинта.
 
-Нативной части iOS и Android значения нужны отдельно: скопируйте
-`apps/main_app/ios/Flutter/OAuth.xcconfig.example` в `OAuth.xcconfig`
-(он в `.gitignore`), а для Android передайте `YANDEX_CLIENT_ID` и
-`TELEGRAM_CLIENT_ID` через `-PИМЯ=...` или `gradle.properties`.
+Для iOS локальный `OAuthLocal.xcconfig` тоже не обязателен. Шаблон
+`apps/main_app/ios/Flutter/OAuthLocal.xcconfig.example` нужен только при
+переопределении; старый `OAuth.xcconfig` больше не читается. Для Android
+переопределения `YANDEX_CLIENT_ID` и `TELEGRAM_CLIENT_ID` передаются через
+`-PИМЯ=...` или `gradle.properties`.
 
 <details>
 <summary>Linux</summary>
