@@ -5,6 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { OAuth2Client } from 'google-auth-library';
 import dotenv from 'dotenv';
 import { awardAchievement } from '../services/achievements';
+import {
+    exchangeGoogleCode,
+    GoogleExchangeError,
+    isLoopbackRedirect,
+    isPkceVerifier,
+} from '../services/google_exchange';
 import authMiddleware, { AuthRequest } from '../middleware/auth';
 
 dotenv.config();
@@ -88,6 +94,50 @@ router.post('/google/token', async (req: Request, res: Response) => {
         console.error('Error verifying Google token:', error);
         // Возвращаем понятную ошибку, а не просто 500, чтобы видеть в логах Flutter
         res.status(500).json({ error: 'Server error during token verification' });
+    }
+});
+
+// POST /auth/google/exchange
+// Desktop-вход: приложение присылает authorization code и PKCE verifier, а
+// секрет клиента добавляет сервер. Сборке больше не нужен
+// GOOGLE_DESKTOP_CLIENT_SECRET — и macOS/Linux/Windows собираются с чистого
+// клона без локальных ключей.
+router.post('/google/exchange', async (req: Request, res: Response) => {
+    const { code, clientId, codeVerifier, redirectUri } = req.body ?? {};
+
+    const desktopClientId = process.env.GOOGLE_DESKTOP_CLIENT_ID;
+    const desktopClientSecret = process.env.GOOGLE_DESKTOP_CLIENT_SECRET;
+    if (!desktopClientId || !desktopClientSecret) {
+        return res.status(503).json({ error: 'Google desktop exchange is not configured' });
+    }
+    if (typeof code !== 'string' || code.length === 0 || code.length > 4096) {
+        return res.status(400).json({ error: 'code is required' });
+    }
+    if (!isPkceVerifier(codeVerifier)) {
+        return res.status(400).json({ error: 'codeVerifier is invalid' });
+    }
+    if (!isLoopbackRedirect(redirectUri)) {
+        return res.status(400).json({ error: 'redirectUri must point to loopback' });
+    }
+    // Секрет привязан к конкретному client id. Google отклонил бы чужой id и
+    // сам, но явная проверка даёт внятную причину вместо «invalid_client».
+    if (clientId !== undefined && clientId !== desktopClientId) {
+        return res.status(400).json({ error: 'clientId does not match this server' });
+    }
+
+    try {
+        const idToken = await exchangeGoogleCode(
+            { code, codeVerifier, redirectUri },
+            { clientId: desktopClientId, clientSecret: desktopClientSecret },
+        );
+        res.json({ idToken });
+    } catch (error) {
+        if (error instanceof GoogleExchangeError) {
+            console.error('Google desktop exchange failed:', error.message);
+            return res.status(401).json({ error: 'Google token exchange failed' });
+        }
+        console.error('Google desktop exchange error:', error);
+        res.status(502).json({ error: 'Google token exchange unavailable' });
     }
 });
 
