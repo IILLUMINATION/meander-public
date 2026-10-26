@@ -38,5 +38,12 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    # Плагины приходят со своим таргетом (12.0/13.0), а Xcode 26+ такие цели
+    # не собирает: «range of supported deployment target versions is 15.0…».
+    # Ставим после хелпера — он сам удаляет значение, чтобы поды наследовали
+    # таргет Runner, но это работает только если Flutter свежий.
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
   end
 end

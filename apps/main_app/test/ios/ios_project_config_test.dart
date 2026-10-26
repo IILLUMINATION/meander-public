@@ -121,6 +121,15 @@ void main() {
         contains('<string>15.0</string>'),
       );
     });
+
+    test('поды пинятся к 15.0, а не к своему 12.0', () {
+      // Xcode 26+ не собирает цели с таргетом ниже 15.0. Свежий Flutter
+      // удаляет значение у подов, но на старом SDK/кэше оно остаётся.
+      expect(
+        read('Podfile'),
+        contains("config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'"),
+      );
+    });
   });
 
   group('OAuth-дефолты iOS', () {
