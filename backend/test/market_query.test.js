@@ -50,6 +50,17 @@ test('категория All не добавляет условия', () => {
     assert.deepStrictEqual(params, ['%x%']);
 });
 
+test('каталог отдаёт суммарные просмотры по квесту', () => {
+    const { text } = marketListQuery({});
+    assert.ok(
+        text.includes('SUM(v.views)') && text.includes('AS views_count'),
+        text,
+    );
+    // Негативный контроль: без привязки к `mq.id` подзапрос посчитал бы
+    // просмотры всего каталога и на каждой карточке показал одно число.
+    assert.ok(text.includes('v.quest_id = mq.id'), text);
+});
+
 // Guideline 1.2. Негативный контроль: без блока `viewerId` тест падает на
 // NOT EXISTS, с перепутанными колонками — на `blocked_id = mq.author_id`,
 // со забытым параметром — на последнем элементе params.

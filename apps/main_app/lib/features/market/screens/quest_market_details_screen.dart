@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/api_service.dart';
+import 'package:canvas_app/core/utils/count_format.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
 import 'package:canvas_app/core/utils/playtime_formatter.dart';
@@ -975,6 +976,26 @@ class _QuestMarketDetailsScreenState
                               ],
                             ],
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.visibility_rounded,
+                              size: 18,
+                              color: Colors.white70,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${formatCount(quest.viewsCount)} '
+                              '${trpMany(['просмотр', 'просмотра', 'просмотров'])}',
+                              style: textTheme.labelLarge?.copyWith(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

@@ -10,8 +10,17 @@
 // Стиль ника автора подмешиваем джоином, а не через view: на проде
 // `market_quests` определён явным списком колонок, и `CREATE OR REPLACE VIEW`
 // с `q.*` переписал бы его состав.
+//
+// Просмотры живут в `quest_views` по дням, а не в `quests`, поэтому считаем их
+// подзапросом: колонка `views_count` нужна и каталогу, и карточке квеста.
+// `(quest_id, user_id, day)` — первичный ключ таблицы, так что фильтр по
+// `quest_id` идёт по индексу.
+export const QUEST_VIEWS_COUNT_SQL =
+    "(SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id)";
+
 const SELECT =
-    "SELECT mq.*, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics " +
+    `SELECT mq.*, ${QUEST_VIEWS_COUNT_SQL} AS views_count, ` +
+    "p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics " +
     "FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id " +
     "WHERE mq.status = 'published'";
 

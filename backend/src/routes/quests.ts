@@ -3,7 +3,7 @@ import pool from '../config/database';
 import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middleware/auth';
 import adminAuth from '../middleware/adminAuth';
 import { canSeeUnpublished, isAdmin, isStaff } from '../services/visibility';
-import { marketListQuery } from '../services/market_query';
+import { marketListQuery, QUEST_VIEWS_COUNT_SQL } from '../services/market_query';
 import multer from 'multer';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
@@ -713,7 +713,7 @@ router.get('/featured', optionalAuthMiddleware, async (req: AuthRequest, res: Re
             ? Math.max(Math.trunc(rawOffset), 0)
             : 0;
 
-        let q = "SELECT mq.*, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published' AND mq.is_featured = TRUE";
+        let q = `SELECT mq.*, ${QUEST_VIEWS_COUNT_SQL} AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published' AND mq.is_featured = TRUE`;
         const params: any[] = [];
         if (!showNsfw) {
             q += " AND mq.is_nsfw = FALSE";
@@ -1036,12 +1036,19 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Respons
         }
 
         const r = await pool.query(
-            "SELECT mq.*, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.id = $1",
+            `SELECT mq.*, ${QUEST_VIEWS_COUNT_SQL} AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.id = $1`,
             [req.params.id],
         );
 
         if (r.rows.length === 0) {
-            const raw = await pool.query("SELECT * FROM quests WHERE id = $1", [req.params.id]);
+            // Неопубликованный квест автору отдаём из `quests`; просмотры у него
+            // тоже есть, но подзапрос выше завязан на алиас `mq`.
+            const raw = await pool.query(
+                `SELECT q.*, (SELECT COALESCE(SUM(v.views), 0)::int
+                                FROM quest_views v WHERE v.quest_id = q.id) AS views_count
+                   FROM quests q WHERE q.id = $1`,
+                [req.params.id],
+            );
             if (raw.rows.length > 0) {
                 if (await canSeeUnpublished(req, raw.rows[0].author_id)) {
                     return res.json(withPublicDownloadUrl(raw.rows[0]));

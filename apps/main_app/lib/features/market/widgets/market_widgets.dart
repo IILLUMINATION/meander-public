@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:canvas_app/core/utils/count_format.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/features/market/providers/recommendations_provider.dart';
 import 'package:canvas_app/features/market/providers/market_provider.dart';
@@ -61,13 +62,6 @@ const Map<String, IconData> kCategoryIcons = {
 String translateCategory(String? category) {
   if (category == null) return '';
   return kCategoryTranslations[category] ?? category;
-}
-
-String formatDownloads(int count) {
-  if (count >= 1000) {
-    return '${(count / 1000).toStringAsFixed(1)}k';
-  }
-  return count.toString();
 }
 
 String formatRelativeTime(DateTime dateTime) {
@@ -317,36 +311,29 @@ class MarketQuestCard extends ConsumerWidget {
                         ),
                       ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Icon(
-                          Icons.star_rounded,
-                          size: 14,
-                          color: scheme.primary,
+                        _CardMetric(
+                          icon: Icons.star_rounded,
+                          iconColor: scheme.primary,
+                          text: quest.averageRating.toStringAsFixed(1),
+                          textColor: scheme.onSurface,
                         ),
-                        const SizedBox(width: 2),
-                        Text(
-                          quest.averageRating.toStringAsFixed(1),
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        _CardMetric(
+                          icon: Icons.download_rounded,
+                          iconColor: scheme.onSurfaceVariant,
+                          text: formatCount(quest.downloadsCount),
+                          textColor: scheme.onSurfaceVariant,
                         ),
-                        const SizedBox(width: 10),
-                        Icon(
-                          Icons.download_rounded,
-                          size: 13,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          formatDownloads(quest.downloadsCount),
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        _CardMetric(
+                          icon: Icons.visibility_rounded,
+                          iconColor: scheme.onSurfaceVariant,
+                          text: formatCount(quest.viewsCount),
+                          textColor: scheme.onSurfaceVariant,
+                          semanticLabel: tr('Просмотры'),
                         ),
                       ],
                     ),
@@ -451,36 +438,34 @@ class MarketHeroCard extends ConsumerWidget {
                       ),
                     ),
                   const SizedBox(height: 10),
-                  Row(
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Icon(
-                        Icons.star_rounded,
-                        size: 16,
-                        color: Colors.amber,
+                      _CardMetric(
+                        icon: Icons.star_rounded,
+                        iconColor: Colors.amber,
+                        text: quest.averageRating.toStringAsFixed(1),
+                        textColor: Colors.white,
+                        iconSize: 16,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                       ),
-                      const SizedBox(width: 2),
-                      Text(
-                        quest.averageRating.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      _CardMetric(
+                        icon: Icons.download_rounded,
+                        iconColor: Colors.white70,
+                        text: formatCount(quest.downloadsCount),
+                        textColor: Colors.white70,
+                        fontSize: 12,
                       ),
-                      const SizedBox(width: 14),
-                      const Icon(
-                        Icons.download_rounded,
-                        size: 14,
-                        color: Colors.white70,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        formatDownloads(quest.downloadsCount),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      _CardMetric(
+                        icon: Icons.visibility_rounded,
+                        iconColor: Colors.white70,
+                        text: formatCount(quest.viewsCount),
+                        textColor: Colors.white70,
+                        fontSize: 12,
+                        semanticLabel: tr('Просмотры'),
                       ),
                     ],
                   ),
@@ -871,6 +856,50 @@ class MarketRecentActivityFeed extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _CardMetric extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String text;
+  final Color textColor;
+  final String? semanticLabel;
+  final double iconSize;
+  final double fontSize;
+  final FontWeight fontWeight;
+
+  const _CardMetric({
+    required this.icon,
+    required this.iconColor,
+    required this.text,
+    required this.textColor,
+    this.semanticLabel,
+    this.iconSize = 14,
+    this.fontSize = 11,
+    this.fontWeight = FontWeight.w600,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticLabel,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: iconSize, color: iconColor),
+          const SizedBox(width: 2),
+          Text(
+            text,
+            style: TextStyle(
+              color: textColor,
+              fontSize: fontSize,
+              fontWeight: fontWeight,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
