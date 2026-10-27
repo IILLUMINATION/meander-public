@@ -51,6 +51,9 @@ CREATE INDEX IF NOT EXISTS idx_quests_published_market_tier
 
 -- На проде market_quests определён явным списком колонок — дописываем
 -- market_tier в тот же список, а не заменяем view на q.*.
+-- Новая колонка идёт строго последней: CREATE OR REPLACE VIEW умеет только
+-- добавлять колонки в конец, и вставка в середину падает на проде с
+-- «cannot change name of view column author_name to market_tier».
 CREATE OR REPLACE VIEW market_quests AS
 SELECT q.id,
     q.download_url,
@@ -76,21 +79,33 @@ SELECT q.id,
     q.genres,
     q.is_demo,
     q.is_nsfw,
-    q.market_tier,
     p.full_name AS author_name,
     p.is_verified AS author_is_verified,
     (SELECT AVG(r.rating) AS avg FROM ratings r WHERE r.quest_id = q.id) AS average_rating,
-    q.language
+    q.language,
+    q.market_tier
 FROM quests q
 LEFT JOIN profiles p ON q.author_id = p.id;
 
 COMMIT;
 
--- Откат (выполнять отдельно, после отката бэкенда):
+-- Откат (выполнять отдельно, после отката бэкенда). Колонку нельзя убрать
+-- через CREATE OR REPLACE VIEW, поэтому view пересоздаётся: сначала DROP,
+-- затем прежнее определение без market_tier.
 --   BEGIN;
---   CREATE OR REPLACE VIEW market_quests AS /* прежнее определение без market_tier */;
+--   DROP VIEW IF EXISTS market_quests;
 --   ALTER TABLE quests DROP CONSTRAINT IF EXISTS quests_market_tier_matches_demo;
 --   ALTER TABLE quests DROP CONSTRAINT IF EXISTS quests_market_tier_range;
 --   DROP INDEX IF EXISTS idx_quests_published_market_tier;
 --   ALTER TABLE quests DROP COLUMN IF EXISTS market_tier;
+--   CREATE VIEW market_quests AS
+--   SELECT q.id, q.download_url, q.preview_image_url, q.title, q.description,
+--       q.downloads_count, q.version, q.created_at, q.updated_at, q.status,
+--       q.author_id, q.moderator_comment, q.category, q.file_hash, q.is_featured,
+--       q.like_count, q.dislike_count, q.quest_size_bytes, q.node_count,
+--       q.estimated_playtime, q.github_release_id, q.genres, q.is_demo, q.is_nsfw,
+--       p.full_name AS author_name, p.is_verified AS author_is_verified,
+--       (SELECT AVG(r.rating) FROM ratings r WHERE r.quest_id = q.id) AS average_rating,
+--       q.language
+--   FROM quests q LEFT JOIN profiles p ON q.author_id = p.id;
 --   COMMIT;
