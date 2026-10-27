@@ -88,6 +88,21 @@ class QuestTable implements ScriptTable {
     return {'name': name, 'columns': columns, 'rows': rows, 'data': data};
   }
 
+  /// Ячейка сетки может хранить вложенную таблицу — объект той же формы,
+  /// что и [toJson]. Формулы движка видят её как обычную таблицу.
+  static bool isNestedValue(dynamic value) {
+    if (value is! Map) return false;
+    return value['columns'] is List && value['rows'] is List;
+  }
+
+  static QuestTable? nestedFromValue(dynamic value) {
+    if (!isNestedValue(value)) return null;
+    return QuestTable.fromJson(Map<String, dynamic>.from(value as Map));
+  }
+
+  /// Значение для записи в ячейку родительской таблицы.
+  Map<String, dynamic> toNestedValue() => toJson();
+
   void addEmptyRow() {
     final Map<String, dynamic> newRow = {};
     for (final col in columns) {

@@ -154,19 +154,54 @@ class _TableViewerScreenState extends State<TableViewerScreen>
                   ),
                   ...columnsList.map((col) {
                     final val = row[col];
+                    final nested = QuestTable.nestedFromValue(val);
+                    final cell = nested != null
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.grid_on_rounded,
+                                size: 16,
+                                color: Colors.orangeAccent,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  trf('Таблица {p0}×{p1}', {
+                                    'p0': nested.columns.length,
+                                    'p1': nested.rows.length,
+                                  }),
+                                  style: GoogleFonts.firaCode(
+                                    color: Colors.orangeAccent,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 16,
+                                color: Colors.orangeAccent,
+                              ),
+                            ],
+                          )
+                        : Text(
+                            _formatValueSimple(val),
+                            style: GoogleFonts.firaCode(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          );
                     return DataCell(
                       Container(
                         constraints: const BoxConstraints(maxWidth: 200),
-                        child: Text(
-                          _formatValueSimple(val),
-                          style: GoogleFonts.firaCode(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        child: cell,
                       ),
-                      onTap: () => _showFullValue(col, val),
+                      onTap: () => nested != null
+                          ? _openNestedTable(index, col, nested)
+                          : _showFullValue(col, val),
                     );
                   }),
                 ],
@@ -216,6 +251,18 @@ class _TableViewerScreenState extends State<TableViewerScreen>
     } catch (_) {
       return value.toString();
     }
+  }
+
+  void _openNestedTable(int rowIndex, String column, QuestTable nested) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TableViewerScreen(
+          tableName: '${widget.tableName}.$column${rowIndex + 1}',
+          table: nested,
+        ),
+      ),
+    );
   }
 
   void _showFullValue(String key, dynamic value) {

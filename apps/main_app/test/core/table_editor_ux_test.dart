@@ -78,11 +78,14 @@ void main() {
 
     expect(find.textContaining('2 строк'), findsOneWidget);
 
-    await tester.tap(find.text('Вставить строку ниже'));
+    await tester.tap(find.text('Строка'));
     await tester.pumpAndSettle();
     expect(find.textContaining('3 строк'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Переместить выше').at(1));
+    // Меню строки — одна кнопка на строке, как в Excel mobile.
+    await tester.tap(find.byTooltip('Меню строки').at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Переместить выше'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('y'));

@@ -73,6 +73,23 @@ impl QuestTable {
         })
     }
 
+    /// Ячейка сетки может хранить вложенную таблицу — объект той же формы,
+    /// что и [`QuestTable::to_json`]. Формулы видят её как обычную таблицу,
+    /// поэтому никакого отдельного представления не нужно.
+    pub fn is_nested_value(value: &Value) -> bool {
+        value.get("columns").is_some_and(Value::is_array)
+            && value.get("rows").is_some_and(Value::is_array)
+    }
+
+    pub fn from_cell_value(value: &Value) -> Option<Self> {
+        Self::is_nested_value(value).then(|| Self::from_json(value))
+    }
+
+    /// Значение для записи в ячейку родительской таблицы.
+    pub fn to_nested_value(&self) -> Value {
+        self.to_json()
+    }
+
     /// Добавить пустую строку со всеми столбцами (`''`).
     pub fn add_empty_row(&mut self) {
         let mut row = Map::new();
@@ -155,5 +172,74 @@ pub fn strip_table_view(value: &Value) -> Value {
 impl From<&QuestTable> for Value {
     fn from(t: &QuestTable) -> Self {
         t.to_json()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn nested() -> QuestTable {
+        QuestTable::new(
+            "подтаблица".into(),
+            vec!["товар".into(), "цена".into()],
+            vec![serde_json::json!({"товар": "хлеб", "цена": 30})
+                .as_object()
+                .cloned()
+                .unwrap()],
+            serde_json::json!({"открыто": true})
+                .as_object()
+                .cloned()
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn nested_table_roundtrips_through_cell_value() {
+        let value = nested().to_nested_value();
+        assert!(QuestTable::is_nested_value(&value));
+        let restored = QuestTable::from_cell_value(&value).expect("вложенная таблица");
+        assert_eq!(restored.columns, vec!["товар", "цена"]);
+        assert_eq!(restored.rows[0]["товар"], Value::String("хлеб".into()));
+        assert_eq!(restored.data["открыто"], Value::Bool(true));
+    }
+
+    #[test]
+    fn plain_values_and_kv_objects_are_not_tables() {
+        assert!(!QuestTable::is_nested_value(&Value::String("хлеб".into())));
+        assert!(!QuestTable::is_nested_value(
+            &serde_json::json!({"columns": []})
+        ));
+        assert!(!QuestTable::is_nested_value(
+            &serde_json::json!({"товар": "хлеб"})
+        ));
+        assert!(QuestTable::from_cell_value(&serde_json::json!({"товар": "хлеб"})).is_none());
+    }
+
+    /// Вложенность живёт в `rows` как обычное значение, поэтому формула
+    /// `table_cell(table_cell(root, "раздел", 1), "товар", 1)` достаёт ячейку
+    /// уже второй таблицы без отдельного разбора.
+    #[test]
+    fn nested_table_is_visible_to_table_cell_formula() {
+        let parent = QuestTable::new(
+            "root".into(),
+            vec!["раздел".into()],
+            vec![serde_json::json!({"раздел": nested().to_nested_value()})
+                .as_object()
+                .cloned()
+                .unwrap()],
+            Map::new(),
+        );
+        let parent_view = parent.formula_view();
+        let inner = crate::expression::evaluate_parsed(
+            "table_cell(outer, 'раздел', 1)",
+            &serde_json::json!({"outer": parent_view})
+                .as_object()
+                .cloned()
+                .unwrap(),
+        )
+        .expect("формула");
+        let restored = QuestTable::from_cell_value(&inner).expect("вложенная таблица");
+        assert_eq!(restored.rows[0]["цена"], serde_json::json!(30));
     }
 }

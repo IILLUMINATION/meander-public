@@ -1395,7 +1395,7 @@ impl ExpressionEvaluator {
 }
 
 /// Парс+вычисление без подстановок (после замены `{var}`).
-fn evaluate_parsed(expr: &str, variables: &Map<String, Value>) -> Option<Value> {
+pub(crate) fn evaluate_parsed(expr: &str, variables: &Map<String, Value>) -> Option<Value> {
     let mut lexer = Lexer::new(expr);
     let tokens = lexer.tokenize().ok()?;
     let mut parser = Parser::new(&tokens);

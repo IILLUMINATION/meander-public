@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnd_core/mnd_core.dart';
 
@@ -56,6 +58,57 @@ void main() {
       expect(decoded.data['рука'], [
         {'название': 'Яблочко'},
       ]);
+    });
+  });
+
+  group('вложенные таблицы в ячейке', () {
+    final nested = QuestTable(
+      name: 'подтаблица',
+      columns: const ['товар', 'цена'],
+      rows: [
+        {'товар': 'хлеб', 'цена': 30},
+      ],
+      data: const {'открыто': true},
+    );
+
+    test('ячейка-таблица распознаётся и читается обратно', () {
+      final value = nested.toNestedValue();
+      expect(QuestTable.isNestedValue(value), isTrue);
+      final restored = QuestTable.nestedFromValue(value);
+      expect(restored, isNotNull);
+      expect(restored!.name, 'подтаблица');
+      expect(restored.columns, ['товар', 'цена']);
+      expect(restored.rows.first['товар'], 'хлеб');
+      expect(restored.data['открыто'], isTrue);
+    });
+
+    test('обычные значения и KV-объекты не принимаются за таблицу', () {
+      expect(QuestTable.isNestedValue('просто строка'), isFalse);
+      expect(QuestTable.isNestedValue({'columns': []}), isFalse);
+      expect(QuestTable.isNestedValue({'rows': []}), isFalse);
+      expect(QuestTable.nestedFromValue({'columns': [], 'rows': []}), isNotNull,
+          reason: 'пустая таблица — всё ещё валидная вложенная таблица');
+      expect(
+        QuestTable.nestedFromValue({'товар': 'хлеб', 'цена': 30}),
+        isNull,
+        reason: 'объект данных без сетки не должен открываться как таблица',
+      );
+    });
+
+    test('вложенность переживает JSON-кодирование родителя', () {
+      final parent = QuestTable(
+        name: 'root',
+        columns: const ['раздел'],
+        rows: [
+          {'раздел': nested.toNestedValue()},
+        ],
+      );
+      final decoded = QuestTable.fromJson(
+        jsonDecode(jsonEncode(parent.toJson())) as Map<String, dynamic>,
+      );
+      final inner = QuestTable.nestedFromValue(decoded.rows.first['раздел']);
+      expect(inner, isNotNull);
+      expect(inner!.rows.first['цена'], 30);
     });
   });
 }
