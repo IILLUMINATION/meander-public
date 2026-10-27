@@ -1,0 +1,67 @@
+{
+  "title": "How to create a quest",
+  "summary": "From an empty project to publishing: five steps every Meander author goes through.",
+  "minutes": 7,
+  "shots": [
+    {
+      "kind": "quests",
+      "title": "Start in “My quests”",
+      "caption": "The “Create quest” button opens an empty project. You can change the title and cover at any time.",
+      "focus": [0.70, 0.75, 0.28, 0.18],
+      "labels": [
+        {"text": "Create quest", "at": [0.84, 0.68]}
+      ],
+      "arrows": [
+        {"from": [0.84, 0.60], "to": [0.84, 0.77]}
+      ]
+    },
+    {
+      "kind": "editor",
+      "title": "Build the first screen",
+      "caption": "A node is one game screen. Put text, images, buttons and other blocks into it, just like in a builder.",
+      "focus": [0.31, 0.22, 0.64, 0.66],
+      "labels": [
+        {"text": "A node is a screen", "at": [0.63, 0.76]}
+      ],
+      "arrows": [
+        {"from": [0.65, 0.73], "to": [0.65, 0.67]}
+      ]
+    },
+    {
+      "kind": "node",
+      "title": "Set up events",
+      "caption": "A node has events: what happens on enter, on press and when a variable changes. That is the logic of your game.",
+      "focus": [0.08, 0.44, 0.84, 0.30],
+      "labels": [
+        {"text": "Node events", "at": [0.50, 0.35]}
+      ],
+      "arrows": [
+        {"from": [0.50, 0.39], "to": [0.50, 0.46]}
+      ]
+    },
+    {
+      "kind": "links",
+      "title": "Connect nodes with links",
+      "caption": "A link takes the player from one node to another. Mark the start node — that is where the game begins.",
+      "focus": [0.03, 0.12, 0.92, 0.58],
+      "labels": [
+        {"text": "Links", "at": [0.46, 0.78]}
+      ],
+      "arrows": [
+        {"from": [0.46, 0.74], "to": [0.62, 0.57]}
+      ]
+    },
+    {
+      "kind": "publish",
+      "title": "Playtest and publish",
+      "caption": "Play through your quest in preview, check the text and buttons, then send it for moderation.",
+      "focus": [0.03, 0.52, 0.94, 0.44],
+      "labels": [
+        {"text": "Publishing", "at": [0.50, 0.50]}
+      ],
+      "arrows": [
+        {"from": [0.50, 0.55], "to": [0.50, 0.82]}
+      ]
+    }
+  ]
+}

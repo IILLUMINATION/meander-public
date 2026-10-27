@@ -1,0 +1,43 @@
+{
+  "title": "How the market works",
+  "summary": "Three catalog levels: featured quests, moderated releases and demos for a quick look.",
+  "minutes": 3,
+  "shots": [
+    {
+      "kind": "market",
+      "title": "Featured comes first",
+      "caption": "At the top of the shelf are quests the team picked by hand. These are finished games and the best place to start.",
+      "focus": [0.03, 0.31, 0.30, 0.31],
+      "labels": [
+        {"text": "Featured", "at": [0.18, 0.28]}
+      ],
+      "arrows": [
+        {"from": [0.18, 0.72], "to": [0.18, 0.62]}
+      ]
+    },
+    {
+      "kind": "market",
+      "title": "Levels open gradually",
+      "caption": "The higher the level, the more you need to play and rate before it opens. Start with featured quests: everyone can play them.",
+      "focus": [0.03, 0.63, 0.94, 0.33],
+      "labels": [
+        {"text": "Access levels", "at": [0.50, 0.60]}
+      ],
+      "arrows": [
+        {"from": [0.76, 0.67], "to": [0.70, 0.70]}
+      ]
+    },
+    {
+      "kind": "market",
+      "title": "Demos are for a quick look",
+      "caption": "Demo quests are short and show what the editor can do. They stay out of the main feed and do not compete with full games.",
+      "focus": [0.75, 0.19, 0.22, 0.11],
+      "labels": [
+        {"text": "Demos", "at": [0.86, 0.16]}
+      ],
+      "arrows": [
+        {"from": [0.86, 0.32], "to": [0.86, 0.25]}
+      ]
+    }
+  ]
+}

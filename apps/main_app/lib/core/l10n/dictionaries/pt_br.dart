@@ -2069,6 +2069,21 @@ final Map<String, String> ptBrStrings = {
   'Вставить строку выше': 'Inserir linha acima',
   'Столбец 1': 'Coluna 1',
   'Столбец 2': 'Coluna 2',
+  'Статья': 'Artigo',
+  'Схемы': 'Esquemas',
+  'Офлайн': 'Offline',
+  'Хотите узнать, как создать квест?': 'Quer saber como criar uma quest?',
+  'Короткий офлайн-гайд: статья, видео и схемы с подсказками.': 'Um guia curto offline: artigo, vídeo e esquemas passo a passo.',
+  'Открыть гайд': 'Abrir o guia',
+  'Больше не спрашивать': 'Não perguntar novamente',
+  'Гайды по разделам': 'Guias por seção',
+  'Офлайн-статьи, видео и схемы с подсказками': 'Artigos offline, vídeos e esquemas passo a passo',
+  'Схемы с подсказками': 'Esquemas com dicas',
+  'Шаг {p0} из {p1}': 'Passo {p0} de {p1}',
+  'Чтение: {p0} мин': 'Leitura: {p0} min',
+  'Видео недоступно на этом устройстве': 'O vídeo não está disponível neste dispositivo',
+  'Не удалось загрузить гайд': 'Não foi possível carregar o guia',
+  'Гайд прочитан': 'Guia lido',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка

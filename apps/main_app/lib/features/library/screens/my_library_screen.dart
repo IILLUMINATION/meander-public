@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/hub/screens/hub_screen.dart';
+import 'package:canvas_app/features/guides/guide_catalog.dart';
+import 'package:canvas_app/features/guides/models/guide.dart';
+import 'package:canvas_app/features/guides/screens/guide_screen.dart';
+import 'package:canvas_app/features/guides/widgets/guide_prompt.dart';
 import 'package:canvas_app/features/library/services/my_library_service.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
@@ -40,6 +44,23 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
     _tabCtrl = TabController(length: 2, vsync: this);
     _filterKind = widget.initialKind;
     _load();
+    if (!widget.pickerMode) {
+      // Приглашение живёт поверх загрузки: гайд не ждёт библиотеку.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final guide = GuideCatalog.forSection(GuideSection.library);
+        if (guide != null) GuidePrompt.maybeShow(context, guide);
+      });
+    }
+  }
+
+  void _openGuide() {
+    final guide = GuideCatalog.forSection(GuideSection.library);
+    if (guide == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GuideScreen(info: guide)),
+    );
   }
 
   Future<void> _load() async {
@@ -106,6 +127,12 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
       appBar: AppBar(
         title: Text(widget.pickerMode ? tr('Моя библиотека') : tr('Моя библиотека')),
         actions: [
+          if (!widget.pickerMode)
+            IconButton(
+              icon: const Icon(Icons.help_outline_rounded),
+              tooltip: tr('Как это работает'),
+              onPressed: _openGuide,
+            ),
           if (!widget.pickerMode)
             IconButton(
               icon: const Icon(Icons.storefront_rounded),

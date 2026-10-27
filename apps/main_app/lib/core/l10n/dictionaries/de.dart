@@ -2069,6 +2069,21 @@ final Map<String, String> deStrings = {
   'Вставить строку выше': 'Zeile oben einfügen',
   'Столбец 1': 'Spalte 1',
   'Столбец 2': 'Spalte 2',
+  'Статья': 'Artikel',
+  'Схемы': 'Diagramme',
+  'Офлайн': 'Offline',
+  'Хотите узнать, как создать квест?': 'Möchtest du wissen, wie man einen Quest erstellt?',
+  'Короткий офлайн-гайд: статья, видео и схемы с подсказками.': 'Ein kurzer Offline-Guide: Artikel, Video und Schritt-für-Schritt-Diagramme.',
+  'Открыть гайд': 'Guide öffnen',
+  'Больше не спрашивать': 'Nicht mehr fragen',
+  'Гайды по разделам': 'Guides nach Bereichen',
+  'Офлайн-статьи, видео и схемы с подсказками': 'Offline-Artikel, Videos und Schritt-für-Schritt-Diagramme',
+  'Схемы с подсказками': 'Diagramme mit Hinweisen',
+  'Шаг {p0} из {p1}': 'Schritt {p0} von {p1}',
+  'Чтение: {p0} мин': 'Lesezeit: {p0} Min.',
+  'Видео недоступно на этом устройстве': 'Video ist auf diesem Gerät nicht verfügbar',
+  'Не удалось загрузить гайд': 'Guide konnte nicht geladen werden',
+  'Гайд прочитан': 'Guide gelesen',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка

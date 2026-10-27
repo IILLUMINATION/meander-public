@@ -100,6 +100,10 @@ dependencies:
   local_notifier: ^0.1.6
   vm_service: ^15.2.0
   sign_in_with_apple: ^8.2.0
+  # Видео внутри офлайн-гайдов. Те же версии, что в mnd_player: 2.0.1 —
+  # единственный релиз media_kit_video с починенным h/w-рендером на Linux.
+  media_kit: ^1.2.3
+  media_kit_video: ^2.0.1
 
 # Значки платформ. Android и Windows здесь ВЫКЛЮЧЕНЫ намеренно: их делает
 # tool/build_icons.py из assets/icon/logo.svg — адаптивный VectorDrawable
@@ -152,3 +156,8 @@ flutter:
     - assets/images/
     - assets/data/
     - assets/fonts/
+    # Офлайн-гайды: JSON шагов и статья на каждом языке + видео.
+    - assets/guides/
+    - assets/guides/create_quest/
+    - assets/guides/market/
+    - assets/guides/hub/

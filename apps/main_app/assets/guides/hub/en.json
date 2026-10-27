@@ -1,0 +1,31 @@
+{
+  "title": "What is the Hub",
+  "summary": "Ready-made backgrounds, music, sounds, fonts and button presets — one tap into your library.",
+  "minutes": 3,
+  "shots": [
+    {
+      "kind": "hub",
+      "title": "Building blocks for quests",
+      "caption": "The Hub holds community resources: backgrounds, music, sounds, fonts and button presets. You do not have to make or find everything yourself.",
+      "focus": [0.03, 0.20, 0.94, 0.72],
+      "labels": [
+        {"text": "Backgrounds, music, fonts", "at": [0.50, 0.62]}
+      ],
+      "arrows": [
+        {"from": [0.50, 0.95], "to": [0.50, 0.72]}
+      ]
+    },
+    {
+      "kind": "library",
+      "title": "Downloads land in your library",
+      "caption": "Everything you add in the Hub appears in “My library” and becomes available in the quest editor.",
+      "focus": [0.03, 0.27, 0.94, 0.55],
+      "labels": [
+        {"text": "My library", "at": [0.50, 0.19]}
+      ],
+      "arrows": [
+        {"from": [0.50, 0.24], "to": [0.50, 0.29]}
+      ]
+    }
+  ]
+}

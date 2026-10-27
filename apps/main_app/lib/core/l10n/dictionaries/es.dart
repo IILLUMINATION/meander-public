@@ -2069,6 +2069,21 @@ final Map<String, String> esStrings = {
   'Вставить строку выше': 'Insertar fila encima',
   'Столбец 1': 'Columna 1',
   'Столбец 2': 'Columna 2',
+  'Статья': 'Artículo',
+  'Схемы': 'Esquemas',
+  'Офлайн': 'Sin conexión',
+  'Хотите узнать, как создать квест?': '¿Quieres saber cómo crear una aventura?',
+  'Короткий офлайн-гайд: статья, видео и схемы с подсказками.': 'Una guía breve sin conexión: artículo, vídeo y esquemas paso a paso.',
+  'Открыть гайд': 'Abrir la guía',
+  'Больше не спрашивать': 'No volver a preguntar',
+  'Гайды по разделам': 'Guías por sección',
+  'Офлайн-статьи, видео и схемы с подсказками': 'Artículos sin conexión, vídeos y esquemas paso a paso',
+  'Схемы с подсказками': 'Esquemas con indicaciones',
+  'Шаг {p0} из {p1}': 'Paso {p0} de {p1}',
+  'Чтение: {p0} мин': 'Lectura: {p0} min',
+  'Видео недоступно на этом устройстве': 'El vídeo no está disponible en este dispositivo',
+  'Не удалось загрузить гайд': 'No se pudo cargar la guía',
+  'Гайд прочитан': 'Guía leída',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка

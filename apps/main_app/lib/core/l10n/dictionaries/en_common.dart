@@ -273,6 +273,21 @@ final Map<String, String> enCommon = {
   'Поиск по путям': 'Search paths',
   'В таблице нет ключей и колонок': 'The table has no keys or columns',
   'Пока не выбран ни один путь, событие срабатывает на любое изменение в квесте.': 'Until a path is selected, the event fires on any change in the quest.',
+  'Статья': 'Article',
+  'Схемы': 'Diagrams',
+  'Офлайн': 'Offline',
+  'Хотите узнать, как создать квест?': 'Want to learn how to create a quest?',
+  'Короткий офлайн-гайд: статья, видео и схемы с подсказками.': 'A short offline guide: an article, a video and step-by-step diagrams.',
+  'Открыть гайд': 'Open guide',
+  'Больше не спрашивать': 'Don’t ask again',
+  'Гайды по разделам': 'Guides by section',
+  'Офлайн-статьи, видео и схемы с подсказками': 'Offline articles, videos and step-by-step diagrams',
+  'Схемы с подсказками': 'Diagrams with hints',
+  'Шаг {p0} из {p1}': 'Step {p0} of {p1}',
+  'Чтение: {p0} мин': 'Read: {p0} min',
+  'Видео недоступно на этом устройстве': 'Video is unavailable on this device',
+  'Не удалось загрузить гайд': 'Failed to load the guide',
+  'Гайд прочитан': 'Guide read',
 };
 
 /// Множественное число: lemma первой русской формы -> `[one, other]`.

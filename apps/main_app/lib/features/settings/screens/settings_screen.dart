@@ -12,6 +12,8 @@ import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/features/app/screens/about_screen.dart';
 import 'package:canvas_app/features/app/screens/tutorial_screen.dart';
+import 'package:canvas_app/features/guides/screens/guides_screen.dart';
+import 'package:canvas_app/features/guides/widgets/guide_prompt.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
 import 'package:canvas_app/features/onboarding/hints/section_hint.dart';
 import 'package:canvas_app/features/plugins/screens/plugin_manager_screen.dart';
@@ -359,6 +361,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// промахнулся по крестику, объяснение уже не увидит.
   Future<void> _restoreSectionHints() async {
     await SectionHintService.reset();
+    GuidePrompt.resetSession();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -932,6 +935,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => TutorialScreen(),
+                          ),
+                        ),
+                      ),
+                      _SettingsTile(
+                        icon: Icons.auto_stories_rounded,
+                        title: tr('Гайды по разделам'),
+                        subtitle:
+                            tr('Офлайн-статьи, видео и схемы с подсказками'),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => GuidesScreen(),
                           ),
                         ),
                       ),

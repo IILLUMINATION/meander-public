@@ -2319,6 +2319,21 @@ final Map<String, String> trStrings = {
   'Вставить строку выше': 'Üste satır ekle',
   'Столбец 1': 'Sütun 1',
   'Столбец 2': 'Sütun 2',
+  'Статья': 'Makale',
+  'Схемы': 'Şemalar',
+  'Офлайн': 'Çevrimdışı',
+  'Хотите узнать, как создать квест?': 'Quest oluşturmayı öğrenmek ister misin?',
+  'Короткий офлайн-гайд: статья, видео и схемы с подсказками.': 'Kısa bir çevrimdışı rehber: makale, video ve adım adım şemalar.',
+  'Открыть гайд': 'Rehberi aç',
+  'Больше не спрашивать': 'Bir daha sorma',
+  'Гайды по разделам': 'Bölümlere göre rehberler',
+  'Офлайн-статьи, видео и схемы с подсказками': 'Çevrimdışı makaleler, videolar ve adım adım şemalar',
+  'Схемы с подсказками': 'İpuçlu şemalar',
+  'Шаг {p0} из {p1}': 'Adım {p0} / {p1}',
+  'Чтение: {p0} мин': 'Okuma: {p0} dk',
+  'Видео недоступно на этом устройстве': 'Video bu cihazda kullanılamıyor',
+  'Не удалось загрузить гайд': 'Rehber yüklenemedi',
+  'Гайд прочитан': 'Rehber okundu',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка
