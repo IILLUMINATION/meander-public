@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:canvas_app/core/services/quest_content_change_bus.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
+import 'package:canvas_app/core/utils/quest_genres.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:mnd_player/widgets/node_transition_switcher.dart';
@@ -48,19 +49,6 @@ Future<Map<String, dynamic>> _readMap(String rel) async =>
 //
 // ============================================================================
 
-const List<String> kQuestCategories = [
-  "Fantasy",
-  "Sci-Fi",
-  "Horror",
-  "Adventure",
-  "Mystery",
-  "Romance",
-  "Comedy",
-  "Thriller",
-  "Historical",
-  "Drama",
-];
-
 class EditQuestScreen extends ConsumerStatefulWidget {
   final String questId;
   const EditQuestScreen({super.key, required this.questId});
@@ -78,6 +66,8 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
   late TextEditingController _authorController;
   late TextEditingController _descriptionController;
   late TextEditingController _versionController;
+  final TextEditingController _genreSearch = TextEditingController();
+  String _genreQuery = '';
 
   File? _newPreviewFile;
   bool _isLoading = true;
@@ -129,6 +119,7 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
     _authorController.dispose();
     _descriptionController.dispose();
     _versionController.dispose();
+    _genreSearch.dispose();
     super.dispose();
   }
 
@@ -150,9 +141,11 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
           QuestPaths.config(widget.questId),
         );
 
-        _selectedGenres = List<String>.from(quest.genres);
+        // Старые квесты хранят английские названия жанров; в UI и в API
+        // работаем только с каноническими id.
+        _selectedGenres = normalizeGenreIds(quest.genres);
         if (_selectedGenres.isEmpty && config['category'] != null) {
-          _selectedGenres.add(config['category'].toString());
+          _selectedGenres = normalizeGenreIds([config['category']]);
         }
         _buttonStylePresets = _readButtonStylePresets(config);
         _defaultButtonPresetName = quest.defaultButtonPresetName;
@@ -1295,30 +1288,96 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
   }
 
   Widget _buildGenreSelector() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: kQuestCategories.map((category) {
-        final isSelected = _selectedGenres.contains(category);
-        return FilterChip(
-          label: Text(category),
-          selected: isSelected,
-          onSelected: (selected) {
-            setState(() {
-              if (selected) {
-                if (_selectedGenres.length < 3) {
-                  _selectedGenres.add(category);
-                } else {
-                  _showSnack(tr('Максимум 3 жанра'), warning: true);
-                }
-              } else {
-                _selectedGenres.remove(category);
-              }
-              _isDirty = true;
-            });
-          },
-        );
-      }).toList(),
+    final scheme = Theme.of(context).colorScheme;
+    final query = _genreQuery.trim().toLowerCase();
+    // Выбранные жанры держим сверху: иначе после поиска чип, который нужно
+    // снять, уезжает в невидимую часть списка.
+    final rest = kQuestGenreIds
+        .where((id) => !_selectedGenres.contains(id))
+        .where(
+          (id) => query.isEmpty ||
+              genreLabel(id).toLowerCase().contains(query),
+        )
+        .toList()
+      ..sort(
+        (a, b) =>
+            genreLabel(a).toLowerCase().compareTo(genreLabel(b).toLowerCase()),
+      );
+    final visible = <String>[..._selectedGenres, ...rest];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _genreSearch,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  hintText: tr('Найти жанр'),
+                  suffixIcon: _genreQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: tr('Очистить'),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: () {
+                            _genreSearch.clear();
+                            setState(() => _genreQuery = '');
+                          },
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '${_selectedGenres.length}/3',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: visible.map((id) {
+            final isSelected = _selectedGenres.contains(id);
+            return FilterChip(
+              avatar: isSelected ? null : Icon(genreIcon(id), size: 16),
+              label: Text(genreLabel(id)),
+              selected: isSelected,
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    if (_selectedGenres.length < 3) {
+                      _selectedGenres.add(id);
+                    } else {
+                      _showSnack(tr('Максимум 3 жанра'), warning: true);
+                    }
+                  } else {
+                    _selectedGenres.remove(id);
+                  }
+                  _isDirty = true;
+                });
+              },
+            );
+          }).toList(),
+        ),
+        if (visible.isEmpty && query.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              trf('Ничего не найдено по запросу «{p0}».', {'p0': _genreQuery}),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+      ],
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:canvas_app/core/utils/count_format.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
+import 'package:canvas_app/core/utils/quest_genres.dart';
 import 'package:canvas_app/features/market/providers/recommendations_provider.dart';
 import 'package:canvas_app/features/market/providers/market_provider.dart';
 import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
@@ -18,51 +19,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 //  ОБЩИЕ КОНСТАНТЫ
 // ============================================================================
 
-const List<String> kMarketCategories = [
-  'Fantasy',
-  'Sci-Fi',
-  'Horror',
-  'Adventure',
-  'Mystery',
-  'Romance',
-  'Comedy',
-  'Thriller',
-  'Historical',
-  'Drama',
-];
-
-/// Английский id жанра с бэкенда -> подпись на витрине. Геттер, а не
-/// const-таблица: подписи строятся под текущий язык.
-Map<String, String> get kCategoryTranslations => {
-  'Fantasy': tr('Фэнтези'),
-  'Sci-Fi': tr('Фантастика'),
-  'Horror': tr('Ужасы'),
-  'Adventure': tr('Приключения'),
-  'Mystery': tr('Мистика'),
-  'Romance': tr('Романтика'),
-  'Comedy': tr('Комедия'),
-  'Thriller': tr('Триллер'),
-  'Historical': tr('История'),
-  'Drama': tr('Драма'),
-};
-
-const Map<String, IconData> kCategoryIcons = {
-  'Fantasy': Icons.auto_fix_high_rounded,
-  'Sci-Fi': Icons.rocket_launch_rounded,
-  'Horror': Icons.dark_mode_rounded,
-  'Adventure': Icons.terrain_rounded,
-  'Mystery': Icons.psychology_rounded,
-  'Romance': Icons.favorite_rounded,
-  'Comedy': Icons.theater_comedy_rounded,
-  'Thriller': Icons.bolt_rounded,
-  'Historical': Icons.account_balance_rounded,
-  'Drama': Icons.masks_rounded,
-};
+/// Фильтр маркета принимает канонические id жанров; старые значения
+/// (`Fantasy`, `Sci-Fi`, …) переводит [normalizeGenreId].
+const List<String> kMarketCategories = kQuestGenreIds;
 
 String translateCategory(String? category) {
   if (category == null) return '';
-  return kCategoryTranslations[category] ?? category;
+  return genreLabel(normalizeGenreId(category));
 }
+
+IconData categoryIcon(String? category) =>
+    genreIcon(normalizeGenreId(category));
 
 String formatRelativeTime(DateTime dateTime) {
   final now = DateTime.now();
@@ -730,7 +697,7 @@ class MarketFiltersSheet extends ConsumerWidget {
                   (c) => _FilterChipItem(
                     label: translateCategory(c),
                     value: c,
-                    icon: kCategoryIcons[c] ?? Icons.label_outline_rounded,
+                    icon: categoryIcon(c),
                   ),
                 )
                 .toList(),

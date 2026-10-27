@@ -8,6 +8,7 @@ import 'package:canvas_app/core/utils/count_format.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
 import 'package:canvas_app/core/utils/playtime_formatter.dart';
+import 'package:canvas_app/core/utils/quest_genres.dart';
 import 'package:canvas_app/features/analytics/screens/quest_analytics_screen.dart';
 import 'package:canvas_app/features/forums/providers/forum_provider.dart';
 import 'package:canvas_app/features/forums/screens/forum_lobby_screen.dart';
@@ -907,11 +908,15 @@ class _QuestMarketDetailsScreenState
                             spacing: 6,
                             runSpacing: 6,
                             children: quest.genres
-                                .map((g) => CatalogGenreChip(label: g))
+                                .map((g) => CatalogGenreChip(
+                                      label: genreLabel(normalizeGenreId(g)),
+                                    ))
                                 .toList(),
                           )
                         else if (quest.category != null)
-                          CatalogGenreChip(label: quest.category!),
+                          CatalogGenreChip(
+                            label: genreLabel(normalizeGenreId(quest.category)),
+                          ),
                         const SizedBox(height: 10),
                         Text(
                           quest.title,

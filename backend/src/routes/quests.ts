@@ -15,6 +15,7 @@ import { pipeline } from 'stream/promises';
 import { moderateQuestContent, moderateReview } from '../services/moderation';
 import { analyzeQuestZip, publishDecision } from '../services/quest_scan';
 import { normalizeQuestLanguage } from '../services/quest_language';
+import { QUEST_GENRE_IDS, normalizeGenreId, normalizeQuestGenres } from '../data/quest_genres';
 import {
     VERIFIED_USER_MAX_FILE_SIZE_BYTES,
     archiveUnreadable,
@@ -238,9 +239,14 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
             selectedGenres = [category];
         }
 
+        // В базу попадают только канонические id. Старые клиенты и старые
+        // записи присылают английские названия — их переводим здесь, а
+        // неизвестное отбрасываем, чтобы фильтр маркета не разъезжался.
+        selectedGenres = normalizeQuestGenres(selectedGenres);
+
         // Дефолт, если ничего нет
         if (selectedGenres.length === 0) {
-            selectedGenres = ["Adventure"];
+            selectedGenres = ["adventure"];
         }
 
         // Основная категория для обратной совместимости (первый элемент массива)
@@ -658,9 +664,15 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res: Response) 
     }
 
     const { search, category } = req.query;
+    // Старые клиенты фильтруют по подписям ("Fantasy"), а в базе теперь id.
+    // «All» и незнакомые значения оставляем как есть — их обрабатывает SQL.
+    const rawCategory = typeof category === 'string' ? category : undefined;
+    const categoryFilter = rawCategory
+        ? (normalizeGenreId(rawCategory) || rawCategory)
+        : undefined;
     const { text: q, params: p } = marketListQuery({
         search: typeof search === 'string' ? search : undefined,
-        category: typeof category === 'string' ? category : undefined,
+        category: categoryFilter,
         showNsfw,
         viewerId: req.user?.id ?? null,
     });
@@ -692,6 +704,13 @@ router.get('/liked-genres', authMiddleware, async (req: AuthRequest, res: Respon
         console.error("GET /quests/liked-genres failed:", e);
         res.status(500).json({ error: "Failed to load liked genres" });
     }
+});
+
+/// Публичный справочник жанров. Клиент рисует подписи сам, поэтому отдаём
+/// только канонические id — веб-витрине этого достаточно для фильтров.
+router.get('/genres', async (_req, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.json({ genres: QUEST_GENRE_IDS });
 });
 
 router.get('/featured', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {

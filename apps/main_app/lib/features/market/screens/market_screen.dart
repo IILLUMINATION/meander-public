@@ -537,7 +537,7 @@ class _DesktopRail extends ConsumerWidget {
                 ...kMarketCategories.map(
                   (c) => CatalogRailTile(
                     label: translateCategory(c),
-                    icon: kCategoryIcons[c] ?? Icons.label_outline_rounded,
+                    icon: categoryIcon(c),
                     isSelected: selected == c,
                     onTap: () => onCategorySelected(c),
                   ),
@@ -623,7 +623,7 @@ class _CategoryChipsRow extends ConsumerWidget {
         (c) => (
           translateCategory(c),
           c,
-          kCategoryIcons[c] ?? Icons.label_outline_rounded,
+          categoryIcon(c),
         ),
       ),
     ];
