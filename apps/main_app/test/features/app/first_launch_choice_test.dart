@@ -7,10 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 /// `MenuScreen` и `OnboardingScreen` не собираются в виджет-тесте на Linux
 /// (ad-SDK, audio-сессия, riverpod-обвязка), поэтому проверяем текст файлов —
 /// как в `splash_launch_test.dart`. Инвариант один: стартовый таб гостя
-/// определяется его же ответом с онбординга, а не «Хабом» с ресурсами.
+/// определяется его же ответом с онбординга, а не «Каталогом».
 ///
 /// НЕГАТИВНЫЙ КОНТРОЛЬ (#247): в HEAD гость получал `_currentIndex = 1`, а под
-/// единицей лежит `HubScreen`. Верни эту строку — падает первый же тест.
+/// единицей лежит `MarketScreen`. Верни эту строку — падает первый же тест.
 void main() {
   final menu = File('lib/features/shell/screens/menu_screen.dart');
   final onboarding = File('lib/features/app/screens/onboarding_screen.dart');
@@ -48,7 +48,7 @@ void main() {
   }
 
   group('стартовый экран гостя', () {
-    test('гость садится по ответу с онбординга, а не в «Хаб»', () {
+    test('гость садится по ответу с онбординга, а не в «Каталог»', () {
       final body = checkSessionBody();
       expect(
         body,
@@ -58,7 +58,7 @@ void main() {
       expect(
         body,
         isNot(contains('_currentIndex = 1')),
-        reason: 'единица в гостевом списке табов — это «Хаб»',
+        reason: 'единица в гостевом списке табов — это «Каталог»',
       );
     });
 
@@ -67,7 +67,7 @@ void main() {
       final order = RegExp(
         r'screens = \[\s*'
         r'MyQuestsScreen\(isRoot: true\),\s*'
-        r'HubScreen\(\),\s*'
+        r'MarketScreen\(isRoot: true\),\s*'
         r'AuthPlaceholderScreen\(',
       ).hasMatch(guest);
       expect(
@@ -75,7 +75,7 @@ void main() {
         isTrue,
         reason: 'порядок гостевых экранов поменялся — индексы выше врут',
       );
-      // «Мои» — 0, вход — 2; Хаб (1) новичку не стартовый.
+      // «Мои» — 0, вход — 2; Каталог (1) новичку не стартовый.
       expect(menuSource, contains('static const int _guestLibraryTab = 0;'));
       expect(menuSource, contains('static const int _guestSignInTab = 2;'));
     });
@@ -89,7 +89,7 @@ void main() {
           .allMatches(items)
           .map((m) => m.group(1)!)
           .toList();
-      expect(labels, ['Мои', 'Хаб', 'Вход', 'Настройки']);
+      expect(labels, ['Мои', 'Каталог', 'Вход', 'Настройки']);
     });
 
     test('экран входа даёт гостю выход, а не только wall', () {

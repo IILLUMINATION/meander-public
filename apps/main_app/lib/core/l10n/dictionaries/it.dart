@@ -208,7 +208,7 @@ final Map<String, String> itStrings = {
   'Ваше время в игре:': 'Il tuo tempo di gioco:',
   'Вопросы автору, подсказки и идеи': 'Domande all\'autore, suggerimenti e idee',
   'Демо-версии': 'Versioni demo',
-  'Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.': 'Per scaricare le quest devi effettuare l\'accesso. Così possiamo tenere statistiche eque per gli autori.',
+  'Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.': 'Mi piace, valutazioni e recensioni sono legati a un account, così le statistiche degli autori restano oneste. Visualizzare e scaricare è possibile anche senza accedere.',
   'Добавить в рекомендации': 'Aggiungi alle raccomandazioni',
   'Доступна новая версия: {p0}': 'È disponibile una nuova versione: {p0}',
   'Загружаем «{title}»': 'Caricamento di «{title}»',

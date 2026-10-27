@@ -11,12 +11,11 @@ void main() {
     NavBarItem(icon: Icons.public_outlined, label: 'Сообщество'),
     NavBarItem(icon: Icons.forum_outlined, label: 'Чаты'),
     NavBarItem(icon: Icons.auto_stories_outlined, label: 'Мои'),
-    NavBarItem(icon: Icons.inventory_2_outlined, label: 'Хаб'),
     NavBarItem(icon: Icons.person_outline_rounded, label: 'Профиль'),
     NavBarItem(icon: Icons.settings_outlined, label: 'Настройки'),
   ];
 
-  test('семь разделов сворачиваются в четыре + «Ещё»', () {
+  test('шесть разделов сворачиваются в четыре + «Ещё»', () {
     final fold = foldNavBarTiles(sections);
     expect(fold.visible.map((i) => i.label), [
       'Каталог',
@@ -24,7 +23,7 @@ void main() {
       'Чаты',
       'Мои',
     ]);
-    expect(fold.hidden.map((i) => i.label), ['Хаб', 'Профиль', 'Настройки']);
+    expect(fold.hidden.map((i) => i.label), ['Профиль', 'Настройки']);
   });
 
   test('короткий список не сворачиваем', () {
@@ -60,7 +59,7 @@ void main() {
     );
 
     expect(find.byTooltip('Каталог'), findsOneWidget);
-    expect(find.byTooltip('Хаб'), findsNothing);
+    expect(find.byTooltip('Профиль'), findsNothing);
     expect(find.byTooltip('Настройки'), findsNothing);
 
     // Индекс плитки, а не экрана: настоящий таб по нему выбирает вызывающий

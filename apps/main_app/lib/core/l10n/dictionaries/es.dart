@@ -208,7 +208,7 @@ final Map<String, String> esStrings = {
   'Ваше время в игре:': 'Tu tiempo de juego:',
   'Вопросы автору, подсказки и идеи': 'Preguntas al autor, pistas e ideas',
   'Демо-версии': 'Demos',
-  'Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.': 'Inicia sesión para descargar aventuras: así podemos mantener estadísticas honestas para los autores.',
+  'Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.': 'Los me gusta, las valoraciones y las reseñas se vinculan a una cuenta, así las estadísticas de los autores son honestas. Ver y descargar funciona sin iniciar sesión.',
   'Добавить в рекомендации': 'Añadir a recomendados',
   'Доступна новая версия: {p0}': 'Hay una versión nueva disponible: {p0}',
   'Загружаем «{title}»': 'Cargando «{title}»',

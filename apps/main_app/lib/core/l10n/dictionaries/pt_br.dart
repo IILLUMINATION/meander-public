@@ -208,7 +208,7 @@ final Map<String, String> ptBrStrings = {
   'Ваше время в игре:': 'Seu tempo de jogo:',
   'Вопросы автору, подсказки и идеи': 'Perguntas ao autor, dicas e ideias',
   'Демо-версии': 'Demos',
-  'Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.': 'Entre na sua conta para baixar quests. Isso nos ajuda a manter uma estatística justa para os autores.',
+  'Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.': 'Curtidas, avaliações e resenhas ficam vinculadas a uma conta, assim as estatísticas dos autores continuam honestas. Ver e baixar funciona sem entrar.',
   'Добавить в рекомендации': 'Adicionar às recomendações',
   'Доступна новая версия: {p0}': 'Nova versão disponível: {p0}',
   'Загружаем «{title}»': 'Carregando "{title}"',

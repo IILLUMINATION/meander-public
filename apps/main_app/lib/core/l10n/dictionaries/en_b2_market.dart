@@ -7,7 +7,7 @@ final Map<String, String> enB2Market = {
   'Ваше время в игре:': 'Your playtime:',
   'Вопросы автору, подсказки и идеи': 'Questions for the author, hints and ideas',
   'Демо-версии': 'Demos',
-  'Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.': 'Sign in to download quests. This helps us keep fair statistics for authors.',
+  'Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.': 'Likes, ratings and reviews are tied to an account, which keeps author statistics honest. Browsing and downloading work without signing in.',
   'Добавить в рекомендации': 'Add to recommendations',
   'Доступна новая версия: {p0}': 'A new version is available: {p0}',
   'Загружаем «{title}»': 'Loading "{title}"',

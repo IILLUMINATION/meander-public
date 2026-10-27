@@ -580,7 +580,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       toolbarHeight: 76,
-      automaticallyImplyLeading: false,
       titleSpacing: 16,
       title: CatalogSearchField(
         controller: _searchCtrl,

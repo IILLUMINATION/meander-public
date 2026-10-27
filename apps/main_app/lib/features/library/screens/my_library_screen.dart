@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:canvas_app/features/hub/screens/hub_screen.dart';
 import 'package:canvas_app/features/library/services/my_library_service.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
@@ -104,6 +105,17 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.pickerMode ? tr('Моя библиотека') : tr('Моя библиотека')),
+        actions: [
+          if (!widget.pickerMode)
+            IconButton(
+              icon: const Icon(Icons.storefront_rounded),
+              tooltip: tr('Библиотека ресурсов'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => HubScreen()),
+              ),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabCtrl,
           tabs: [

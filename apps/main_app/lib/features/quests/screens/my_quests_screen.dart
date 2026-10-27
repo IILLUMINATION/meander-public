@@ -14,6 +14,7 @@ import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
 import 'package:canvas_app/features/hub/screens/local_presets_screen.dart';
+import 'package:canvas_app/features/library/screens/my_library_screen.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_session.dart';
 import 'package:canvas_app/features/quests/providers/cloud_sync_provider.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
@@ -998,6 +999,14 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       toolbarHeight: 56,
       automaticallyImplyLeading: !widget.isRoot && !_isFiltering,
       actions: [
+        IconButton(
+          icon: const Icon(Icons.collections_bookmark_rounded),
+          tooltip: tr('Моя библиотека'),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => MyLibraryScreen()),
+          ),
+        ),
         IconButton(
           icon: const Icon(Icons.smart_button_rounded),
           tooltip: tr('Локальные пресеты'),

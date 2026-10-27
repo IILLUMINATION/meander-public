@@ -89,11 +89,14 @@ class MarketDownloadNotifier
         ),
       );
 
-      // Регистрируем загрузку на сервере
-      try {
-        await _ref.read(apiServiceProvider).post('quests/${quest.id}/download');
-      } catch (e) {
-        print("Download tracking warning: $e");
+      // Гость качает без аккаунта: счётчик загрузок ему недоступен, и 401
+      // в логе на каждой загрузке — только шум.
+      if (token.trim().isNotEmpty) {
+        try {
+          await _ref.read(apiServiceProvider).post('quests/${quest.id}/download');
+        } catch (e) {
+          print("Download tracking warning: $e");
+        }
       }
 
       _updateState(

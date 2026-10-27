@@ -17,7 +17,6 @@ import 'package:canvas_app/features/messages/screens/chats_screen.dart';
 import 'package:canvas_app/features/messages/providers/dm_provider.dart';
 import 'package:canvas_app/features/profile/screens/profile_screen.dart';
 import 'package:canvas_app/features/settings/screens/settings_screen.dart';
-import 'package:canvas_app/features/hub/screens/hub_screen.dart';
 import 'package:canvas_app/features/shell/widgets/animated_nav_bar.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -61,7 +60,7 @@ class MenuScreen extends ConsumerStatefulWidget {
 }
 
 class _MenuScreenState extends ConsumerState<MenuScreen> {
-  /// Гостевые табы — порядок `screens` в `build()`: [Мои, Хаб, вход, Настройки].
+  /// Гостевые табы — порядок `screens` в `build()`: [Мои, Каталог, вход, Настройки].
   static const int _guestLibraryTab = 0;
   static const int _guestSignInTab = 2;
 
@@ -105,9 +104,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         ref.invalidate(userProfileProvider(userId));
       } else {
         _currentUserId = null;
-        // Гостя сажаем по его же ответу с онбординга. Хаб — про ресурсы и
-        // пресеты, новичку там делать нечего, поэтому он больше не стартовый
-        // таб.
+        // Гостя сажаем по его же ответу с онбординга, а не на «Каталог»:
+        // новичок, который шёл играть, должен упереться во вход, а тот, кто
+        // пришёл смотреть, — в свои квесты.
         _currentIndex =
             prefs.getString(OnboardingService.kIntentKey) ==
                 OnboardingService.intentPlay
@@ -200,7 +199,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         CommunityScreen(),
         ChatsScreen(),
         MyQuestsScreen(isRoot: true),
-        HubScreen(),
         ProfileScreen(userId: _currentUserId!),
         SettingsScreen(),
       ];
@@ -227,11 +225,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           label: tr('Мои'),
         ),
         NavBarItem(
-          icon: Icons.inventory_2_outlined,
-          selectedIcon: Icons.inventory_2_rounded,
-          label: tr('Хаб'),
-        ),
-        NavBarItem(
           icon: Icons.person_outline_rounded,
           selectedIcon: Icons.person_rounded,
           label: tr('Профиль'),
@@ -245,13 +238,15 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     } else {
       screens = [
         MyQuestsScreen(isRoot: true),
-        HubScreen(),
+        MarketScreen(isRoot: true),
         AuthPlaceholderScreen(
           onLoginSuccess: _onLoginSuccess,
           onBrowseAsGuest: () => _onTabTapped(_guestLibraryTab),
         ),
         SettingsScreen(),
       ];
+      // Каталог и страницы квестов открыты без аккаунта; вход нужен только
+      // на действия — лайки, оценки, отзывы.
       items = [
         NavBarItem(
           icon: Icons.auto_stories_outlined,
@@ -259,9 +254,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           label: tr('Мои'),
         ),
         NavBarItem(
-          icon: Icons.inventory_2_outlined,
-          selectedIcon: Icons.inventory_2_rounded,
-          label: tr('Хаб'),
+          icon: Icons.explore_outlined,
+          selectedIcon: Icons.explore_rounded,
+          label: tr('Каталог'),
         ),
         // Под третьим табом у гостя не профиль, а форма входа — новичок,
         // которого развилка послала «пройти квест», читает в названии «Вход»,
@@ -292,7 +287,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       if (fold.hidden.isNotEmpty)
         NavBarItem(
           // Пока человек сидит на скрытом разделе, плитка называется его
-          // именем: «Ещё» при открытом «Хабе» врёт.
+          // именем: «Ещё» при открытом скрытом разделе врёт.
           icon: Icons.more_horiz_rounded,
           selectedIcon: Icons.more_horiz_rounded,
           label: hiddenHere ? items[safeIndex].label : tr('Ещё'),

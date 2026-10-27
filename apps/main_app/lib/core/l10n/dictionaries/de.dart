@@ -208,7 +208,7 @@ final Map<String, String> deStrings = {
   'Ваше время в игре:': 'Deine Spielzeit:',
   'Вопросы автору, подсказки и идеи': 'Fragen an den Autor, Tipps und Ideen',
   'Демо-версии': 'Demoversionen',
-  'Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.': 'Melde dich an, um Quests herunterzuladen. So bleiben die Statistiken für die Autoren fair.',
+  'Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.': 'Likes, Bewertungen und Rezensionen sind an ein Konto gebunden – so bleibt die Statistik der Autoren ehrlich. Ansehen und Herunterladen funktionieren auch ohne Anmeldung.',
   'Добавить в рекомендации': 'Zu den Empfehlungen hinzufügen',
   'Доступна новая версия: {p0}': 'Neue Version verfügbar: {p0}',
   'Загружаем «{title}»': '„{title}“ wird geladen',

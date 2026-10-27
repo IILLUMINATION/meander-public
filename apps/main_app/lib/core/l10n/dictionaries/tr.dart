@@ -365,7 +365,7 @@ final Map<String, String> trStrings = {
   'Ваше время в игре:': 'Oyundaki süreniz:',
   'Вопросы автору, подсказки и идеи': 'Yazara sorular, ipuçları ve fikirler',
   'Демо-версии': 'Demo sürümleri',
-  'Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.': 'Questleri indirmek için giriş yapmanız gerekir. Bu, yazarlar için adil istatistikler tutmamıza yardımcı olur.',
+  'Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.': 'Beğeniler, puanlar ve incelemeler bir hesaba bağlıdır; böylece yazarların istatistikleri dürüst kalır. Görüntülemek ve indirmek giriş yapmadan da çalışır.',
   'Добавить в рекомендации': 'Önerilere ekle',
   'Доступна новая версия: {p0}': 'Yeni sürüm mevcut: {p0}',
   'Загружаем «{title}»': '"{title}" yükleniyor',

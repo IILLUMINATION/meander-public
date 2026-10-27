@@ -256,19 +256,10 @@ class _QuestMarketDetailsScreenState
     final dl = ref.read(marketDownloadProvider)[widget.quest.id];
     if (dl?.isRunning == true) return;
 
-    if (_currentUserId == null) {
-      if (!mounted) return;
-      _showAuthRequiredDialog();
-      return;
-    }
-
+    // Скачивание свободное, в том числе для гостя: токен нужен только чтобы
+    // сервер записал загрузку в статистику автора.
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('jwt_token');
-    if (token == null || token.trim().isEmpty) {
-      if (!mounted) return;
-      _showAuthRequiredDialog();
-      return;
-    }
+    final token = prefs.getString('jwt_token') ?? '';
 
     await ref
         .read(marketDownloadProvider.notifier)
@@ -284,7 +275,7 @@ class _QuestMarketDetailsScreenState
       builder: (dialogContext) => AlertDialog(
         title: Text(tr('Войдите в аккаунт')),
         content: Text(
-          tr('Для скачивания квестов необходимо войти в систему. Это помогает нам вести честную статистику авторам.'),
+          tr('Лайки, оценки и отзывы привязаны к аккаунту — так статистика авторов остаётся честной. Просмотр и скачивание доступны и без входа.'),
         ),
         actions: [
           TextButton(
