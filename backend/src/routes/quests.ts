@@ -4,6 +4,13 @@ import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middlewa
 import adminAuth from '../middleware/adminAuth';
 import { canSeeUnpublished, isAdmin, isStaff } from '../services/visibility';
 import { marketListQuery, QUEST_VIEWS_COUNT_SQL } from '../services/market_query';
+import {
+    MARKET_TIER_DEMO,
+    MARKET_TIER_MODERATED,
+    MARKET_TIER_ON_REPUBLISH_SQL,
+    parseMarketTier,
+    tierForNewQuest,
+} from '../services/market_tiers';
 import multer from 'multer';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
@@ -368,9 +375,10 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
             INSERT INTO quests (
                 id, title, description, author_id, download_url, preview_image_url, 
                 version, node_count, estimated_playtime, quest_size_bytes, 
-                status, updated_at, moderator_comment, category, genres, file_hash, is_demo, is_nsfw
+                status, updated_at, moderator_comment, category, genres, file_hash, is_demo, is_nsfw,
+                market_tier
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14, $15, $16, $17, $18)
             ON CONFLICT (id) DO UPDATE SET 
                 title=EXCLUDED.title, 
                 description=EXCLUDED.description, 
@@ -387,14 +395,16 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
                 genres=$14,
                 file_hash=$15,
                 is_demo=EXCLUDED.is_demo,
-                is_nsfw=EXCLUDED.is_nsfw
+                is_nsfw=EXCLUDED.is_nsfw,
+                market_tier=${MARKET_TIER_ON_REPUBLISH_SQL}
             RETURNING *;
         `;
 
         const resDb = await client.query(upsertQuery, [
             questId, title, description, userId, downloadUrl, previewImageUrl,
             version, analysisData.nodeCount, analysisData.estimatedPlaytime, questFile.size,
-            status, moderatorComment, mainCategory, selectedGenres, hash, isDemo, isNsfw
+            status, moderatorComment, mainCategory, selectedGenres, hash, isDemo, isNsfw,
+            tierForNewQuest(isDemo)
         ]);
 
         // Язык — отдельным UPDATE, не колонкой upsert'а: поле шлёт только
@@ -670,11 +680,15 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res: Response) 
     const categoryFilter = rawCategory
         ? (normalizeGenreId(rawCategory) || rawCategory)
         : undefined;
+    // Кривой tier — не повод отвечать 500: каталог просто отдаёт все уровни,
+    // как и раньше. Валидный приходит с клиента новым параметром.
+    const tierFilter = parseMarketTier(req.query.tier);
     const { text: q, params: p } = marketListQuery({
         search: typeof search === 'string' ? search : undefined,
         category: categoryFilter,
         showNsfw,
         viewerId: req.user?.id ?? null,
+        tier: tierFilter,
     });
 
     try {
@@ -739,7 +753,7 @@ router.get('/featured', optionalAuthMiddleware, async (req: AuthRequest, res: Re
         }
         q += ` AND NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE ub.user_id = $${params.length + 1} AND ub.blocked_id = mq.author_id)`;
         params.push(req.user?.id ?? null);
-        q += " ORDER BY mq.created_at DESC";
+        q += " ORDER BY mq.market_tier ASC, mq.created_at DESC";
         if (limit !== null) {
             params.push(limit);
             q += ` LIMIT $${params.length}`;
@@ -922,9 +936,35 @@ router.post('/:id/admin/action', authMiddleware, adminAuth, async (req: AuthRequ
 
     try {
         if (action === 'set_demo') {
+            // Уровень едет вместе с флагом: инвариант в БД не даёт демо
+            // остаться на первом-втором уровне. Снятие флага возвращает
+            // второй уровень — кураторский первый при возврате из демо
+            // не восстанавливается, его выставляют заново.
             const result = await pool.query(
-                'UPDATE quests SET is_demo = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
-                [value === true, id]
+                `UPDATE quests
+                 SET is_demo = $1,
+                     market_tier = CASE WHEN $1 THEN $3 ELSE $4 END,
+                     updated_at = NOW()
+                 WHERE id = $2 RETURNING *`,
+                [value === true, id, MARKET_TIER_DEMO, MARKET_TIER_MODERATED]
+            );
+            if (result.rows.length === 0) return res.status(404).json({ error: 'Quest not found' });
+            return res.json(result.rows[0]);
+        }
+
+        // Ручной отбор в «Лучшие»: единственное место, где уровень ставится
+        // не по флагу демо. Демо при этом снимается — иначе проверка в БД
+        // отвергла бы запись.
+        if (action === 'set_market_tier') {
+            const tier = parseMarketTier(value);
+            if (tier === null) {
+                return res.status(400).json({ error: 'Invalid market tier' });
+            }
+            const result = await pool.query(
+                `UPDATE quests
+                 SET market_tier = $1, is_demo = ($1 = $3), updated_at = NOW()
+                 WHERE id = $2 RETURNING *`,
+                [tier, id, MARKET_TIER_DEMO]
             );
             if (result.rows.length === 0) return res.status(404).json({ error: 'Quest not found' });
             return res.json(result.rows[0]);

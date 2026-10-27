@@ -519,6 +519,23 @@ class _QuestMarketDetailsScreenState
             ),
             ListTile(
               leading: Icon(
+                quest.isBest
+                    ? Icons.workspace_premium_outlined
+                    : Icons.workspace_premium_rounded,
+                color: const Color(0xFFFFB300),
+              ),
+              title: Text(
+                quest.isBest
+                    ? tr('Вернуть в общий каталог')
+                    : tr('Сделать лучшим'),
+              ),
+              subtitle: Text(
+                tr('Лучшие идут первыми и попадают в отдельную полку'),
+              ),
+              onTap: () => Navigator.pop(ctx, 'toggle_best'),
+            ),
+            ListTile(
+              leading: Icon(
                 quest.isNsfw ? Icons.visibility_rounded : Icons.visibility_off_rounded,
                 color: scheme.error,
               ),
@@ -577,6 +594,15 @@ class _QuestMarketDetailsScreenState
           successText: !quest.isDemo
               ? tr('Квест перенесён в демо')
               : tr('Квест убран из демо'),
+        );
+        return;
+      case 'toggle_best':
+        await _setAdminAction(
+          action: 'set_market_tier',
+          value: quest.isBest ? kMarketTierModerated : kMarketTierBest,
+          successText: quest.isBest
+              ? tr('Квест вернулся в общий каталог')
+              : tr('Квест стал лучшим'),
         );
         return;
       case 'toggle_nsfw':

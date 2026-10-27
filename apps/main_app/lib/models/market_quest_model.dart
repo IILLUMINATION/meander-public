@@ -1,5 +1,11 @@
 import 'package:flutter/foundation.dart';
 
+/// Уровни каталога. 1 — лучшие, отобраны вручную; 2 — прошедшие модерацию;
+/// 3 — демо. Числа совпадают с бэкендом и constraint'ом в БД.
+const int kMarketTierBest = 1;
+const int kMarketTierModerated = 2;
+const int kMarketTierDemo = 3;
+
 @immutable
 class MarketQuest {
   final String id;
@@ -33,6 +39,12 @@ class MarketQuest {
   final bool isDemo;
   final bool isNsfw;
 
+  /// Уровень каталога: [kMarketTierBest], [kMarketTierModerated] или
+  /// [kMarketTierDemo]. Сервер присылает `market_tier`; старый бэкенд поля не
+  /// знает, и тогда уровень выводится из флага демо — так клиент не показывает
+  /// пустой раздел «Лучшие» до выкатки серверной части.
+  final int marketTier;
+
   /// Язык, на котором написан квест (`config.language`), или `null`, если автор
   /// его не указал. Маркет первыми показывает квесты на языке игрока.
   final String? language;
@@ -64,8 +76,11 @@ class MarketQuest {
     this.authorIsVerified = false,
     this.isDemo = false,
     this.isNsfw = false,
+    this.marketTier = kMarketTierModerated,
     this.language,
   });
+
+  bool get isBest => marketTier == kMarketTierBest;
 
   static int _parseInt(dynamic value) {
     if (value == null) return 0;
@@ -100,6 +115,17 @@ class MarketQuest {
     return false;
   }
 
+  /// Уровень из ответа сервера. Инвариант тот же, что у constraint'а в БД:
+  /// демо всегда третий, не-демо — первый или второй. Значения вне 1..3
+  /// (старый сервер, мусор) не роняют карточку, а дают безопасный второй.
+  static int _parseMarketTier(dynamic value, {required bool isDemo}) {
+    if (isDemo) return kMarketTierDemo;
+    final raw = value is num
+        ? value.toInt()
+        : int.tryParse(value?.toString().trim() ?? '');
+    return raw == kMarketTierBest ? kMarketTierBest : kMarketTierModerated;
+  }
+
   factory MarketQuest.fromJson(Map<String, dynamic> json) {
     DateTime? safeParseDate(String? dateString) {
       if (dateString == null) return null;
@@ -131,6 +157,8 @@ class MarketQuest {
       parsedGenres.add(json['category'].toString());
     }
 
+    final isDemo = _parseBool(json['is_demo'] ?? json['demo']);
+
     return MarketQuest(
       id: json['id'] as String,
       title: json['title'] as String,
@@ -156,8 +184,9 @@ class MarketQuest {
       questSizeBytes: _parseInt(json['quest_size_bytes']),
       estimatedPlaytime: _parseInt(json['estimated_playtime']),
       authorIsVerified: _parseBool(json['author_is_verified']),
-      isDemo: _parseBool(json['is_demo'] ?? json['demo']),
+      isDemo: isDemo,
       isNsfw: _parseBool(json['is_nsfw']),
+      marketTier: _parseMarketTier(json['market_tier'], isDemo: isDemo),
       language: _parseLanguage(json['language']),
     );
   }

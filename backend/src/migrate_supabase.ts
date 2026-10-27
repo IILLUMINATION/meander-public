@@ -55,9 +55,10 @@ const migrate = async () => {
           id, download_url, preview_image_url, title, description,
           downloads_count, version, created_at, updated_at, status,
           author_id, moderator_comment, category, is_featured,
-          like_count, dislike_count, quest_size_bytes, node_count, estimated_playtime, is_demo
+          like_count, dislike_count, quest_size_bytes, node_count, estimated_playtime, is_demo,
+          market_tier
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         ON CONFLICT (id) DO NOTHING;
       `, [
         q.id, q.download_url, q.preview_image_url, q.title, q.description,
@@ -65,6 +66,7 @@ const migrate = async () => {
         q.author_id, q.moderator_comment, q.category, q.is_featured || false,
         q.like_count || 0, q.dislike_count || 0, q.quest_size_bytes || 0, q.node_count || 0,
         q.estimated_playtime || 0, q.is_demo || q.demo || false,
+        (q.is_demo || q.demo) ? 3 : ((q.is_featured && status === 'published') ? 1 : 2),
       ]);
     }
 

@@ -214,6 +214,14 @@ class MarketQuestCard extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
+                          if (quest.isBest) ...[
+                            MarketBadge(
+                              label: tr('ЛУЧШИЙ'),
+                              background: const Color(0xFFFFB300),
+                              foreground: Colors.black87,
+                            ),
+                            const SizedBox(height: 4),
+                          ],
                           if (quest.isNsfw) ...[
                             const SizedBox(height: 4),
                             MarketBadge(
@@ -653,6 +661,11 @@ class MarketFiltersSheet extends ConsumerWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              _FilterChipItem(
+                label: tr('Лучшие'),
+                value: 'best',
+                icon: Icons.workspace_premium_rounded,
+              ),
               _FilterChipItem(
                 label: tr('Для вас'),
                 value: 'for_you',

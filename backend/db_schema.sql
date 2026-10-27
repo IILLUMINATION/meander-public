@@ -50,9 +50,15 @@ CREATE TABLE IF NOT EXISTS quests (
     node_count INTEGER DEFAULT 0,
     estimated_playtime INTEGER DEFAULT 0,
     github_release_id BIGINT,
-    is_demo BOOLEAN DEFAULT FALSE
+    is_demo BOOLEAN DEFAULT FALSE,
+    market_tier SMALLINT NOT NULL DEFAULT 2,
+    CONSTRAINT quests_market_tier_range CHECK (market_tier IN (1, 2, 3)),
+    CONSTRAINT quests_market_tier_matches_demo CHECK ((market_tier = 3) = COALESCE(is_demo, FALSE))
 );
 CREATE INDEX IF NOT EXISTS idx_quests_file_hash ON quests(file_hash);
+CREATE INDEX IF NOT EXISTS idx_quests_published_market_tier
+    ON quests (market_tier, created_at DESC)
+    WHERE status = 'published';
 
 -- 4. Ачивки
 CREATE TABLE IF NOT EXISTS achievements (

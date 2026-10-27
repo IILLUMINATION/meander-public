@@ -29,6 +29,8 @@ export interface MarketListOptions {
     category?: string;
     showNsfw?: boolean;
     viewerId?: string | null;
+    /** Уровень каталога 1..3; null/undefined — все уровни. */
+    tier?: number | null;
 }
 
 export interface BuiltQuery {
@@ -36,12 +38,19 @@ export interface BuiltQuery {
     params: any[];
 }
 
-export function marketListQuery({ search, category, showNsfw = false, viewerId = null }: MarketListOptions): BuiltQuery {
+export function marketListQuery({ search, category, showNsfw = false, viewerId = null, tier = null }: MarketListOptions): BuiltQuery {
     let text = SELECT;
     const params: any[] = [];
 
     if (!showNsfw) {
         text += ' AND mq.is_nsfw = FALSE';
+    }
+
+    // Уровень — отдельный фильтр, а не замена сортировки: «Лучшие» просят
+    // tier=1, остальные уровни остаются в общем каталоге ниже.
+    if (tier !== null && tier !== undefined) {
+        text += ` AND mq.market_tier = $${params.length + 1}`;
+        params.push(tier);
     }
 
     // Ищем и по названию, и по автору: поле в маркете подписано «Найти историю,
@@ -71,7 +80,10 @@ export function marketListQuery({ search, category, showNsfw = false, viewerId =
         params.push(viewerId);
     }
 
-    text += ' ORDER BY mq.created_at DESC';
+    // Уровень важнее свежести: новичок должен сначала видеть лучшее, а уже
+    // внутри уровня — свежее. Свежесть остаётся вторым ключом, поэтому
+    // перепубликация по-прежнему поднимает квест наверх своей полки.
+    text += ' ORDER BY mq.market_tier ASC, mq.created_at DESC';
 
     return { text, params };
 }

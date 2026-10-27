@@ -19,6 +19,8 @@ import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
 String _getCategoryTitle(String cat) {
   switch (cat) {
+    case 'best':
+      return tr('Лучшие');
     case 'featured':
       return tr('Выбор редакции');
     case 'verified':
@@ -161,6 +163,10 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
     required String? selectedCategory,
   }) {
     final mainQuestsAsync = ref.watch(marketQuestsProviderNew);
+    // Полка «Лучшие» — ручной отбор. Пока куратор никого не выбрал, секции
+    // нет вовсе: пустая витрина обещала бы контент, которого ещё не существует.
+    final bestQuests =
+        ref.watch(bestQuestsProvider).valueOrNull ?? const <MarketQuest>[];
     final isCompact = width < kCatalogCompactBreakpoint;
     final hPad = isCompact ? 16.0 : 24.0;
 
@@ -207,6 +213,28 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
             child: _FeaturedCarousel(provider: meanderRecommendsProvider),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
+
+          // Лучшие — ручной отбор, виден только когда он не пуст
+          if (bestQuests.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: CatalogSectionHeader(
+                title: tr('Лучшие'),
+                icon: Icons.workspace_premium_rounded,
+                subtitle: tr('Отобраны вручную: только доделанные квесты'),
+                onSeeAll: () =>
+                    ref.read(marketCategoryProvider.notifier).state = 'best',
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            SliverToBoxAdapter(
+              child: _HorizontalQuestList(
+                provider: bestQuestsProvider,
+                height: 215,
+                cardWidth: 170,
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ],
 
           // Подобрано для вас
           SliverToBoxAdapter(
@@ -504,6 +532,7 @@ class _DesktopRail extends ConsumerWidget {
 
     final special = <(String, String?, IconData)>[
       (tr('Главная'), null, Icons.home_rounded),
+      (tr('Лучшие'), 'best', Icons.workspace_premium_rounded),
       (tr('Для вас'), 'for_you', Icons.recommend_rounded),
       (tr('Выбор редакции'), 'featured', Icons.auto_awesome_rounded),
       (tr('В тренде'), 'trending', Icons.trending_up_rounded),
@@ -614,6 +643,7 @@ class _CategoryChipsRow extends ConsumerWidget {
 
     final entries = <(String, String?, IconData)>[
       (tr('Все'), null, Icons.apps_rounded),
+      (tr('Лучшие'), 'best', Icons.workspace_premium_rounded),
       (tr('Для вас'), 'for_you', Icons.recommend_rounded),
       (tr('Тренды'), 'trending', Icons.trending_up_rounded),
       (tr('Выбор'), 'featured', Icons.auto_awesome_rounded),

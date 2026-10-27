@@ -45,6 +45,41 @@ List<MarketQuest> orderByPlayerLanguage(
   ];
 }
 
+// === ПОРЯДОК УРОВНЕЙ ===
+
+/// Устойчивая сортировка по уровню каталога: демо уезжает вниз, порядок
+/// внутри уровня не меняется. Устойчивость важна — до неё список уже
+/// отсортирован по свежести/рейтингу, и перемешивать его незачем.
+List<MarketQuest> orderByMarketTier(List<MarketQuest> quests) {
+  final indexed = quests.indexed.toList()
+    ..sort((a, b) {
+      final byTier = a.$2.marketTier.compareTo(b.$2.marketTier);
+      return byTier != 0 ? byTier : a.$1.compareTo(b.$1);
+    });
+  return [for (final entry in indexed) entry.$2];
+}
+
+/// Порядок каталога для игрока: сначала уровень, внутри уровня — его язык,
+/// дальше исходный порядок (сервер уже отсортировал по свежести).
+///
+/// Язык не может поднять демо выше отобранного квеста: новичок должен
+/// видеть лучшее первым, даже если оно на другом языке.
+List<MarketQuest> orderCatalogForPlayer(
+  List<MarketQuest> quests,
+  String playerLanguage,
+) {
+  final indexed = quests.indexed.toList()
+    ..sort((a, b) {
+      final byTier = a.$2.marketTier.compareTo(b.$2.marketTier);
+      if (byTier != 0) return byTier;
+      final aMine = _matchesPlayerLanguage(a.$2.language, playerLanguage);
+      final bMine = _matchesPlayerLanguage(b.$2.language, playerLanguage);
+      if (aMine != bMine) return aMine ? -1 : 1;
+      return a.$1.compareTo(b.$1);
+    });
+  return [for (final entry in indexed) entry.$2];
+}
+
 // === DATA PROVIDERS ===
 
 /// 1. Свежие релизы (Все квесты, сортировка по ДАТЕ ОБНОВЛЕНИЯ)
@@ -60,9 +95,9 @@ final marketQuestsProviderNew = FutureProvider.autoDispose<List<MarketQuest>>((
         .map((json) => MarketQuest.fromJson(json))
         .toList();
 
-    // Сортируем: Сначала самые свежие (по созданию ИЛИ обновлению)
+    // Сортируем: сначала самые свежие (по созданию ИЛИ обновлению)
     list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return orderByPlayerLanguage(list, playerLanguage);
+    return orderCatalogForPlayer(list, playerLanguage);
   } catch (e) {
     print('Error loading new quests: $e');
     rethrow;
@@ -79,13 +114,14 @@ final marketQuestsProviderPopular =
             .map((json) => MarketQuest.fromJson(json))
             .toList();
 
-        // Сортировка по скачиваниям + рейтингу
+        // Сортировка по скачиваниям + рейтингу, затем уровень: популярное
+        // демо не должно стоять выше отобранного квеста.
         list.sort((a, b) {
           final scoreA = a.downloadsCount + (a.likeCount * 5);
           final scoreB = b.downloadsCount + (b.likeCount * 5);
           return scoreB.compareTo(scoreA);
         });
-        return list;
+        return orderByMarketTier(list);
       } catch (e) {
         return [];
       }
@@ -102,12 +138,12 @@ final meanderRecommendsProvider = FutureProvider.autoDispose<List<MarketQuest>>(
           .where((q) => !q.isDemo)
           .toList();
 
-      if (featured.isNotEmpty) return featured;
+      if (featured.isNotEmpty) return orderByMarketTier(featured);
 
       // ФОЛЛБЭК: Если список пуст, берем топ-5 самых рейтинговых
       final all = await ref.read(marketQuestsProviderNew.future);
       all.sort((a, b) => b.averageRating.compareTo(a.averageRating));
-      return all.where((q) => !q.isDemo).toList();
+      return orderByMarketTier(all.where((q) => !q.isDemo).toList());
     } catch (e) {
       return [];
     }
@@ -125,14 +161,30 @@ final verifiedAuthorsQuestsProvider =
       }
     });
 
+/// 4b. Лучшие: отобраны вручную. Отдельная полка, а не фильтр по рейтингу —
+/// место в ней даёт куратор, и оно не должно размываться языком или свежестью.
+final bestQuestsProvider = FutureProvider.autoDispose<List<MarketQuest>>((
+  ref,
+) async {
+  try {
+    final allQuests = await ref.watch(marketQuestsProviderNew.future);
+    return allQuests.where((q) => q.isBest).toList();
+  } catch (e) {
+    return [];
+  }
+});
+
 /// 5. Скрытые алмазы (Random for Newbies)
 /// Показывает случайные квесты, у которых мало скачиваний
 final undiscoveredQuestsProvider =
     FutureProvider.autoDispose<List<MarketQuest>>((ref) async {
       try {
         final allQuests = await ref.watch(marketQuestsProviderNew.future);
-        // Берем квесты где меньше 100 скачиваний
-        final newbies = allQuests.where((q) => q.downloadsCount < 100).toList();
+        // Берем квесты где меньше 100 скачиваний. Демо сюда не пускаем:
+        // это витрина новинок, а не второй вход в третий уровень.
+        final newbies = allQuests
+            .where((q) => q.downloadsCount < 100 && !q.isDemo)
+            .toList();
         newbies.shuffle(); // Перемешиваем
         return newbies.take(10).toList(); // Берем 10 штук
       } catch (e) {
@@ -151,7 +203,7 @@ final searchQuestsProvider = FutureProvider.autoDispose
           'quests',
           queryParams: {'search': query},
         );
-        return orderByPlayerLanguage(
+        return orderCatalogForPlayer(
           (responseData as List)
               .map((json) => MarketQuest.fromJson(json))
               .toList(),
@@ -197,6 +249,9 @@ final filteredMarketQuestsProvider =
           final featuredIds = featured.map((q) => q.id).toSet();
           return results.where((q) => featuredIds.contains(q.id)).toList();
         }
+        if (category == 'best') {
+          return results.where((q) => q.isBest).toList();
+        }
         if (category != null &&
             category != 'verified' &&
             category != 'trending') {
@@ -213,6 +268,9 @@ final filteredMarketQuestsProvider =
 
       // Если выбрана категория (чипы)
       if (category != null) {
+        if (category == 'best') {
+          return await ref.watch(bestQuestsProvider.future);
+        }
         if (category == 'featured') {
           return await ref.watch(meanderRecommendsProvider.future);
         }

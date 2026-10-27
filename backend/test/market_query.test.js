@@ -88,3 +88,27 @@ test('гость не платит за фильтр блокировок сдв
     assert.ok(!text.includes('user_blocks'), text);
     assert.deepStrictEqual(params, ['%x%']);
 });
+
+test('уровень каталога — отдельный фильтр и отдельный плейсхолдер', () => {
+    const { text, params } = marketListQuery({ search: 'дождь', category: 'Horror', tier: 1 });
+    assert.ok(text.includes('mq.market_tier = $1'), text);
+    assert.ok(text.includes('$3 = ANY(mq.genres)'), text);
+    assert.deepStrictEqual(params, [1, '%дождь%', 'Horror']);
+});
+
+test('без tier условия по уровню нет — старые клиенты видят все уровни', () => {
+    const { text, params } = marketListQuery({});
+    assert.ok(!text.includes('market_tier ='), text);
+    assert.deepStrictEqual(params, []);
+});
+
+// Негативный контроль: без первого ключа сортировки демо-квест, обновлённый
+// сегодня, снова оказался бы выше отобранного вручную, и каталог показывал
+// новичку «дно» первым.
+test('каталог сортируется по уровню, затем по свежести', () => {
+    const { text } = marketListQuery({});
+    assert.ok(
+        text.includes('ORDER BY mq.market_tier ASC, mq.created_at DESC'),
+        text,
+    );
+});
