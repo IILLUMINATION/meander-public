@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "mnd-core"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
  "aes",
  "argon2",
@@ -1461,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "mnd-ffi"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
  "flutter_rust_bridge",
  "mnd-core",
@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "mnd-plugin"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
  "mlua",
  "mnd-core",
@@ -1484,14 +1484,14 @@ dependencies = [
 
 [[package]]
 name = "mnd-server"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
  "mnd-core",
 ]
 
 [[package]]
 name = "mnd-tui"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
  "crossterm",
  "image",
