@@ -111,4 +111,124 @@ void main() {
       expect(inner!.rows.first['цена'], 30);
     });
   });
+
+  group('имена строк', () {
+    QuestTable makeTable({List<String>? names}) => QuestTable(
+          name: 'лавка',
+          columns: const ['цена'],
+          rows: [
+            {'цена': 30},
+            {'цена': 50},
+            {'цена': 70},
+          ],
+          rowNames: names,
+        );
+
+    test('список выравнивается по числу строк', () {
+      final short = makeTable(names: const ['меч']);
+      expect(short.rowNames, ['меч', '', '']);
+      expect(short.rowName(0), 'меч');
+      expect(short.rowName(2), '');
+      expect(short.hasRowNames, isTrue);
+
+      final long = makeTable(names: const ['а', 'б', 'в', 'г']);
+      expect(long.rowNames, ['а', 'б', 'в']);
+
+      expect(makeTable(names: const ['', ' ', '']).hasRowNames, isFalse);
+    });
+
+    test('имена переживают JSON, в том числе старый ключ row_names', () {
+      final table = makeTable(names: const ['меч', '', 'щит']);
+      final decoded = QuestTable.fromJson(table.toJson());
+      expect(decoded.rowNames, ['меч', '', 'щит']);
+      expect(decoded.rowNames, isNot(same(table.rowNames)),
+          reason: 'список должен копироваться, а не шариться');
+
+      final legacyKey = QuestTable.fromJson({
+        'name': 'лавка',
+        'columns': ['цена'],
+        'rows': [
+          {'цена': 30},
+          {'цена': 50},
+        ],
+        'row_names': ['меч', ''],
+      });
+      expect(legacyKey.rowNames, ['меч', '']);
+
+      final old = QuestTable.fromJson({
+        'name': 'лавка',
+        'columns': ['цена'],
+        'rows': [
+          {'цена': 30},
+          {'цена': 50},
+        ],
+      });
+      expect(old.rowNames, ['', '']);
+      expect(old.hasRowNames, isFalse);
+    });
+
+    test('rowNames не протекает в data при старом формате', () {
+      final decoded = QuestTable.fromJson({
+        'columns': [],
+        'rows': [],
+        'rowNames': ['меч', 'щит'],
+      });
+      expect(decoded.data, isEmpty);
+      expect(decoded.rowNames, isEmpty,
+          reason: 'строк нет — имена не должны создать фантомные строки');
+    });
+
+    test('insertRowAt/removeRowAt/moveRow держат имена в паре со строками', () {
+      final table = makeTable(names: const ['меч', 'щит', 'лук']);
+      table.insertRowAt(1, {'цена': 40}, name: ' копьё ');
+      expect(table.rows.map((r) => r['цена']), [30, 40, 50, 70]);
+      expect(table.rowNames, ['меч', 'копьё', 'щит', 'лук']);
+
+      table.removeRowAt(1);
+      expect(table.rows.map((r) => r['цена']), [30, 50, 70]);
+      expect(table.rowNames, ['меч', 'щит', 'лук']);
+
+      table.moveRow(0, 2);
+      expect(table.rows.map((r) => r['цена']), [50, 70, 30]);
+      expect(table.rowNames, ['щит', 'лук', 'меч']);
+
+      table.addEmptyRow();
+      expect(table.rowNames, ['щит', 'лук', 'меч', '']);
+    });
+
+    test('setRowName тримит и игнорирует строку вне диапазона', () {
+      final table = makeTable();
+      table.setRowName(1, '  щит  ');
+      expect(table.rowName(1), 'щит');
+      table.setRowName(9, 'нет');
+      expect(table.rowNames, ['', 'щит', '']);
+
+      final short = makeTable(names: const []);
+      short.rowNames = [];
+      short.setRowName(2, 'лук');
+      expect(short.rowNames, ['', '', 'лук']);
+    });
+
+    test('rowIndexByName ищет по имени и не путает пустое', () {
+      final table = makeTable(names: const ['меч', '', 'меч']);
+      expect(table.rowIndexByName(' меч '), 0);
+      expect(table.rowIndexByName(''), isNull);
+      expect(table.rowIndexByName('   '), isNull);
+      expect(table.rowIndexByName('нет'), isNull);
+      expect(table.rowIndexByName('меч'), 0,
+          reason: 'дубликаты допустимы, находится первая строка');
+    });
+  });
+
+  group('escapeTableKey', () {
+    test('кавычка и обратный слэш экранируются, остальное не трогается', () {
+      expect(escapeTableKey('меч'), 'меч');
+      expect(escapeTableKey('{тест}'), '{тест}');
+      expect(escapeTableKey('a}b'), 'a}b');
+      expect(escapeTableKey('a"b'), r'a\"b');
+      expect(escapeTableKey(r'a\b'), r'a\\b');
+      // Слэш экранируется первым: иначе `\"` превратился бы в `\\"`.
+      expect(escapeTableKey(r'a\"b'), r'a\\\"b');
+    });
+  });
 }

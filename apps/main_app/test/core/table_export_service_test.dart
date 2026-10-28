@@ -135,6 +135,39 @@ void main() {
       );
     });
 
+    test('имена строк переживают CSV-круговорот', () {
+      final table = QuestTable(
+        name: 'лавка',
+        columns: const ['цена', 'запас'],
+        rows: [
+          {'цена': '30', 'запас': '2'},
+          {'цена': '99', 'запас': '1'},
+        ],
+        rowNames: const ['меч', 'щит'],
+      );
+      final csv = TableExportService.tableToCsv(table, includeBom: false);
+      expect(csv.split('\n').first, '__row_name,цена,запас');
+      final restored = TableExportService.questTableFromCsv(
+        csv,
+        name: 'лавка',
+      );
+      expect(restored.columns, ['цена', 'запас']);
+      expect(restored.rows, table.rows);
+      expect(restored.rowNames, ['меч', 'щит']);
+      expect(restored.rowIndexByName('щит'), 1);
+
+      // Без имён служебной колонки нет, импорт старого CSV не меняется.
+      final plain = TableExportService.tableToCsv(
+        makeTable(),
+        includeBom: false,
+      );
+      expect(plain.startsWith('A,B'), isTrue);
+      expect(
+        TableExportService.questTableFromCsv(plain, name: 't').rowNames,
+        ['', ''],
+      );
+    });
+
     test('decodeCsvBytes: UTF-8 без BOM и с BOM, фолбэк на Windows-1251', () {
       expect(TableExportService.decodeCsvBytes(utf8.encode('Привет')), 'Привет');
 
@@ -158,6 +191,26 @@ void main() {
       expect(parsed.columns, table.columns);
       expect(parsed.rows, table.rows);
       expect(parsed.data, table.data);
+    });
+
+    test('имена строк попадают в JSON и читаются обратно', () {
+      final table = QuestTable(
+        name: 'лавка',
+        columns: const ['цена'],
+        rows: [
+          {'цена': 30},
+        ],
+        rowNames: const ['меч'],
+      );
+      final json = jsonDecode(
+        const JsonEncoder.withIndent('  ').convert(table.toJson()),
+      ) as Map<String, dynamic>;
+      expect(json['rowNames'], ['меч']);
+      final parsed = TableExportService.parseQuestTableJson(
+        jsonEncode(json),
+      );
+      expect(parsed.rowNames, ['меч']);
+      expect(parsed.rowIndexByName('меч'), 0);
     });
 
     test('ошибки: не JSON, не объект, нет columns/rows', () {
@@ -214,6 +267,22 @@ void main() {
       );
       expect(xml, contains('<v>100</v>'));
       expect(xml, isNot(contains('t="inlineStr"><is><t>100')));
+    });
+
+    test('имена строк — первая колонка листа', () {
+      final table = QuestTable(
+        name: 'Лавка',
+        columns: const ['цена'],
+        rows: [
+          {'цена': 30},
+          {'цена': 99},
+        ],
+        rowNames: const ['меч', 'щит'],
+      );
+      final grid = readXlsxGrid(TableExportService.tableToXlsx(table));
+      expect(grid[0], ['__row_name', 'цена']);
+      expect(grid[1], ['меч', '30']);
+      expect(grid[2], ['щит', '99']);
     });
 
     test('лист «Данные (KV)» создаётся только при непустом data', () {

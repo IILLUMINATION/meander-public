@@ -97,4 +97,94 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('3 строк'), findsOneWidget);
   });
+
+  testWidgets('имя строки принимает скобки, кавычки и слэш', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: TableEditorScreen(
+        table: makeTable(),
+        questId: 'rename',
+        onSave: (t) {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Меню строки').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Имя строки…'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, r'{тест}"a\b');
+    await tester.pumpAndSettle();
+    // Превью адреса экранирует кавычку и слэш, но само имя остаётся как есть.
+    expect(
+      find.text(r'{Тест["A"]["{тест}\"a\\b"]}'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Сохранить'));
+    await tester.pumpAndSettle();
+
+    // find.text совпал бы и с содержимым TextField, поэтому проверяем, что
+    // диалог закрылся, а имя попало именно в подпись строки.
+    expect(find.text('Имя строки 1'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Text && w.data == r'{тест}"a\b',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('ссылка на именованную строку экранирует кавычку и слэш',
+      (tester) async {
+    final table = QuestTable(
+      name: 'Тест',
+      columns: const ['A'],
+      rows: [
+        {'A': '10'},
+        {'A': '20'},
+        {'A': '30'},
+      ],
+      rowNames: const ['{тест}', 'a"b', r'a\b'],
+      data: const {},
+    );
+
+    Future<String?> pick(String cell) async {
+      String? picked;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () async {
+                  picked = await Navigator.push<String>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TableEditorScreen(
+                        table: table,
+                        questId: 'picker-named',
+                        onSave: (t) {},
+                        cellPickerMode: true,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('открыть'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('открыть'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(cell));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      return picked;
+    }
+
+    expect(await pick('10'), '{Тест["A"]["{тест}"]}');
+    expect(await pick('20'), r'{Тест["A"]["a\"b"]}');
+    expect(await pick('30'), r'{Тест["A"]["a\\b"]}');
+  });
 }

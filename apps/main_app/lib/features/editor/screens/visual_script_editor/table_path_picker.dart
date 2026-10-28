@@ -16,14 +16,22 @@ class TableDataSnapshot {
   final String name;
   final Map<String, dynamic> data;
   final List<String> columns;
+  final List<String> rowNames;
   final int rowCount;
 
   const TableDataSnapshot({
     required this.name,
     required this.data,
     required this.columns,
+    this.rowNames = const [],
     required this.rowCount,
   });
+
+  /// Первое непустое имя строки — им можно адресовать ячейку вместо номера.
+  String get firstRowName => rowNames.firstWhere(
+    (n) => n.trim().isNotEmpty,
+    orElse: () => '',
+  );
 
   bool get hasKeys => data.isNotEmpty;
 
@@ -60,6 +68,7 @@ Future<TableDataSnapshot?> loadTableDataSnapshot(
         name: table.name,
         data: table.data,
         columns: table.columns,
+        rowNames: table.rowNames,
         rowCount: table.rows.length,
       );
     }
@@ -146,8 +155,16 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
   /// Ссылка на ячейку первой строки колонки — та же форма, что вставляет пикер
   /// ячейки в тексте. Сетка путём блока «Данные» не является, поэтому её не
   /// подставляем в поле пути, а даём скопировать.
-  static String _gridRef(String table, String column) =>
-      '{$table["${column.replaceAll('"', r'\"')}"][1]}';
+  static String _gridRef(
+    String table,
+    String column, [
+    String rowName = '',
+  ]) {
+    final col = escapeTableKey(column);
+    final row = escapeTableKey(rowName.trim());
+    if (row.isNotEmpty) return '{$table["$col"]["$row"]}';
+    return '{$table["$col"][1]}';
+  }
 
   Future<void> _copyGridRef(String ref) async {
     await Clipboard.setData(ClipboardData(text: ref));
@@ -262,6 +279,7 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
                           final ref = _gridRef(
                             widget.tableName,
                             snapshot.columns[i],
+                            snapshot.firstRowName,
                           );
                           return ActionChip(
                             onPressed: () => _copyGridRef(ref),

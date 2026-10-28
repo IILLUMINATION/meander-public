@@ -1,12 +1,23 @@
 import 'dart:convert';
 import 'package:mnd_core/contracts/script_runtime.dart';
 
+/// Экранирует имя колонки или строки для адреса `{таблица["имя"]…}`:
+/// содержимое квадратных скобок — строковый литерал, поэтому обратный слэш и
+/// кавычка внутри имени обязаны быть экранированы. Слэш — первым, иначе
+/// экранируется слэш, добавленный для кавычки.
+String escapeTableKey(String name) =>
+    name.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+
 class QuestTable implements ScriptTable {
   String name;
   List<String> columns;
 
   // Classic table rows: index-based access.
   List<Map<String, dynamic>> rows;
+
+  /// Человекочитаемые имена строк — параллельный [rows] список. Пустая строка
+  /// означает «имени нет», доступ по номеру продолжает работать.
+  List<String> rowNames;
 
   // Key-value storage for script-friendly lookups.
   @override
@@ -16,8 +27,65 @@ class QuestTable implements ScriptTable {
     required this.name,
     required this.columns,
     required this.rows,
+    List<String>? rowNames,
     this.data = const {},
-  });
+  }) : rowNames = _normalizeRowNames(rowNames, rows.length);
+
+  static List<String> _normalizeRowNames(List<String>? names, int rowCount) {
+    final out = List<String>.generate(rowCount, (_) => '');
+    if (names != null) {
+      for (var i = 0; i < rowCount && i < names.length; i++) {
+        out[i] = names[i];
+      }
+    }
+    return out;
+  }
+
+  /// Имя строки или пустая строка.
+  String rowName(int index) {
+    if (index < 0 || index >= rowNames.length) return '';
+    return rowNames[index];
+  }
+
+  /// Индекс строки по имени (первое совпадение), `null` — имени нет.
+  int? rowIndexByName(String name) {
+    final needle = name.trim();
+    if (needle.isEmpty) return null;
+    final index = rowNames.indexOf(needle);
+    return index < 0 ? null : index;
+  }
+
+  /// Есть ли у таблицы хотя бы одно имя строки.
+  bool get hasRowNames => rowNames.any((n) => n.trim().isNotEmpty);
+
+  void insertRowAt(int index, Map<String, dynamic> row, {String name = ''}) {
+    final at = index.clamp(0, rows.length);
+    rows.insert(at, row);
+    rowNames.insert(at, name.trim());
+  }
+
+  void removeRowAt(int index) {
+    if (index < 0 || index >= rows.length) return;
+    rows.removeAt(index);
+    if (index < rowNames.length) rowNames.removeAt(index);
+  }
+
+  void moveRow(int from, int to) {
+    if (from < 0 || from >= rows.length) return;
+    if (to < 0 || to >= rows.length) return;
+    final row = rows.removeAt(from);
+    rows.insert(to, row);
+    final name = from < rowNames.length ? rowNames.removeAt(from) : '';
+    rowNames.insert(to.clamp(0, rowNames.length), name);
+  }
+
+  void setRowName(int index, String name) {
+    if (index < 0 || index >= rows.length) return;
+    while (rowNames.length < rows.length) {
+      rowNames.add('');
+    }
+    rowNames[index] = name.trim();
+  }
 
   factory QuestTable.fromJson(Map<String, dynamic> json) {
     if (json.containsKey('__table_full_json__')) {
@@ -36,7 +104,13 @@ class QuestTable implements ScriptTable {
       }
       final table = QuestTable.fromJson(decoded);
       json.forEach((k, v) {
-        if (!k.startsWith('__') && k != 'name' && k != 'columns' && k != 'rows' && k != 'data') {
+        if (!k.startsWith('__') &&
+            k != 'name' &&
+            k != 'columns' &&
+            k != 'rows' &&
+            k != 'rowNames' &&
+            k != 'row_names' &&
+            k != 'data') {
           dynamic val = v;
           if (v is String) {
             try {
@@ -59,7 +133,12 @@ class QuestTable implements ScriptTable {
     } else {
       dataMap = <String, dynamic>{};
       json.forEach((k, v) {
-        if (k != 'name' && k != 'columns' && k != 'rows' && !k.startsWith('__')) {
+        if (k != 'name' &&
+            k != 'columns' &&
+            k != 'rows' &&
+            k != 'rowNames' &&
+            k != 'row_names' &&
+            !k.startsWith('__')) {
           dynamic val = v;
           if (v is String) {
             try {
@@ -80,12 +159,21 @@ class QuestTable implements ScriptTable {
       rows: (json['rows'] as List<dynamic>? ?? [])
           .map((row) => Map<String, dynamic>.from(row as Map))
           .toList(),
+      rowNames: List<String>.from(
+        (json['rowNames'] ?? json['row_names']) as List<dynamic>? ?? [],
+      ),
       data: dataMap,
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {'name': name, 'columns': columns, 'rows': rows, 'data': data};
+    return {
+      'name': name,
+      'columns': columns,
+      'rows': rows,
+      'rowNames': rowNames,
+      'data': data,
+    };
   }
 
   /// Ячейка сетки может хранить вложенную таблицу — объект той же формы,
@@ -109,6 +197,7 @@ class QuestTable implements ScriptTable {
       newRow[col] = '';
     }
     rows.add(newRow);
+    rowNames.add('');
   }
 
   void updateColumns(List<String> newColumns) {

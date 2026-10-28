@@ -11,6 +11,9 @@ pub struct QuestTable {
     pub columns: Vec<String>,
     /// Index-based доступ к строкам.
     pub rows: Vec<Map<String, Value>>,
+    /// Человекочитаемые имена строк (параллельно `rows`). Пустая строка —
+    /// имени нет, доступ по номеру продолжает работать.
+    pub row_names: Vec<String>,
     /// Key-value хранилище, видимое скриптам (`ScriptTable.data`).
     pub data: Map<String, Value>,
 }
@@ -22,12 +25,52 @@ impl QuestTable {
         rows: Vec<Map<String, Value>>,
         data: Map<String, Value>,
     ) -> Self {
+        let row_names = vec![String::new(); rows.len()];
         Self {
             name,
             columns,
             rows,
+            row_names,
             data,
         }
+    }
+
+    pub fn with_row_names(
+        name: String,
+        columns: Vec<String>,
+        rows: Vec<Map<String, Value>>,
+        row_names: Vec<String>,
+        data: Map<String, Value>,
+    ) -> Self {
+        let mut table = Self::new(name, columns, rows, data);
+        table.set_row_names(&row_names);
+        table
+    }
+
+    /// Синхронизировать имена со строками: недостающие — пустые, лишние
+    /// отбрасываются (после удаления строк).
+    pub fn set_row_names(&mut self, names: &[String]) {
+        self.row_names = vec![String::new(); self.rows.len()];
+        for (i, name) in names.iter().take(self.row_names.len()).enumerate() {
+            self.row_names[i] = name.trim().to_string();
+        }
+    }
+
+    pub fn row_name(&self, index: usize) -> &str {
+        self.row_names.get(index).map(String::as_str).unwrap_or("")
+    }
+
+    /// Индекс строки по имени (первое совпадение).
+    pub fn row_index_by_name(&self, name: &str) -> Option<usize> {
+        let needle = name.trim();
+        if needle.is_empty() {
+            return None;
+        }
+        self.row_names.iter().position(|n| n == needle)
+    }
+
+    pub fn has_row_names(&self) -> bool {
+        self.row_names.iter().any(|n| !n.trim().is_empty())
     }
 
     pub fn from_json(json: &Value) -> Self {
@@ -56,12 +99,22 @@ impl QuestTable {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let row_names = obj
+            .get("rowNames")
+            .or_else(|| obj.get("row_names"))
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .map(|v| v.as_str().unwrap_or_default().to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let data = obj
             .get("data")
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        Self::new(name, columns, rows, data)
+        Self::with_row_names(name, columns, rows, row_names, data)
     }
 
     pub fn to_json(&self) -> Value {
@@ -69,6 +122,7 @@ impl QuestTable {
             "name": self.name,
             "columns": self.columns,
             "rows": self.rows,
+            "rowNames": self.row_names,
             "data": self.data,
         })
     }
@@ -97,6 +151,7 @@ impl QuestTable {
             row.insert(col.clone(), Value::String(String::new()));
         }
         self.rows.push(row);
+        self.row_names.push(String::new());
     }
 
     /// Обновить набор столбцов: лишние дропаются, новые инициализируются `''`.
@@ -143,12 +198,37 @@ impl QuestTable {
             Value::Array(self.rows.iter().map(|r| Value::Object(r.clone())).collect()),
         );
         view.insert("__column_values".into(), Value::Object(column_values));
+        view.insert(
+            "__row_names".into(),
+            Value::Array(self.row_names.iter().cloned().map(Value::String).collect()),
+        );
+        let mut by_name = Map::new();
+        for (index, row) in self.rows.iter().enumerate() {
+            let name = self.row_name(index).trim();
+            if name.is_empty() {
+                continue;
+            }
+            by_name.insert(name.to_string(), Value::Object(row.clone()));
+            // Прямой доступ `{таблица["имя"]["колонка"]}`. Данные и служебные
+            // ключи приоритетнее: имя строки не должно их перекрывать.
+            if !name.starts_with("__") && !view.contains_key(name) {
+                view.insert(name.to_string(), Value::Object(row.clone()));
+            }
+        }
+        view.insert("__row_values".into(), Value::Object(by_name));
         Value::Object(view)
     }
 }
 
 /// Ключи, которые в `formula_view` добавлены поверх `data`.
-pub const TABLE_VIEW_KEYS: [&str; 4] = ["__table", "__columns", "__rows", "__column_values"];
+pub const TABLE_VIEW_KEYS: [&str; 6] = [
+    "__table",
+    "__columns",
+    "__rows",
+    "__column_values",
+    "__row_names",
+    "__row_values",
+];
 
 /// Значение — табличная projection, а не обычные данные.
 pub fn is_table_view(value: &Value) -> bool {
@@ -159,12 +239,29 @@ pub fn is_table_view(value: &Value) -> bool {
 /// текст): человек должен получить ровно то же, что давал `data`.
 pub fn strip_table_view(value: &Value) -> Value {
     match value {
-        Value::Object(map) if is_table_view(value) => Value::Object(
-            map.iter()
-                .filter(|(key, _)| !TABLE_VIEW_KEYS.contains(&key.as_str()))
-                .map(|(key, val)| (key.clone(), val.clone()))
-                .collect(),
-        ),
+        Value::Object(map) if is_table_view(value) => {
+            let row_aliases = map
+                .get("__row_values")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            Value::Object(
+                map.iter()
+                    .filter(|(key, val)| {
+                        if TABLE_VIEW_KEYS.contains(&key.as_str()) {
+                            return false;
+                        }
+                        // Имя строки — вычислимый алиас, а не данные. Ключ
+                        // с тем же именем в `data` не трогаем: он приоритетнее.
+                        match row_aliases.get(*key) {
+                            Some(row) => row != *val,
+                            None => true,
+                        }
+                    })
+                    .map(|(key, val)| (key.clone(), val.clone()))
+                    .collect(),
+            )
+        }
         other => other.clone(),
     }
 }
@@ -183,15 +280,88 @@ mod tests {
         QuestTable::new(
             "подтаблица".into(),
             vec!["товар".into(), "цена".into()],
-            vec![serde_json::json!({"товар": "хлеб", "цена": 30})
-                .as_object()
-                .cloned()
-                .unwrap()],
+            vec![
+                serde_json::json!({"товар": "хлеб", "цена": 30})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ],
             serde_json::json!({"открыто": true})
                 .as_object()
                 .cloned()
                 .unwrap(),
         )
+    }
+
+    #[test]
+    fn row_names_roundtrip_and_normalize() {
+        let mut table = nested();
+        table.set_row_names(&[" меч ".into()]);
+        assert_eq!(table.row_names, vec!["меч"]);
+        assert_eq!(table.row_name(0), "меч");
+        assert_eq!(table.row_index_by_name(" меч "), Some(0));
+        assert_eq!(table.row_index_by_name("нет"), None);
+        assert!(table.has_row_names());
+
+        let restored = QuestTable::from_json(&table.to_json());
+        assert_eq!(restored.row_names, vec!["меч"]);
+        assert_eq!(restored.row_index_by_name("меч"), Some(0));
+
+        // Старый JSON без имён: список выравнивается по числу строк.
+        let legacy = serde_json::json!({
+            "name": "лавка",
+            "columns": ["цена"],
+            "rows": [{"цена": 1}, {"цена": 2}],
+            "data": {},
+        });
+        let legacy = QuestTable::from_json(&legacy);
+        assert_eq!(legacy.row_names, vec!["", ""]);
+        assert!(!legacy.has_row_names());
+        assert_eq!(legacy.row_index_by_name(""), None);
+    }
+
+    #[test]
+    fn formula_view_aliases_rows_without_shadowing_data() {
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into()],
+            vec![
+                serde_json::json!({"цена": 30})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ],
+            serde_json::json!({"открыто": true})
+                .as_object()
+                .cloned()
+                .unwrap(),
+        );
+        table.set_row_names(&["меч".into()]);
+        let view = table.formula_view();
+        assert_eq!(view["__row_names"], serde_json::json!(["меч"]));
+        assert_eq!(view["__row_values"]["меч"]["цена"], serde_json::json!(30));
+        assert_eq!(view["меч"]["цена"], serde_json::json!(30));
+
+        // Алиас не перекрывает ключ данных с тем же именем.
+        let mut shadowed = table.clone();
+        shadowed
+            .data
+            .insert("меч".into(), serde_json::json!("ключ хранилища"));
+        let view = shadowed.formula_view();
+        assert_eq!(view["меч"], serde_json::json!("ключ хранилища"));
+        assert_eq!(view["__row_values"]["меч"]["цена"], serde_json::json!(30));
+
+        let stripped = strip_table_view(&view);
+        assert_eq!(stripped["меч"], serde_json::json!("ключ хранилища"));
+        assert!(stripped.get("__row_names").is_none());
+        assert!(stripped.get("__row_values").is_none());
+        assert!(stripped.get("__table").is_none());
+        assert_eq!(stripped["открыто"], serde_json::json!(true));
+
+        // Без данных-двойника алиас тоже снимается.
+        let stripped = strip_table_view(&table.formula_view());
+        assert!(stripped.get("меч").is_none());
+        assert_eq!(stripped["открыто"], serde_json::json!(true));
     }
 
     #[test]
@@ -224,10 +394,12 @@ mod tests {
         let parent = QuestTable::new(
             "root".into(),
             vec!["раздел".into()],
-            vec![serde_json::json!({"раздел": nested().to_nested_value()})
-                .as_object()
-                .cloned()
-                .unwrap()],
+            vec![
+                serde_json::json!({"раздел": nested().to_nested_value()})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ],
             Map::new(),
         );
         let parent_view = parent.formula_view();

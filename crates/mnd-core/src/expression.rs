@@ -1037,15 +1037,22 @@ fn call_function(name: &str, args: &[Value], c: &EvalContext) -> Value {
             let Some(col) = text_arg(args, 1) else {
                 return Value::Null;
             };
-            match row_index(args.get(2)).and_then(|i| table_row_list(t).get(i).cloned()) {
+            match row_at(t, args.get(2)).and_then(|i| table_row_list(t).get(i).cloned()) {
                 Some(row) => row.get(&col).cloned().unwrap_or(Value::Null),
                 None => Value::Null,
             }
         }),
         "table_row" => with_table(args, c, |t| {
-            row_index(args.get(1))
+            row_at(t, args.get(1))
                 .and_then(|i| table_row_list(t).get(i).cloned())
                 .unwrap_or(Value::Null)
+        }),
+        "table_row_names" => with_table(args, c, |t| {
+            Value::Array(table_row_names(t).into_iter().map(Value::from).collect())
+        }),
+        "table_row_number" => with_table(args, c, |t| match row_at(t, args.get(1)) {
+            Some(i) => Value::from(i as i64 + 1),
+            None => Value::from(0),
         }),
         "table_sum" => table_fold(args, c, |nums| json_of_f64(nums.iter().sum())),
         "table_avg" => table_fold(args, c, |nums| {
@@ -1149,6 +1156,35 @@ fn row_index(value: Option<&Value>) -> Option<usize> {
         return None;
     }
     Some(n as usize - 1)
+}
+
+/// Строка по номеру (с 1) или по имени строки. Строка-аргумент сначала
+/// проверяется как имя: `table_cell(shop, 'цена', 'меч')`.
+fn row_at(table: &Value, value: Option<&Value>) -> Option<usize> {
+    if let Some(Value::String(name)) = value {
+        let needle = name.trim();
+        if let Some(index) = table_row_names(table)
+            .iter()
+            .position(|n| !n.trim().is_empty() && n == needle)
+        {
+            return Some(index);
+        }
+    }
+    row_index(value)
+}
+
+fn table_row_names(table: &Value) -> Vec<String> {
+    table
+        .get("__row_names")
+        .or_else(|| table.get("rowNames"))
+        .or_else(|| table.get("row_names"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|v| v.as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn table_row_list(table: &Value) -> Vec<Value> {

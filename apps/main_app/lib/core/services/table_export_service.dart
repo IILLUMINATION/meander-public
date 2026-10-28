@@ -83,18 +83,24 @@ class TableExportService {
   }
 
   /// Таблица в CSV. BOM помогает Excel/Google Sheets распознать UTF-8.
+  /// Если у строк есть имена, первая колонка — `__row_name`: импорт по ней
+  /// восстановит имена, а в остальных программах это просто колонка.
   static String tableToCsv(QuestTable table, {bool includeBom = true}) {
     final buffer = StringBuffer();
+    final withNames = table.hasRowNames;
     void writeRow(List<String> values) {
       buffer.writeln(values.map(_escapeCsvField).join(','));
     }
 
-    writeRow(table.columns);
+    writeRow([if (withNames) '__row_name', ...table.columns]);
     final maxRows =
         table.rows.length > _maxSheetRows ? _maxSheetRows : table.rows.length;
     for (var i = 0; i < maxRows; i++) {
       final row = table.rows[i];
-      writeRow(table.columns.map((col) => valueToText(row[col])).toList());
+      writeRow([
+        if (withNames) table.rowName(i),
+        ...table.columns.map((col) => valueToText(row[col])),
+      ]);
     }
 
     final csv = buffer.toString();
@@ -161,7 +167,12 @@ class TableExportService {
       throw FormatException(tr('Файл CSV пуст'));
     }
 
-    final header = rowsRaw.first;
+    var header = rowsRaw.first;
+    final hasRowNames = header.isNotEmpty && header.first.trim() == '__row_name';
+    if (hasRowNames) header = header.sublist(1);
+    if (header.isEmpty) {
+      throw FormatException(tr('Файл CSV не содержит заголовков'));
+    }
     if (header.length == 1 && header.first.trim().isEmpty) {
       throw FormatException(tr('Файл CSV не содержит заголовков'));
     }
@@ -182,18 +193,31 @@ class TableExportService {
     }
 
     final dataRows = <Map<String, dynamic>>[];
+    final rowNames = <String>[];
+    final offset = hasRowNames ? 1 : 0;
     for (final raw in rowsRaw.skip(1)) {
       final row = <String, dynamic>{};
       var allEmpty = true;
+      final rowName = hasRowNames && raw.isNotEmpty ? raw.first.trim() : '';
+      if (rowName.isNotEmpty) allEmpty = false;
       for (var i = 0; i < columns.length; i++) {
-        final v = i < raw.length ? raw[i] : '';
+        final at = i + offset;
+        final v = at < raw.length ? raw[at] : '';
         if (v.isNotEmpty) allEmpty = false;
         row[columns[i]] = v;
       }
-      if (!allEmpty) dataRows.add(row);
+      if (!allEmpty) {
+        dataRows.add(row);
+        rowNames.add(rowName);
+      }
     }
 
-    return QuestTable(name: name, columns: columns, rows: dataRows);
+    return QuestTable(
+      name: name,
+      columns: columns,
+      rows: dataRows,
+      rowNames: hasRowNames ? rowNames : null,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -306,7 +330,9 @@ class TableExportService {
 
   static List<List<Map<String, dynamic>>> _tableToXlsxRows(QuestTable table) {
     final rows = <List<Map<String, dynamic>>>[];
+    final withNames = table.hasRowNames;
     rows.add([
+      if (withNames) {'v': '__row_name', 'bold': true},
       for (final col in table.columns) {'v': col, 'bold': true},
     ]);
     final maxRows = table.rows.length > _maxSheetRows
@@ -315,6 +341,7 @@ class TableExportService {
     for (var i = 0; i < maxRows; i++) {
       final row = table.rows[i];
       rows.add([
+        if (withNames) {'v': table.rowName(i)},
         for (final col in table.columns)
           {'v': _smartValue(row[col])},
       ]);

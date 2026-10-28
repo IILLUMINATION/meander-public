@@ -131,4 +131,19 @@ final Map<String, String> enResources = {
   'Вставить строку выше': 'Insert row above',
   'Столбец 1': 'Column 1',
   'Столбец 2': 'Column 2',
+  'Имя строки…': 'Row name…',
+  'Пока без имени — доступ по номеру': 'No name yet — addressed by number',
+  'колонка': 'column',
+  'Имена на «__» заняты движком':
+      'Names starting with "__" are reserved by the engine',
+  'Имя занято колонкой или ключом таблицы':
+      'The name is taken by a column or a table key',
+  'Такая строка уже есть': 'A row with this name already exists',
+  'Имя строки {p0}': 'Row name {p0}',
+  'Имя': 'Name',
+  'Например: меч': 'For example: sword',
+  'Пустое имя — доступ по номеру строки, как раньше.':
+      'An empty name keeps the numeric row address, as before.',
+  'Имя строки {p0} убрано': 'Row name {p0} removed',
+  'Строка {p0} теперь «{p1}»': 'Row {p0} is now “{p1}”',
 };

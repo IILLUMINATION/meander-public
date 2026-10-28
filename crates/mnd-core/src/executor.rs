@@ -900,10 +900,22 @@ pub(crate) fn interpolate_placeholders_raw(
         if chars[i] == '{' {
             let mut j = i + 1;
             let mut depth = 1;
+            let mut quote: Option<char> = None;
             while j < chars.len() {
-                if chars[j] == '{' {
+                let c = chars[j];
+                if let Some(q) = quote {
+                    if c == '\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if c == q {
+                        quote = None;
+                    }
+                } else if c == '"' || c == '\'' {
+                    quote = Some(c);
+                } else if c == '{' {
                     depth += 1;
-                } else if chars[j] == '}' {
+                } else if c == '}' {
                     depth -= 1;
                     if depth == 0 {
                         break;
@@ -1418,40 +1430,68 @@ fn try_math_expression(expr: &str, game_state: &mut dyn ScriptRuntime) -> Option
 /// Нормализация лишних фигурных скобок: `{{t["а"]1}}` → `{t["а"]1}`,
 /// `a}} {b}` → `a} {b}` (закрытие маркера перед следующим).
 /// Двойная обёртка `{{}}` вокруг маркера не трогается.
+///
+/// Внутри кавычек скобки — данные, а не разметка: имя строки или колонки
+/// может содержать `{{`, `}}` и экранированную кавычку, и схлопывать их
+/// нельзя. Поэтому скан учитывает строковые литералы и `\`-экранирование.
 fn normalize_placeholder_braces(text: &str) -> String {
     if !text.contains("{{") && !text.contains("}}") {
         return text.to_string();
     }
-    let mut s = text.to_string();
-
-    // Лишние `{`: каждое найденное `{{` (кроме вложенного маркера `{}`)
-    // схлопывается в один `{`. Цикл сходит: итерация либо убирает символ,
-    // либо прерывается.
-    while let Some(pos) = s.find("{{") {
-        if s[pos + 2..].starts_with('}') {
-            break; // `{}` внутри — маркер, не трогаем
-        }
-        s.replace_range(pos..pos + 1, "");
-    }
-
-    // Лишние `}`: конец строки, начало следующего маркера или пробел.
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
     let mut i = 0;
-    while let Some(found) = s[i..].find("}}").map(|p| p + i) {
-        let rest = &s[found + 2..];
-        let is_boundary = rest.is_empty()
-            || rest.starts_with('{')
-            || rest.starts_with(' ')
-            || rest.starts_with('\n')
-            || rest.starts_with('\t');
-        if is_boundary {
-            s.remove(found);
-            i = found;
-        } else {
-            i = found + 1;
+    let mut quote: Option<char> = None;
+    let mut brackets = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            out.push(c);
+            if c == '\\' && i + 1 < chars.len() {
+                out.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
         }
+        // Кавычки — только внутри `[...]`: апостроф в обычном тексте («It's»)
+        // не должен выключать нормализацию до конца строки.
+        if (c == '"' || c == '\'') && brackets > 0 {
+            quote = Some(c);
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if c == '[' {
+            brackets += 1;
+        } else if c == ']' && brackets > 0 {
+            brackets -= 1;
+        }
+        if c == '{' && i + 1 < chars.len() && chars[i + 1] == '{' {
+            if chars.get(i + 2) != Some(&'}') {
+                out.push('{');
+                i += 2;
+                continue;
+            }
+        }
+        if c == '}' && i + 1 < chars.len() && chars[i + 1] == '}' {
+            let rest = chars.get(i + 2);
+            let is_boundary =
+                matches!(rest, None | Some('{') | Some(' ') | Some('\n') | Some('\t'));
+            if is_boundary {
+                out.push('}');
+                i += 2;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
     }
-
-    s
+    out
 }
 
 fn resolve_inline_placeholders(expression: &str, game_state: &mut dyn ScriptRuntime) -> String {
@@ -1463,10 +1503,22 @@ fn resolve_inline_placeholders(expression: &str, game_state: &mut dyn ScriptRunt
         if chars[i] == '{' {
             let mut j = i + 1;
             let mut depth = 1;
+            let mut quote: Option<char> = None;
             while j < chars.len() {
-                if chars[j] == '{' {
+                let c = chars[j];
+                if let Some(q) = quote {
+                    if c == '\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if c == q {
+                        quote = None;
+                    }
+                } else if c == '"' || c == '\'' {
+                    quote = Some(c);
+                } else if c == '{' {
                     depth += 1;
-                } else if chars[j] == '}' {
+                } else if c == '}' {
                     depth -= 1;
                     if depth == 0 {
                         break;
@@ -1553,7 +1605,12 @@ fn to_expression_literal(value: &Option<Value>) -> String {
 /// Глубокий lookup `name['key'].prop` (паритет `_manualDeepLookup`).
 /// На корне таблицы строковый ключ может быть «rows», «columns» или именем
 /// колонки — возвращает соответствующий массив (для доступа по индексу строки).
-fn table_root_array(key: &str, rows: &[Map<String, Value>], columns: &[String]) -> Option<Value> {
+fn table_root_array(
+    key: &str,
+    rows: &[Map<String, Value>],
+    columns: &[String],
+    row_names: &[String],
+) -> Option<Value> {
     if key == "rows" {
         return Some(Value::Array(
             rows.iter().map(|r| Value::Object(r.clone())).collect(),
@@ -1564,6 +1621,7 @@ fn table_root_array(key: &str, rows: &[Map<String, Value>], columns: &[String]) 
             columns.iter().map(|c| Value::String(c.clone())).collect(),
         ));
     }
+    // Колонка важнее: её имя исторически адресует весь столбец.
     if columns.iter().any(|c| c == key) {
         return Some(Value::Array(
             rows.iter()
@@ -1571,7 +1629,39 @@ fn table_root_array(key: &str, rows: &[Map<String, Value>], columns: &[String]) 
                 .collect(),
         ));
     }
+    if let Some(index) = row_names
+        .iter()
+        .position(|n| !n.trim().is_empty() && n == key)
+    {
+        return rows.get(index).cloned().map(Value::Object);
+    }
     None
+}
+
+/// Снимает `\`-экранирование со строкового литерала в квадратных скобках —
+/// ровно так же, как лексер выражений: `\"`, `\\`, `\n`, `\t`, `\r`, `\'`.
+fn unescape_quoted(raw: &str) -> String {
+    let chars: Vec<char> = raw.chars().collect();
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() {
+            out.push(match chars[i + 1] {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                '\\' => '\\',
+                '\'' => '\'',
+                '"' => '"',
+                other => other,
+            });
+            i += 2;
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
 }
 
 fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
@@ -1602,6 +1692,7 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
     // где N — визуальный (1-based) номер строки.
     let mut table_rows: Vec<Map<String, Value>> = Vec::new();
     let mut table_columns: Vec<String> = Vec::new();
+    let mut table_row_names: Vec<String> = Vec::new();
     let mut at_root = false;
     let mut table_array = false;
     if let Some(table) = game_state.get_table(base_name) {
@@ -1610,6 +1701,7 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
         at_root = true;
         table_rows = table.rows.clone();
         table_columns = table.columns.clone();
+        table_row_names = table.row_names.clone();
     } else if let Some(var) = game_state.get_variable(base_name) {
         current = var.clone();
     } else {
@@ -1640,7 +1732,7 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
                         current = v.clone();
                         at_root = false;
                     } else if is_table_base && at_root {
-                        match table_root_array(key, &table_rows, &table_columns) {
+                        match table_root_array(key, &table_rows, &table_columns, &table_row_names) {
                             Some(arr) => {
                                 current = arr;
                                 table_array = true;
@@ -1660,10 +1752,15 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
             let mut end_bracket: Option<usize> = None;
             let mut in_quote = false;
             let mut quote_char = '\0';
+            let mut escaped = false;
             while i < chars.len() {
                 let cc = chars[i];
                 if in_quote {
-                    if cc == quote_char && chars[i - 1] != '\\' {
+                    if escaped {
+                        escaped = false;
+                    } else if cc == '\\' {
+                        escaped = true;
+                    } else if cc == quote_char {
                         in_quote = false;
                     }
                 } else {
@@ -1692,20 +1789,28 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
                         if content.len() < 2 {
                             return Value::Null;
                         }
-                        let key = &content[1..content.len() - 1];
-                        if let Some(v) = map.get(key) {
+                        let key = unescape_quoted(&content[1..content.len() - 1]);
+                        if let Some(v) = map.get(&key) {
+                            at_root = false;
                             v.clone()
                         } else if is_table_base && at_root {
-                            match table_root_array(key, &table_rows, &table_columns) {
+                            at_root = false;
+                            match table_root_array(
+                                &key,
+                                &table_rows,
+                                &table_columns,
+                                &table_row_names,
+                            ) {
                                 Some(arr) => {
-                                    table_array = true;
+                                    table_array = matches!(arr, Value::Array(_));
                                     arr
                                 }
                                 None => Value::Null,
                             }
                         } else {
                             // Переменная как ключ.
-                            let var_key = game_state.get_variable(key).cloned();
+                            at_root = false;
+                            let var_key = game_state.get_variable(&key).cloned();
                             match var_key {
                                 Some(Value::String(vk)) => {
                                     map.get(&vk).cloned().unwrap_or(Value::Null)
@@ -1729,7 +1834,8 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
                             if idx == usize::MAX {
                                 Value::Null
                             } else {
-                                table_array = true;
+                                table_array = false;
+                                at_root = false;
                                 Value::Object(table_rows[idx].clone())
                             }
                         } else {
@@ -1742,10 +1848,32 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
                         );
                         match key_value {
                             Value::Null => Value::Null,
-                            other => map
-                                .get(&value_to_string(&other))
-                                .cloned()
-                                .unwrap_or(Value::Null),
+                            other => {
+                                let key = value_to_string(&other);
+                                if let Some(v) = map.get(&key) {
+                                    at_root = false;
+                                    v.clone()
+                                } else if is_table_base && at_root {
+                                    // `{t[перем]}` / `{t[формула]}` на корне:
+                                    // переменная может держать имя строки или
+                                    // колонки — резолвим так же, как литерал.
+                                    at_root = false;
+                                    match table_root_array(
+                                        &key,
+                                        &table_rows,
+                                        &table_columns,
+                                        &table_row_names,
+                                    ) {
+                                        Some(arr) => {
+                                            table_array = matches!(arr, Value::Array(_));
+                                            arr
+                                        }
+                                        None => Value::Null,
+                                    }
+                                } else {
+                                    Value::Null
+                                }
+                            }
                         }
                     }
                 }
@@ -1760,23 +1888,77 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
                             return Value::Null;
                         }
                     } else {
-                        let key_value = evaluate_expression(
-                            Some(Value::String(content.to_string())),
-                            game_state,
-                        );
-                        match key_value {
-                            Value::Number(n) => {
-                                if let Some(idx) = n.as_i64() {
-                                    if idx >= 0 && (idx as usize) < arr.len() {
-                                        arr[idx as usize].clone()
-                                    } else {
-                                        Value::Null
+                        // Строка по имени поверх столбца: `{t["цена"]["меч"]}`.
+                        // Кавычки снимаем с `\`-экранированием: имя может
+                        // содержать кавычку или обратный слэш.
+                        let row_key: String = if content.len() >= 2
+                            && ((content.starts_with('"') && content.ends_with('"'))
+                                || (content.starts_with('\'') && content.ends_with('\'')))
+                        {
+                            unescape_quoted(&content[1..content.len() - 1])
+                        } else {
+                            content.to_string()
+                        };
+                        let named = table_array
+                            .then(|| {
+                                table_row_names
+                                    .iter()
+                                    .position(|n| !n.trim().is_empty() && *n == row_key)
+                            })
+                            .flatten();
+                        if let Some(idx) = named {
+                            table_array = false;
+                            arr.get(idx).cloned().unwrap_or(Value::Null)
+                        } else {
+                            // Переменная или формула как адрес строки:
+                            // `{t["цена"][перем]}` / `{t["цена"][upper("меч")]}`.
+                            let key_value = evaluate_expression(
+                                Some(Value::String(content.to_string())),
+                                game_state,
+                            );
+                            let mut named_value: Option<Value> = None;
+                            let idx = match &key_value {
+                                Value::Number(n) => n.as_i64(),
+                                Value::String(s) => {
+                                    if table_array
+                                        && let Some(pos) = table_row_names
+                                            .iter()
+                                            .position(|n| !n.trim().is_empty() && n == s)
+                                    {
+                                        table_array = false;
+                                        named_value = arr.get(pos).cloned();
                                     }
-                                } else {
-                                    Value::Null
+                                    if named_value.is_some() {
+                                        None
+                                    } else {
+                                        s.trim().parse::<i64>().ok()
+                                    }
+                                }
+                                _ => None,
+                            };
+                            if let Some(v) = named_value {
+                                v
+                            } else {
+                                match idx {
+                                    Some(idx) => {
+                                        if table_array {
+                                            // Над столбцом номер строки визуальный,
+                                            // как у литерала: 1 — первая строка.
+                                            if idx >= 1 && ((idx - 1) as usize) < arr.len() {
+                                                table_array = false;
+                                                arr[(idx - 1) as usize].clone()
+                                            } else {
+                                                Value::Null
+                                            }
+                                        } else if idx >= 0 && (idx as usize) < arr.len() {
+                                            arr[idx as usize].clone()
+                                        } else {
+                                            Value::Null
+                                        }
+                                    }
+                                    None => Value::Null,
                                 }
                             }
-                            _ => Value::Null,
                         }
                     }
                 }
@@ -3089,6 +3271,243 @@ mod tests {
             evaluate_expression(Some(json!("лавка[\"цена\"][1] + 5")), &mut s),
             json!("5"),
             "ссылка без скобок читает хранилище скриптов, а не сетку"
+        );
+    }
+
+    /// Имена строк — второй адрес ячейки. Оба порядка работают, номер строки
+    /// не сломан, а неизвестное имя честно даёт null, а не первую строку.
+    #[test]
+    fn named_rows_are_addressable_both_ways() {
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into(), "запас".into()],
+            vec![
+                json!({"цена": 30, "запас": 2})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+                json!({"цена": 99, "запас": 1})
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            ],
+            Map::new(),
+        );
+        table.set_row_names(&["меч".into(), "щит".into()]);
+        s.set_table("лавка", table);
+
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"меч\"][\"цена\"]}")), &mut s),
+            json!(30),
+            "строка-первая: имя строки адресует ряд"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][\"щит\"]}")), &mut s),
+            json!(99),
+            "колонка-первая: имя строки работает поверх столбца"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][2]}")), &mut s),
+            json!(99),
+            "номер строки продолжает работать рядом с именами"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("table_cell(лавка, 'цена', 'щит')")), &mut s),
+            json!(99)
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("table_row_names(лавка)")), &mut s),
+            json!(["меч", "щит"])
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("table_row_number(лавка, 'щит')")), &mut s),
+            json!(2)
+        );
+        // Функция с неизвестным именем не должна молча брать первую строку;
+        // конкретное «пустое» значение зависит от оценки (null/текст), важен
+        // не он, а отсутствие подмены.
+        assert_ne!(
+            evaluate_expression(Some(json!("table_cell(лавка, 'цена', 'нет')")), &mut s),
+            json!(30),
+            "неизвестное имя не должно молча указывать на первую строку"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][\"нет\"]}")), &mut s),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn column_name_wins_over_row_name_in_deep_lookup() {
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into(), "меч".into()],
+            vec![
+                json!({"цена": 30, "меч": 2}).as_object().cloned().unwrap(),
+                json!({"цена": 99, "меч": 1}).as_object().cloned().unwrap(),
+            ],
+            Map::new(),
+        );
+        // Имя строки совпадает с именем колонки — так быть не должно, но
+        // старые/ручные файлы могут: колонка исторически важнее.
+        table.set_row_names(&["щит".into(), "меч".into()]);
+        s.set_table("лавка", table);
+
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"меч\"][1]}")), &mut s),
+            json!(2),
+            "первая скобка читает колонку «меч», а не строку с тем же именем"
+        );
+    }
+
+    /// Имя строки — произвольный текст: скобки, кавычка, обратный слэш,
+    /// двойные фигурные. Адрес собирается клиентом с экранированием, и движок
+    /// обязан разобрать его так же, как собрал: разбалансированная скобка или
+    /// `{{` в имени не должны обрывать токен раньше времени.
+    #[test]
+    fn arbitrary_row_names_survive_placeholder_parsing() {
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into()],
+            vec![
+                json!({"цена": 10}).as_object().cloned().unwrap(),
+                json!({"цена": 20}).as_object().cloned().unwrap(),
+                json!({"цена": 30}).as_object().cloned().unwrap(),
+                json!({"цена": 40}).as_object().cloned().unwrap(),
+                json!({"цена": 50}).as_object().cloned().unwrap(),
+                json!({"цена": 60}).as_object().cloned().unwrap(),
+                json!({"цена": 70}).as_object().cloned().unwrap(),
+                json!({"цена": 80}).as_object().cloned().unwrap(),
+            ],
+            Map::new(),
+        );
+        table.set_row_names(&[
+            "{тест}".into(),
+            "a}b".into(),
+            "a\"b".into(),
+            r"a\b".into(),
+            "a{{b".into(),
+            "щит".into(),
+            "a]b".into(),
+            "a[b".into(),
+        ]);
+        s.set_table("лавка", table);
+
+        let addr = |row: &str| format!("{{лавка[\"цена\"][\"{row}\"]}}");
+
+        assert_eq!(
+            evaluate_expression(Some(json!(addr("{тест}"))), &mut s),
+            json!(10),
+            "сбалансированные скобки в имени"
+        );
+        // Оба порядка, как для обычного имени.
+        assert_eq!(
+            evaluate_expression(
+                Some(json!(format!("{{лавка[\"{}\"][\"цена\"]}}", "{тест}"))),
+                &mut s
+            ),
+            json!(10)
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!(addr("a}b"))), &mut s),
+            json!(20),
+            "`}}` внутри имени не закрывает плейсхолдер"
+        );
+        assert_eq!(
+            evaluate_expression(
+                Some(json!(format!("{{лавка[\"{}\"][\"цена\"]}}", "a}b"))),
+                &mut s
+            ),
+            json!(20)
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!(addr(r#"a\"b"#))), &mut s),
+            json!(30),
+            "экранированная кавычка — часть имени"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!(addr(r"a\\b"))), &mut s),
+            json!(40),
+            "экранированный обратный слэш — часть имени"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!(addr("a{{b"))), &mut s),
+            json!(50),
+            "`{{` внутри имени не схлопывается нормализатором"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("table_cell(лавка, 'цена', 'a}b')")), &mut s),
+            json!(20)
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!(addr("a]b"))), &mut s),
+            json!(70),
+            "`]` внутри кавычек не закрывает адрес"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!(addr("a[b"))), &mut s),
+            json!(80),
+            "`[` внутри кавычек не открывает новый сегмент"
+        );
+        assert_eq!(
+            interpolate_placeholders_raw("цена {лавка[\"цена\"][\"a}b\"]} р.", &mut s),
+            "цена 20 р."
+        );
+
+        // Переменная и формула как адрес строки, в обоих порядках.
+        s.set_variable("выбор", json!("a}b"));
+        s.set_variable("номер", json!(2));
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][выбор]}")), &mut s),
+            json!(20)
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[выбор][\"цена\"]}")), &mut s),
+            json!(20)
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][номер]}")), &mut s),
+            json!(20),
+            "номер строки из переменной — визуальный, как у литерала"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][lower(\"ЩИТ\")]}")), &mut s),
+            json!(60),
+            "формула в позиции имени строки"
+        );
+    }
+
+    #[test]
+    fn arbitrary_column_name_is_addressable() {
+        let mut s = state();
+        let col = "ко\"лон]ка";
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec![col.into()],
+            vec![json!({col: 42}).as_object().cloned().unwrap()],
+            Map::new(),
+        );
+        table.set_row_names(&["ме\"ч".into()]);
+        s.set_table("лавка", table);
+
+        assert_eq!(
+            evaluate_expression(Some(json!(format!("{{лавка[\"{}\"][1]}}", r#"ко\"лон]ка"#))), &mut s),
+            json!(42),
+            "кавычка и `]` в имени колонки"
+        );
+        assert_eq!(
+            evaluate_expression(
+                Some(json!(format!(
+                    "{{лавка[\"{}\"][\"{}\"]}}",
+                    r#"ко\"лон]ка"#, r#"ме\"ч"#
+                ))),
+                &mut s
+            ),
+            json!(42),
+            "произвольные имя колонки и имя строки вместе"
         );
     }
 

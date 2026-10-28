@@ -119,6 +119,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
           rows: widget.table.rows
               .map((r) => Map<String, dynamic>.from(r))
               .toList(),
+          rowNames: List.of(widget.table.rowNames),
           data: Map.of(widget.table.data),
         ),
       ),
@@ -235,8 +236,13 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
   }
 
   /// Ссылка вида `{имя["колонка"][N]}` для выбранной ячейки (N — 1-based).
+  /// У именованной строки номер заменяется именем: `{имя["колонка"]["меч"]}`.
   String _cellRef(int row, int col) {
-    final colName = _table.columns[col].replaceAll('"', r'\"');
+    final colName = escapeTableKey(_table.columns[col]);
+    final rowName = escapeTableKey(_table.rowName(row));
+    if (rowName.isNotEmpty) {
+      return '{${_table.name}["$colName"]["$rowName"]}';
+    }
     // Номер строки обязательно в своих скобках: {т["цена"]1} движок читает как
     // {т["цена"]} + мусор, «1» съедается молча и вместо ячейки приходит весь
     // столбец. Канон — {т["цена"][1]}, он покрыт тестом ядра.
@@ -371,6 +377,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     _undoStack.add({
       'columns': columns || rows ? List.of(_table.columns) : _table.columns,
       'rows': rows ? _deepCopy(_table.rows) : _table.rows,
+      'rowNames': rows ? List.of(_table.rowNames) : _table.rowNames,
       'data': _deepCopy(_table.data),
     });
     if (_undoStack.length > _maxUndo) _undoStack.removeAt(0);
@@ -392,6 +399,12 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _table.rows = (snap['rows'] as List)
           .map((r) => Map<String, dynamic>.from(r as Map))
           .toList();
+      // Старые снимки (до имён строк) ключа не имеют — берём пустые имена.
+      final names = List<String>.from(snap['rowNames'] as List? ?? const []);
+      _table.rowNames = List<String>.generate(
+        _table.rows.length,
+        (i) => i < names.length ? names[i] : '',
+      );
       final data = snap['data'];
       if (data is Map) {
         _table.data = Map<String, dynamic>.from(data.cast<String, dynamic>());
@@ -511,7 +524,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     if (index < 0 || index >= _table.rows.length) return;
     _pushUndo(columns: false, rows: true);
     setState(() {
-      _table.rows.removeAt(index);
+      _table.removeRowAt(index);
       if ((_selRow ?? 0) >= _table.rows.length) {
         _selRow = _table.rows.isEmpty ? null : _table.rows.length - 1;
       }
@@ -527,7 +540,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     final insertAt = index.clamp(0, _table.rows.length);
     _pushUndo(columns: false, rows: true);
     setState(() {
-      _table.rows.insert(insertAt, {for (final col in _table.columns) col: ''});
+      _table.insertRowAt(insertAt, {
+        for (final col in _table.columns) col: '',
+      });
       _selRow = insertAt;
       _hasEdits = true;
       _syncFormulaFromSelection();
@@ -567,6 +582,16 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               dense: true,
+            ),
+            ListTile(
+              leading: const Icon(Icons.label_outline_rounded),
+              title: Text(tr('Имя строки…')),
+              subtitle: Text(
+                _table.rowName(row).isEmpty
+                    ? tr('Пока без имени — доступ по номеру')
+                    : _table.rowName(row),
+              ),
+              onTap: () => Navigator.pop(ctx, 'rename'),
             ),
             ListTile(
               leading: const Icon(Icons.arrow_upward),
@@ -615,7 +640,59 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
         _moveRow(row, 1);
       case 'delete':
         _deleteRow(row);
+      case 'rename':
+        _renameRow(row);
     }
+  }
+
+  /// Имя строки — второй адрес ячейки: `{таблица["колонка"]["имя"]}` и
+  /// `{таблица["имя"]["колонка"]}`. Пустое имя — доступ по номеру, как раньше.
+  Future<void> _renameRow(int row) async {
+    if (row < 0 || row >= _table.rows.length) return;
+    final exampleCol =
+        _table.columns.isEmpty ? tr('колонка') : _table.columns.first;
+    String? validate(String name) {
+      if (name.isEmpty) return null;
+      final reserved = [
+        ..._table.columns,
+        'rows',
+        'columns',
+        ..._table.data.keys,
+      ];
+      if (name.startsWith('__')) return tr('Имена на «__» заняты движком');
+      if (reserved.contains(name)) {
+        return tr('Имя занято колонкой или ключом таблицы');
+      }
+      final duplicate = _table.rowNames.asMap().entries.any(
+        (e) => e.key != row && e.value.trim() == name,
+      );
+      if (duplicate) return tr('Такая строка уже есть');
+      return null;
+    }
+
+    final result = await showAppDialog<String>(
+      context: context,
+      builder: (_) => _RowNameDialog(
+        title: trf('Имя строки {p0}', {'p0': row + 1}),
+        initialName: _table.rowName(row),
+        tableName: _table.name,
+        exampleColumn: exampleCol,
+        validate: validate,
+      ),
+    );
+    if (!mounted || result == null) return;
+    if (result == _table.rowName(row)) return;
+    _pushUndo(columns: false, rows: true);
+    setState(() {
+      _table.setRowName(row, result);
+      _hasEdits = true;
+      _syncFormulaFromSelection();
+    });
+    _snackWithUndo(
+      result.isEmpty
+          ? trf('Имя строки {p0} убрано', {'p0': row + 1})
+          : trf('Строка {p0} теперь «{p1}»', {'p0': row + 1, 'p1': result}),
+    );
   }
 
   void _moveRow(int index, int dir) {
@@ -624,8 +701,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     if (target < 0 || target >= _table.rows.length) return;
     _pushUndo(columns: false, rows: true);
     setState(() {
-      final row = _table.rows.removeAt(index);
-      _table.rows.insert(target, row);
+      _table.moveRow(index, target);
       _selRow = target;
       _formulaCtrl.clear();
       _hasEdits = true;
@@ -982,6 +1058,8 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
         _table.rows = imported.rows
             .map((r) => Map<String, dynamic>.from(r))
             .toList();
+        // В CSV имён строк нет — старые имена к новым строкам не относятся.
+        _table.rowNames = List<String>.filled(_table.rows.length, '');
         _selRow = null;
         _selCol = 0;
         _formulaCtrl.clear();
@@ -1895,35 +1973,62 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
           bottom: BorderSide(color: scheme.outlineVariant),
         ),
       ),
-      child: Row(
+      child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          InkWell(
-            onTap: () => _selectRow(r),
-            onLongPress:
-                widget.cellPickerMode ? null : () => _rowMenu(r),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-              child: Text(
-                '${r + 1}',
-                style: TextStyle(
-                  color: isSelectedRow
-                      ? scheme.primary
-                      : scheme.onSurfaceVariant,
-                  fontSize: 12,
-                  fontWeight: isSelectedRow
-                      ? FontWeight.w700
-                      : FontWeight.w400,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              InkWell(
+                onTap: () => _selectRow(r),
+                onLongPress:
+                    widget.cellPickerMode ? null : () => _rowMenu(r),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 6,
+                  ),
+                  child: Text(
+                    '${r + 1}',
+                    style: TextStyle(
+                      color: isSelectedRow
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                      fontSize: 12,
+                      fontWeight: isSelectedRow
+                          ? FontWeight.w700
+                          : FontWeight.w400,
+                    ),
+                  ),
                 ),
               ),
-            ),
+              if (!widget.cellPickerMode)
+                _tinyButton(
+                  tooltip: tr('Меню строки'),
+                  icon: Icons.more_vert,
+                  color: scheme.onSurfaceVariant,
+                  onTap: () => _rowMenu(r),
+                ),
+            ],
           ),
-          if (!widget.cellPickerMode)
-            _tinyButton(
-              tooltip: tr('Меню строки'),
-              icon: Icons.more_vert,
-              color: scheme.onSurfaceVariant,
-              onTap: () => _rowMenu(r),
+          if (_table.rowName(r).isNotEmpty)
+            GestureDetector(
+              onTap: widget.cellPickerMode ? null : () => _renameRow(r),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 2),
+                child: Text(
+                  _table.rowName(r),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isSelectedRow
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ),
         ],
       ),
@@ -2191,6 +2296,101 @@ class _ExportOption extends StatelessWidget {
             height: 1.3,
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Диалог имени строки: контроллер живёт столько же, сколько диалог, иначе
+/// TextField на анимации закрытия обращается к уже освобождённому объекту.
+class _RowNameDialog extends StatefulWidget {
+  final String title;
+  final String initialName;
+  final String tableName;
+  final String exampleColumn;
+  final String? Function(String name) validate;
+
+  const _RowNameDialog({
+    required this.title,
+    required this.initialName,
+    required this.tableName,
+    required this.exampleColumn,
+    required this.validate,
+  });
+
+  @override
+  State<_RowNameDialog> createState() => _RowNameDialogState();
+}
+
+class _RowNameDialogState extends State<_RowNameDialog> {
+  late final TextEditingController _ctrl;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _ctrl.text.trim();
+    final problem = widget.validate(name);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    Navigator.pop(context, name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = _ctrl.text.trim();
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: tr('Имя'),
+              hintText: tr('Например: меч'),
+              errorText: _error,
+            ),
+            onChanged: (_) => setState(() => _error = null),
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: 10),
+          if (preview.isNotEmpty)
+            SelectableText(
+              '{${widget.tableName}'
+              '["${escapeTableKey(widget.exampleColumn)}"]'
+              '["${escapeTableKey(preview)}"]}',
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          const SizedBox(height: 6),
+          Text(
+            tr('Пустое имя — доступ по номеру строки, как раньше.'),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(tr('Отмена')),
+        ),
+        FilledButton(onPressed: _submit, child: Text(tr('Сохранить'))),
       ],
     );
   }
