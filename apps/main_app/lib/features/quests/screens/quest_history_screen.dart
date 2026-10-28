@@ -5,6 +5,7 @@ import 'package:canvas_app/core/services/save_game_service.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
 import 'package:canvas_app/features/editor/providers/tag_provider.dart';
+import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
@@ -126,7 +127,7 @@ class _QuestHistoryScreenState extends ConsumerState<QuestHistoryScreen> {
 
       if (mounted) {
         _showSnack(tr('Версия успешно восстановлена'), success: true);
-        Navigator.pop(context, true);
+        await _closeDocument();
       }
     } catch (e) {
       debugPrint('Restore UI Error: $e');
@@ -219,6 +220,19 @@ class _QuestHistoryScreenState extends ConsumerState<QuestHistoryScreen> {
     );
   }
 
+  /// Экран живёт и отдельным маршрутом, и вкладкой воркспейса. В
+  /// воркспейсе «назад» закрывает вкладку, а не маршрут редактора.
+  Future<void> _closeDocument() async {
+    if (!mounted) return;
+    final document = EditorDocumentContext.maybeOf(context);
+    final workspace = EditorWorkspaceScope.maybeOf(context);
+    if (document != null && workspace != null) {
+      await workspace.closeDocument(document.id);
+    } else {
+      Navigator.pop(context, true);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   //  Build
   // ---------------------------------------------------------------------------
@@ -226,6 +240,9 @@ class _QuestHistoryScreenState extends ConsumerState<QuestHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final embedded =
+        EditorDocumentContext.maybeOf(context) != null &&
+        EditorWorkspaceScope.maybeOf(context) != null;
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -233,6 +250,13 @@ class _QuestHistoryScreenState extends ConsumerState<QuestHistoryScreen> {
         backgroundColor: Colors.transparent,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
+        leading: embedded
+            ? IconButton(
+                tooltip: tr('Закрыть вкладку'),
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: _closeDocument,
+              )
+            : null,
         title: Text(
           tr('История версий'),
           style: TextStyle(fontWeight: FontWeight.w800),

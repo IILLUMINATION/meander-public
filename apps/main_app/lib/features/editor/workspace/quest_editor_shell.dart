@@ -431,6 +431,11 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
     };
   }
 
+  /// Гайды всегда под рукой: не нужно уходить в настройки и обратно.
+  void _openGuides() {
+    unawaited(_open(EditorDocumentDescriptor.guidesCatalog(widget.questId)));
+  }
+
   void _openNewTabMenu() {
     showModalBottomSheet<void>(
       context: context,
@@ -623,6 +628,7 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
                         if (docId != null) await _close(docId);
                       },
                       onNewTab: _openNewTabMenu,
+                      onGuides: _openGuides,
                       onExitToMenu: _exitToQuestMenu,
                       onShowOverview: _openTabsOverview,
                       onTogglePin: state.activeId == null ? null : () => _togglePin(state.activeId!),
@@ -1320,6 +1326,18 @@ class _NewTabSheet extends StatelessWidget {
         EditorDocumentKind.gameLoad.label,
         tr('Продолжить из сохранения'),
         EditorDocumentDescriptor.gameFromSave(questId),
+      ),
+      (
+        EditorDocumentKind.guide.icon,
+        EditorDocumentKind.guide.label,
+        tr('Инструкции и подсказки'),
+        EditorDocumentDescriptor.guidesCatalog(questId),
+      ),
+      (
+        EditorDocumentKind.questHistory.icon,
+        EditorDocumentKind.questHistory.label,
+        tr('Точки восстановления'),
+        EditorDocumentDescriptor.questHistory(questId),
       ),
     ];
 

@@ -59,6 +59,7 @@ class EditorTabsBar extends StatefulWidget {
   final VoidCallback? onExitToMenu;
   final VoidCallback? onShowOverview;
   final VoidCallback? onTogglePin;
+  final VoidCallback? onGuides;
   final bool isPinnedActive;
   final void Function(String tabId, TabContextAction action)? onContextAction;
 
@@ -73,6 +74,7 @@ class EditorTabsBar extends StatefulWidget {
     this.onExitToMenu,
     this.onShowOverview,
     this.onTogglePin,
+    this.onGuides,
     this.isPinnedActive = false,
     this.onContextAction,
   });
@@ -182,6 +184,12 @@ class _EditorTabsBarState extends State<EditorTabsBar> {
                       icon: widget.isPinnedActive ? Icons.push_pin : Icons.push_pin_outlined,
                       onPressed: widget.onTogglePin!,
                       tooltip: widget.isPinnedActive ? tr('Открепить вкладку') : tr('Закрепить вкладку'),
+                    ),
+                  if (widget.onGuides != null)
+                    _IconBarButton(
+                      icon: Icons.menu_book_rounded,
+                      onPressed: widget.onGuides!,
+                      tooltip: tr('Гайды'),
                     ),
                   _IconBarButton(icon: Icons.add_rounded, onPressed: widget.onNewTab, tooltip: tr('Новая вкладка')),
                   if (widget.onCollapsePanes != null)

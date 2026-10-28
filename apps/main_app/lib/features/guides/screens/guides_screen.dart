@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/features/editor/workspace/editor_document.dart';
+import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
 import '../guide_catalog.dart';
@@ -12,8 +14,13 @@ import 'guide_screen.dart';
 /// Каталог вшитых гайдов. Открывается из настроек, чтобы человек мог
 /// перечитать объяснение в любой момент, а не только в момент первого
 /// входа в раздел.
+///
+/// С [questId] экран живёт вкладкой воркспейса квеста: гайд открывается
+/// соседней вкладкой, а не маршрутом поверх редактора.
 class GuidesScreen extends StatefulWidget {
-  const GuidesScreen({super.key});
+  final String? questId;
+
+  const GuidesScreen({super.key, this.questId});
 
   @override
   State<GuidesScreen> createState() => _GuidesScreenState();
@@ -22,12 +29,28 @@ class GuidesScreen extends StatefulWidget {
 class _GuidesScreenState extends State<GuidesScreen> {
   late Future<List<_GuideCardData>> _future;
   late String _languageCode;
+  bool _wasActive = true;
 
   @override
   void initState() {
     super.initState();
     _languageCode = L10n.code;
     _future = _load();
+  }
+
+  /// Вкладку каталога не пересоздают при переключении, поэтому отметки
+  /// «прочитан» обновляем, когда она снова становится видимой.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = EditorDocumentContext.maybeOf(context)?.isActive ?? true;
+    if (active && !_wasActive) {
+      setState(() {
+        _languageCode = L10n.code;
+        _future = _load();
+      });
+    }
+    _wasActive = active;
   }
 
   Future<List<_GuideCardData>> _load() async {
@@ -63,6 +86,18 @@ class _GuidesScreenState extends State<GuidesScreen> {
   Future<void> _open(_GuideCardData card) async {
     final content = card.content;
     if (content == null) return;
+    final workspace = EditorWorkspaceScope.maybeOf(context);
+    final questId = widget.questId;
+    if (workspace != null && questId != null) {
+      workspace.openDocument(
+        EditorDocumentDescriptor.guide(
+          questId,
+          card.info.id,
+          title: content.title,
+        ),
+      );
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GuideScreen(info: card.info, initialContent: content),
@@ -75,10 +110,34 @@ class _GuidesScreenState extends State<GuidesScreen> {
     });
   }
 
+  /// Закрывает вкладку каталога; вне воркспейса — обычный pop маршрута.
+  Future<void> _close() async {
+    if (!mounted) return;
+    final document = EditorDocumentContext.maybeOf(context);
+    final workspace = EditorWorkspaceScope.maybeOf(context);
+    if (document != null && workspace != null) {
+      await workspace.closeDocument(document.id);
+    } else {
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final embedded =
+        EditorDocumentContext.maybeOf(context) != null &&
+        EditorWorkspaceScope.maybeOf(context) != null;
     return Scaffold(
-      appBar: AppBar(title: Text(tr('Гайды'))),
+      appBar: AppBar(
+        leading: embedded
+            ? IconButton(
+                tooltip: tr('Закрыть вкладку'),
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: _close,
+              )
+            : null,
+        title: Text(tr('Гайды')),
+      ),
       body: FutureBuilder<List<_GuideCardData>>(
         future: _content(),
         builder: (context, snapshot) {

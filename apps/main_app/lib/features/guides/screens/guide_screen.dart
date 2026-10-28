@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/shared/entity_links/entity_ref_card.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
@@ -75,7 +76,21 @@ class _GuideScreenState extends State<GuideScreen> {
   Future<void> _finish() async {
     await GuideProgressStore.markRead(widget.info.id);
     if (!mounted) return;
-    Navigator.of(context).maybePop();
+    await _closeDocument();
+  }
+
+  /// Гайд может быть открыт и маршрутом (настройки, попап), и вкладкой
+  /// воркспейса. В воркспейсе закрываем именно вкладку: `Navigator.pop`
+  /// снёс бы маршрут редактора целиком.
+  Future<void> _closeDocument() async {
+    if (!mounted) return;
+    final document = EditorDocumentContext.maybeOf(context);
+    final workspace = EditorWorkspaceScope.maybeOf(context);
+    if (document != null && workspace != null) {
+      await workspace.closeDocument(document.id);
+    } else {
+      Navigator.of(context).maybePop();
+    }
   }
 
   void _retry() {
@@ -88,8 +103,20 @@ class _GuideScreenState extends State<GuideScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final embedded =
+        EditorDocumentContext.maybeOf(context) != null &&
+        EditorWorkspaceScope.maybeOf(context) != null;
     return Scaffold(
-      appBar: AppBar(title: Text(tr('Гайды'))),
+      appBar: AppBar(
+        leading: embedded
+            ? IconButton(
+                tooltip: tr('Закрыть вкладку'),
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: _closeDocument,
+              )
+            : null,
+        title: Text(tr('Гайды')),
+      ),
       body: FutureBuilder<GuideContent?>(
         future: _content(),
         builder: (context, snapshot) {

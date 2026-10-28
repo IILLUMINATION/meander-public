@@ -63,6 +63,42 @@ void main() {
       expect(restored.title, original.title);
       expect(restored.routeKey, 'slot-42');
     });
+
+    test('guide catalog and a guide article are different tabs', () {
+      final catalog = EditorDocumentDescriptor.guidesCatalog('q1');
+      final article = EditorDocumentDescriptor.guide(
+        'q1',
+        'create_quest',
+        title: 'Создать квест',
+      );
+
+      expect(catalog.id.kind, EditorDocumentKind.guide);
+      expect(article.id.kind, EditorDocumentKind.guide);
+      expect(catalog.id.key, 'catalog');
+      expect(article.id.key, 'create_quest');
+      expect(catalog.id, isNot(article.id));
+      expect(article.title, 'Создать квест');
+    });
+
+    test('guide and history descriptors roundtrip through json', () {
+      final guide = EditorDocumentDescriptor.guide(
+        'q1',
+        'market',
+        title: 'Маркет',
+      );
+      final history = EditorDocumentDescriptor.questHistory('q1');
+
+      final restoredGuide = EditorDocumentDescriptor.fromJson(guide.toJson());
+      final restoredHistory = EditorDocumentDescriptor.fromJson(
+        history.toJson(),
+      );
+
+      expect(restoredGuide.id, guide.id);
+      expect(restoredGuide.title, 'Маркет');
+      expect(restoredHistory.id, history.id);
+      expect(restoredHistory.id.kind, EditorDocumentKind.questHistory);
+      expect(restoredHistory.title, history.title);
+    });
   });
 
   group('EditorWorkspaceController', () {

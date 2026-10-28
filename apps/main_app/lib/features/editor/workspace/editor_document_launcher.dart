@@ -12,6 +12,10 @@ import '../../quests/screens/edit_quest_screen.dart';
 import '../../game/screens/game_from_save_loader.dart';
 import '../../game/screens/game_screen.dart';
 import '../../game/screens/load_game_screen.dart';
+import '../../guides/guide_catalog.dart';
+import '../../guides/screens/guide_screen.dart';
+import '../../guides/screens/guides_screen.dart';
+import '../../quests/screens/quest_history_screen.dart';
 import '../../resources/screens/lua_editor_screen.dart';
 import '../../resources/screens/resources_screen.dart';
 
@@ -92,6 +96,15 @@ class EditorDocumentLauncher {
           return LoadGameScreen(questId: id.questId, isTesting: true);
         }
         return GameFromSaveLoader(questId: id.questId, slotId: slotId);
+      case EditorDocumentKind.guide:
+        if (id.key == 'catalog') return GuidesScreen(questId: id.questId);
+        final info = GuideCatalog.byId(id.key);
+        // Гайд мог исчезнуть из каталога после обновления — вместо пустой
+        // вкладки показываем список, из которого он открывался.
+        if (info == null) return GuidesScreen(questId: id.questId);
+        return GuideScreen(info: info);
+      case EditorDocumentKind.questHistory:
+        return QuestHistoryScreen(questId: id.questId);
     }
   }
 
@@ -181,4 +194,10 @@ class EditorDocumentLauncher {
     context,
     EditorDocumentDescriptor.gameFromSave(questId, title: title),
   );
+
+  static Future<void> openGuides(BuildContext context, String questId) =>
+      open(context, EditorDocumentDescriptor.guidesCatalog(questId));
+
+  static Future<void> openQuestHistory(BuildContext context, String questId) =>
+      open(context, EditorDocumentDescriptor.questHistory(questId));
 }

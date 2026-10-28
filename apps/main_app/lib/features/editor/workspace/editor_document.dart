@@ -19,6 +19,8 @@ enum EditorDocumentKind {
   questSettings,
   game,
   gameLoad,
+  guide,
+  questHistory,
 }
 
 extension EditorDocumentKindX on EditorDocumentKind {
@@ -33,6 +35,8 @@ extension EditorDocumentKindX on EditorDocumentKind {
     EditorDocumentKind.questSettings => 'quest_settings',
     EditorDocumentKind.game => 'game',
     EditorDocumentKind.gameLoad => 'game_load',
+    EditorDocumentKind.guide => 'guide',
+    EditorDocumentKind.questHistory => 'quest_history',
   };
 
   static EditorDocumentKind? fromWireName(String? value) {
@@ -53,6 +57,8 @@ extension EditorDocumentKindX on EditorDocumentKind {
     EditorDocumentKind.questSettings => Icons.settings_rounded,
     EditorDocumentKind.game => Icons.play_arrow_rounded,
     EditorDocumentKind.gameLoad => Icons.restore_rounded,
+    EditorDocumentKind.guide => Icons.menu_book_rounded,
+    EditorDocumentKind.questHistory => Icons.history_rounded,
   };
 
   /// Короткая человекочитаемая метка типа документа (для обзора вкладок).
@@ -67,6 +73,8 @@ extension EditorDocumentKindX on EditorDocumentKind {
     EditorDocumentKind.questSettings => tr('Настройки'),
     EditorDocumentKind.game => tr('Симуляция'),
     EditorDocumentKind.gameLoad => tr('Симуляция из сейва'),
+    EditorDocumentKind.guide => tr('Гайды'),
+    EditorDocumentKind.questHistory => tr('История версий'),
   };
 }
 
@@ -306,6 +314,41 @@ class EditorDocumentDescriptor {
     title: title ?? tr('Симуляция из сейва'),
     routeKey: slotId,
   );
+
+  /// Каталог гайдов как вкладка. Ключ `catalog` отличает его от вкладки
+  /// конкретного гайда: у той ключ — id гайда.
+  static EditorDocumentDescriptor guidesCatalog(String questId) =>
+      EditorDocumentDescriptor(
+        id: EditorDocumentId(
+          questId: questId,
+          kind: EditorDocumentKind.guide,
+          key: 'catalog',
+        ),
+        title: tr('Гайды'),
+      );
+
+  static EditorDocumentDescriptor guide(
+    String questId,
+    String guideId, {
+    String? title,
+  }) => EditorDocumentDescriptor(
+    id: EditorDocumentId(
+      questId: questId,
+      kind: EditorDocumentKind.guide,
+      key: guideId,
+    ),
+    title: title ?? tr('Гайд'),
+  );
+
+  static EditorDocumentDescriptor questHistory(String questId) =>
+      EditorDocumentDescriptor(
+        id: EditorDocumentId(
+          questId: questId,
+          kind: EditorDocumentKind.questHistory,
+          key: 'root',
+        ),
+        title: tr('История версий'),
+      );
 }
 
 /// Узел дерева панелей (тайлинг): лист (документ) или сплит (две панели).
