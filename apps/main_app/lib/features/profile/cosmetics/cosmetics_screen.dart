@@ -421,6 +421,7 @@ class _DefaultPreview extends StatelessWidget {
 
 IconData _slotIcon(CosmeticSlot slot) => switch (slot) {
   CosmeticSlot.banner => Icons.wallpaper_rounded,
+  CosmeticSlot.background => Icons.landscape_rounded,
   CosmeticSlot.avatarFrame => Icons.radio_button_unchecked_rounded,
   CosmeticSlot.nameStyle => Icons.text_format_rounded,
   CosmeticSlot.effect => Icons.ac_unit_rounded,

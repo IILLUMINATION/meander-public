@@ -154,6 +154,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/images/cosmetics/
     - assets/data/
     - assets/fonts/
     # Офлайн-гайды: JSON шагов и статья на каждом языке + видео.

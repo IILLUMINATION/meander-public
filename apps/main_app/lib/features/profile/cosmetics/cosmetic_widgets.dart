@@ -92,6 +92,12 @@ class _CosmeticTickerState extends State<_CosmeticTicker>
 bool cosmeticMotionAllowed(BuildContext context) =>
     MediaQuery.maybeOf(context)?.disableAnimations != true;
 
+/// Кадр арт-обложки: живой зацикленный WebP, когда движение разрешено,
+/// иначе — статичная картинка. Вынесено из виджета, чтобы ветку можно было
+/// проверить без реального декодирования анимации (она оставляет таймеры).
+String? artImageFor(BannerSpec spec, {required bool animate}) =>
+    animate && spec.animatedImage != null ? spec.animatedImage : spec.image;
+
 /// Цвет ника для вставки внутрь предложения (`Text.rich`).
 ///
 /// Градиент требует известных границ текста, а они появляются только после
@@ -166,7 +172,14 @@ class CosmeticBanner extends StatelessWidget {
                   return Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (spec != null)
+                      if (spec != null && spec.isArt)
+                        _ArtBanner(
+                          spec: spec,
+                          animate: animate,
+                          t: t,
+                          fallbackGradient: fallbackGradient,
+                        )
+                      else if (spec != null)
                         CustomPaint(
                           painter: CosmeticBannerPainter(
                             spec: spec,
@@ -208,6 +221,124 @@ class CosmeticBanner extends StatelessWidget {
       colors: [
         scheme.primaryContainer,
         scheme.tertiaryContainer.withValues(alpha: 0.7),
+      ],
+    );
+  }
+}
+
+/// Арт-обложка: живописный кадр вместо процедурного градиента.
+///
+/// Живой WebP (если он есть у предмета) крутится сам, без нашего тикера —
+/// поэтому в этом случае не добавляем ещё и «камеру»: два движения сразу
+/// читаются как дрожание. Остальные кадры медленно дышат масштабом, как
+/// заставка Apple TV.
+class _ArtBanner extends StatelessWidget {
+  const _ArtBanner({
+    required this.spec,
+    required this.animate,
+    required this.t,
+    this.fallbackGradient,
+  });
+
+  final BannerSpec spec;
+  final bool animate;
+  final double t;
+  final Gradient? fallbackGradient;
+
+  /// Период «дыхания камеры»: заметно, но не отвлекает.
+  static const double _period = 48;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = artImageFor(spec, animate: animate);
+    final loop = animate && spec.animatedImage != null;
+    final drift = animate && !loop && spec.motion != BannerMotion.still;
+    final phase = drift ? math.sin(t * 2 * math.pi / _period) : 0.0;
+    final scale = drift ? 1.045 + 0.025 * phase : 1.0;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Transform.scale(
+          scale: scale,
+          child: Image.asset(
+            asset!,
+            fit: BoxFit.cover,
+            alignment: spec.imageAlignment,
+            filterQuality: FilterQuality.medium,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stack) => DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: fallbackGradient ?? CosmeticBanner._themeGradient(context),
+              ),
+            ),
+          ),
+        ),
+        // Затемнение по краям: белые иконки и бейдж поверх любого кадра
+        // должны читаться, а сам кадр — оставаться кадром.
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.30),
+                Colors.transparent,
+                Colors.transparent,
+                Colors.black.withValues(alpha: 0.26),
+              ],
+              stops: const [0, 0.34, 0.62, 1],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Фон всей страницы профиля: тот же арт, но приглушённый темой.
+///
+/// [preview] — для витрины: там картинка должна быть видна целиком, а не
+/// растворяться под текстом, которого в превью нет.
+class CosmeticBackground extends StatelessWidget {
+  const CosmeticBackground({super.key, required this.def, this.preview = false});
+
+  final CosmeticDef? def;
+  final bool preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final spec = def?.spec is BackgroundSpec ? def!.spec as BackgroundSpec : null;
+    if (spec == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final dim = preview ? 0.18 : spec.dim.clamp(0.0, 1.0);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.asset(
+          spec.image,
+          fit: BoxFit.cover,
+          alignment: spec.alignment,
+          filterQuality: FilterQuality.medium,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stack) =>
+              ColoredBox(color: scheme.surface),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                scheme.surface.withValues(alpha: (dim - 0.22).clamp(0.0, 1.0)),
+                scheme.surface.withValues(alpha: dim),
+                scheme.surface.withValues(alpha: (dim + 0.08).clamp(0.0, 1.0)),
+              ],
+              stops: const [0, 0.55, 1],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -495,6 +626,14 @@ class CosmeticPreview extends StatelessWidget {
               ),
             ),
             child: ParticleOverlay(def: def, animate: false),
+          ),
+        );
+      case CosmeticSlot.background:
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: height,
+            child: CosmeticBackground(def: def, preview: true),
           ),
         );
       case CosmeticSlot.avatarFrame:

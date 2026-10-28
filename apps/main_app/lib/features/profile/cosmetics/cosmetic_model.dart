@@ -8,6 +8,7 @@ import 'package:canvas_app/core/theme/banner_presets.dart';
 /// Слот оформления: ровно один предмет может быть надет в каждом слоте.
 enum CosmeticSlot {
   banner('banner'),
+  background('background'),
   avatarFrame('avatar_frame'),
   nameStyle('name_style'),
   effect('effect');
@@ -20,6 +21,7 @@ enum CosmeticSlot {
   /// Название слота человеку: в const-поле перевод не живёт, витрина — геттер.
   String get title => switch (this) {
     CosmeticSlot.banner => tr('Обложка'),
+    CosmeticSlot.background => tr('Фон профиля'),
     CosmeticSlot.avatarFrame => tr('Рамка аватара'),
     CosmeticSlot.nameStyle => tr('Стиль ника'),
     CosmeticSlot.effect => tr('Эффект профиля'),
@@ -87,6 +89,9 @@ class BannerSpec {
     this.motion = BannerMotion.drift,
     this.speed = 1,
     this.accentIcon,
+    this.image,
+    this.animatedImage,
+    this.imageAlignment = Alignment.center,
   });
 
   final List<Color> colors;
@@ -95,6 +100,35 @@ class BannerSpec {
   /// Множитель скорости анимации. 0 == статичная картинка.
   final double speed;
   final IconData? accentIcon;
+
+  /// Арт-обложка из бандла: холст/пейзаж вместо процедурного градиента.
+  /// В этом случае [colors] — запасной фон, пока картинка не загрузилась.
+  final String? image;
+
+  /// Зацикленный WebP (этот же кадр, но живой). Показывается вместо [image],
+  /// когда системе не запрещено движение; в превью всегда остаётся [image].
+  final String? animatedImage;
+
+  /// Что оставить в кадре при обрезке под нестандартное соотношение сторон.
+  final Alignment imageAlignment;
+
+  bool get isArt => image != null;
+}
+
+/// Фон страницы профиля: та же образность, что у арт-обложек, но под
+/// содержимым. [dim] — насколько сильно тема перекрывает картинку: текст и
+/// карточки должны читаться на любом кадре.
+@immutable
+class BackgroundSpec {
+  const BackgroundSpec({
+    required this.image,
+    this.dim = 0.55,
+    this.alignment = Alignment.topCenter,
+  });
+
+  final String image;
+  final double dim;
+  final Alignment alignment;
 }
 
 @immutable
@@ -167,6 +201,7 @@ class CosmeticDef {
   final String? season;
 
   BannerSpec get banner => spec as BannerSpec;
+  BackgroundSpec get background => spec as BackgroundSpec;
   FrameSpec get frame => spec as FrameSpec;
   NameSpec get nameStyle => spec as NameSpec;
   EffectSpec get effect => spec as EffectSpec;
@@ -206,6 +241,120 @@ final List<CosmeticDef> _legacyBanners = [
 // переключение языка не перекрасило бы эти подписи.
 List<CosmeticDef> get kCosmetics => [
   ..._legacyBanners,
+
+  // — Арт-обложки —
+  // Живописные кадры вместо абстракций: один и тот же арт можно повесить и
+  // обложкой, и фоном страницы (см. слот background ниже). Все бесплатные —
+  // это не награда, а базовый выбор внешнего вида.
+  CosmeticDef(
+    id: 'art_night_meadow',
+    slot: CosmeticSlot.banner,
+    tier: CosmeticTier.common,
+    name: tr('Ночной луг'),
+    spec: BannerSpec(
+      colors: [Color(0xFF0B1B33), Color(0xFF3E6E9B)],
+      image: 'assets/images/cosmetics/art_0.webp',
+      // Тот же кадр, зацикленный в WebP: звёзды и светлячки двигаются.
+      animatedImage: 'assets/images/cosmetics/art_0_loop.webp',
+    ),
+  ),
+  CosmeticDef(
+    id: 'art_golden_field',
+    slot: CosmeticSlot.banner,
+    tier: CosmeticTier.common,
+    name: tr('Золотое поле'),
+    spec: BannerSpec(
+      colors: [Color(0xFF3B2C12), Color(0xFFD9A64B)],
+      image: 'assets/images/cosmetics/art_1.webp',
+    ),
+  ),
+  CosmeticDef(
+    id: 'art_lone_tree',
+    slot: CosmeticSlot.banner,
+    tier: CosmeticTier.common,
+    name: tr('Одинокое дерево'),
+    spec: BannerSpec(
+      colors: [Color(0xFF1E5E52), Color(0xFFB9E3A6)],
+      image: 'assets/images/cosmetics/art_2.webp',
+    ),
+  ),
+  CosmeticDef(
+    id: 'art_forest_bridge',
+    slot: CosmeticSlot.banner,
+    tier: CosmeticTier.common,
+    name: tr('Мост в лесу'),
+    spec: BannerSpec(
+      colors: [Color(0xFF16240F), Color(0xFF7FA24B)],
+      image: 'assets/images/cosmetics/art_3.webp',
+    ),
+  ),
+  CosmeticDef(
+    id: 'art_pond_robot',
+    slot: CosmeticSlot.banner,
+    tier: CosmeticTier.common,
+    name: tr('У пруда'),
+    spec: BannerSpec(
+      colors: [Color(0xFF1B2413), Color(0xFF9DBF4A)],
+      image: 'assets/images/cosmetics/art_4.webp',
+      imageAlignment: Alignment.center,
+    ),
+  ),
+  CosmeticDef(
+    id: 'art_open_road',
+    slot: CosmeticSlot.banner,
+    tier: CosmeticTier.common,
+    name: tr('Дорога домой'),
+    spec: BannerSpec(
+      colors: [Color(0xFF2A3B3F), Color(0xFFD8C48A)],
+      image: 'assets/images/cosmetics/art_5.webp',
+    ),
+  ),
+
+  // — Фоны профиля —
+  // Те же кадры, но как воздушная подложка всей страницы: тема перекрывает
+  // их настолько, чтобы карточки и текст читались при любом выборе.
+  CosmeticDef(
+    id: 'bg_night_meadow',
+    slot: CosmeticSlot.background,
+    tier: CosmeticTier.common,
+    name: tr('Ночная синева'),
+    spec: BackgroundSpec(image: 'assets/images/cosmetics/art_0.webp'),
+  ),
+  CosmeticDef(
+    id: 'bg_golden_field',
+    slot: CosmeticSlot.background,
+    tier: CosmeticTier.common,
+    name: tr('Пшеничное утро'),
+    spec: BackgroundSpec(image: 'assets/images/cosmetics/art_1.webp'),
+  ),
+  CosmeticDef(
+    id: 'bg_lone_tree',
+    slot: CosmeticSlot.background,
+    tier: CosmeticTier.common,
+    name: tr('Зелёный простор'),
+    spec: BackgroundSpec(image: 'assets/images/cosmetics/art_2.webp'),
+  ),
+  CosmeticDef(
+    id: 'bg_forest_bridge',
+    slot: CosmeticSlot.background,
+    tier: CosmeticTier.common,
+    name: tr('Лесная тень'),
+    spec: BackgroundSpec(image: 'assets/images/cosmetics/art_3.webp'),
+  ),
+  CosmeticDef(
+    id: 'bg_pond_robot',
+    slot: CosmeticSlot.background,
+    tier: CosmeticTier.common,
+    name: tr('Тихая заводь'),
+    spec: BackgroundSpec(image: 'assets/images/cosmetics/art_4.webp'),
+  ),
+  CosmeticDef(
+    id: 'bg_open_road',
+    slot: CosmeticSlot.background,
+    tier: CosmeticTier.common,
+    name: tr('Дорожная дымка'),
+    spec: BackgroundSpec(image: 'assets/images/cosmetics/art_5.webp'),
+  ),
 
   // — Обложки —
   CosmeticDef(
@@ -933,9 +1082,16 @@ Set<String> get kCosmeticIds => _byId.keys.toSet();
 /// Снап экипировки: слот -> id предмета (или null — «по умолчанию»).
 @immutable
 class EquippedCosmetics {
-  const EquippedCosmetics({this.banner, this.avatarFrame, this.nameStyle, this.effect});
+  const EquippedCosmetics({
+    this.banner,
+    this.background,
+    this.avatarFrame,
+    this.nameStyle,
+    this.effect,
+  });
 
   final String? banner;
+  final String? background;
   final String? avatarFrame;
   final String? nameStyle;
   final String? effect;
@@ -946,6 +1102,8 @@ class EquippedCosmetics {
     switch (slot) {
       case CosmeticSlot.banner:
         return banner;
+      case CosmeticSlot.background:
+        return background;
       case CosmeticSlot.avatarFrame:
         return avatarFrame;
       case CosmeticSlot.nameStyle:
@@ -960,6 +1118,15 @@ class EquippedCosmetics {
       case CosmeticSlot.banner:
         return EquippedCosmetics(
           banner: id,
+          background: background,
+          avatarFrame: avatarFrame,
+          nameStyle: nameStyle,
+          effect: effect,
+        );
+      case CosmeticSlot.background:
+        return EquippedCosmetics(
+          banner: banner,
+          background: id,
           avatarFrame: avatarFrame,
           nameStyle: nameStyle,
           effect: effect,
@@ -967,6 +1134,7 @@ class EquippedCosmetics {
       case CosmeticSlot.avatarFrame:
         return EquippedCosmetics(
           banner: banner,
+          background: background,
           avatarFrame: id,
           nameStyle: nameStyle,
           effect: effect,
@@ -974,6 +1142,7 @@ class EquippedCosmetics {
       case CosmeticSlot.nameStyle:
         return EquippedCosmetics(
           banner: banner,
+          background: background,
           avatarFrame: avatarFrame,
           nameStyle: id,
           effect: effect,
@@ -981,6 +1150,7 @@ class EquippedCosmetics {
       case CosmeticSlot.effect:
         return EquippedCosmetics(
           banner: banner,
+          background: background,
           avatarFrame: avatarFrame,
           nameStyle: nameStyle,
           effect: id,
@@ -989,7 +1159,11 @@ class EquippedCosmetics {
   }
 
   bool get isEmpty =>
-      banner == null && avatarFrame == null && nameStyle == null && effect == null;
+      banner == null &&
+      background == null &&
+      avatarFrame == null &&
+      nameStyle == null &&
+      effect == null;
 
   factory EquippedCosmetics.fromJson(Object? raw) {
     Map<String, dynamic>? map;
@@ -1009,15 +1183,20 @@ class EquippedCosmetics {
       return v is String && v.isNotEmpty ? v : null;
     }
 
-    // Проверяем, что id жив в каталоге: профиль мог сохраниться со старой
-    // сборкой приложения, где предмета уже нет.
-    String? known(String? value) => cosmeticById(value) == null ? null : value;
+    // Проверяем, что id жив в каталоге и лежит в своём слоте: профиль мог
+    // сохраниться со старой сборкой, а кривой снап не должен надеть обложку
+    // в слот фона.
+    String? known(String? value, CosmeticSlot slot) {
+      final def = cosmeticById(value);
+      return def != null && def.slot == slot ? value : null;
+    }
 
     return EquippedCosmetics(
-      banner: known(id(CosmeticSlot.banner.wireName)),
-      avatarFrame: known(id(CosmeticSlot.avatarFrame.wireName)),
-      nameStyle: known(id(CosmeticSlot.nameStyle.wireName)),
-      effect: known(id(CosmeticSlot.effect.wireName)),
+      banner: known(id(CosmeticSlot.banner.wireName), CosmeticSlot.banner),
+      background: known(id(CosmeticSlot.background.wireName), CosmeticSlot.background),
+      avatarFrame: known(id(CosmeticSlot.avatarFrame.wireName), CosmeticSlot.avatarFrame),
+      nameStyle: known(id(CosmeticSlot.nameStyle.wireName), CosmeticSlot.nameStyle),
+      effect: known(id(CosmeticSlot.effect.wireName), CosmeticSlot.effect),
     );
   }
 

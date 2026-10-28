@@ -40,4 +40,55 @@ void main() {
       expect(equippedOf({'name_style': 'royal_gold'}).isEmpty, isTrue);
     });
   });
+
+  group('слот фона', () {
+    test('фон переживает json и не трогает остальные слоты', () {
+      final equipped = EquippedCosmetics.fromJson({
+        'banner': 'art_night_meadow',
+        'background': 'bg_night_meadow',
+        'effect': 'snowfall',
+      });
+      expect(equipped.background, 'bg_night_meadow');
+      expect(equipped.banner, 'art_night_meadow');
+      expect(equipped.effect, 'snowfall');
+
+      final json = equipped.toJson();
+      expect(json['background'], 'bg_night_meadow');
+      expect(json['banner'], 'art_night_meadow');
+    });
+
+    test('смена фона не сбрасывает обложку', () {
+      const before = EquippedCosmetics(
+        banner: 'art_golden_field',
+        effect: 'hearts',
+      );
+      final after = before.withSlot(CosmeticSlot.background, 'bg_golden_field');
+      expect(after.background, 'bg_golden_field');
+      expect(after.banner, 'art_golden_field');
+      expect(after.effect, 'hearts');
+      expect(
+        after.withSlot(CosmeticSlot.background, null).background,
+        isNull,
+      );
+    });
+
+    test('предмет не своего слота и мёртвый id в фон не попадают', () {
+      expect(
+        EquippedCosmetics.fromJson({'background': 'art_night_meadow'}).background,
+        isNull,
+        reason: 'обложка не должна читаться как фон',
+      );
+      expect(
+        EquippedCosmetics.fromJson({'background': 'no_such_bg'}).background,
+        isNull,
+      );
+    });
+
+    test('один фон уже не пустая экипировка', () {
+      expect(
+        const EquippedCosmetics(background: 'bg_open_road').isEmpty,
+        isFalse,
+      );
+    });
+  });
 }

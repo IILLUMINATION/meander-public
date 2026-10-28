@@ -589,6 +589,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
             });
           }
           final isAdmin = isCurrentUser && profile.role == 'admin';
+          final backgroundDef = cosmeticById(profile.cosmetics.background);
 
           final content = SafeArea(
             top: true,
@@ -710,7 +711,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                         // `background` — роль, которую кастомная тема задаёт
                         // отдельно от `surface`; на закреплённой полоске табов
                         // она давала чужой цвет страницы.
-                        background: scheme.surface,
+                        background: backgroundDef == null
+                            ? scheme.surface
+                            : scheme.surface.withValues(alpha: 0.92),
                       ),
                     ),
                     // Контент активной вкладки как sliver'ы того же скролла.
@@ -723,10 +726,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
             ),
           );
 
-          if (showSidebar) {
-            return _ProfileDesktopLayout(profile, isCurrentUser, isAdmin, content);
-          }
-          return content;
+          final body = showSidebar
+              ? _ProfileDesktopLayout(profile, isCurrentUser, isAdmin, content)
+              : content;
+          if (backgroundDef == null) return body;
+          return Stack(
+            children: [
+              Positioned.fill(child: CosmeticBackground(def: backgroundDef)),
+              body,
+            ],
+          );
         },
       ),
     );

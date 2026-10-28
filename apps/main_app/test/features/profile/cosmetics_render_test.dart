@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -85,6 +86,30 @@ void main()
         );
       }
     });
+
+    test('у каждого арта и фона есть файл в бандле', () {
+      // Путь к картинке — это контракт с pubspec: опечатка в имени файла
+      // не ломает сборку, а молча подменяет арт градиентом на устройстве.
+      final paths = <String>{
+        for (final def in kCosmetics)
+          if (def.spec is BannerSpec) ...[
+            if (def.banner.image != null) def.banner.image!,
+            if (def.banner.animatedImage != null) def.banner.animatedImage!,
+          ] else if (def.spec is BackgroundSpec)
+            def.background.image,
+      };
+      expect(paths, isNotEmpty);
+      for (final path in paths) {
+        final file = File(path);
+        expect(file.existsSync(), isTrue, reason: 'нет файла $path');
+        expect(file.lengthSync(), greaterThan(1024), reason: 'пустой/битый $path');
+        expect(
+          File('pubspec.yaml').readAsStringSync(),
+          contains('assets/images/cosmetics/'),
+          reason: 'папка с артами не объявлена в pubspec',
+        );
+      }
+    });
   });
 
   group('рендереры', () {
@@ -152,6 +177,55 @@ void main()
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text('шапка'), findsOneWidget);
+    });
+
+    test('у арт-обложки живой кадр включается только при разрешённом движении', () {
+      final live = cosmeticById('art_night_meadow')!.banner;
+      expect(artImageFor(live, animate: true), endsWith('art_0_loop.webp'));
+      expect(artImageFor(live, animate: false), endsWith('art_0.webp'));
+
+      final still = cosmeticById('art_golden_field')!.banner;
+      expect(artImageFor(still, animate: true), endsWith('art_1.webp'));
+    });
+
+    testWidgets('арт-обложка со reduceMotion показывает статичный кадр', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrapStatic(
+          CosmeticBanner(
+            def: cosmeticById('art_night_meadow'),
+            height: 160,
+            child: const SizedBox.shrink(),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(
+        (image.image as AssetImage).assetName,
+        'assets/images/cosmetics/art_0.webp',
+        reason: 'reduceMotion — статичный первый кадр',
+      );
+    });
+
+    testWidgets('фон профиля рисует арт, а не пустоту', (tester) async {
+      await tester.pumpWidget(
+        _wrapStatic(
+          SizedBox(
+            height: 240,
+            child: CosmeticBackground(def: cosmeticById('bg_golden_field')),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(
+        (image.image as AssetImage).assetName,
+        'assets/images/cosmetics/art_1.webp',
+      );
     });
 
     testWidgets('reduceMotion глушит тикер, косметика остаётся кадром', (
@@ -356,6 +430,7 @@ TextSpan? _spanWithText(InlineSpan root, String text) {
 /// неправильным слотом (тогда витрина его вообще не покажет).
 CosmeticSlot specSlot(CosmeticDef def) => switch (def.spec) {
   BannerSpec() => CosmeticSlot.banner,
+  BackgroundSpec() => CosmeticSlot.background,
   FrameSpec() => CosmeticSlot.avatarFrame,
   NameSpec() => CosmeticSlot.nameStyle,
   EffectSpec() => CosmeticSlot.effect,
