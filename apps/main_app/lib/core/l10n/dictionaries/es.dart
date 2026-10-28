@@ -975,7 +975,6 @@ final Map<String, String> esStrings = {
   'В тренде': 'Tendencias',
   'Выбор редакции': 'Selección de los editores',
   'Лучшие': 'Los mejores',
-  'ЛУЧШИЙ': 'TOP',
   'Отобраны вручную: только доделанные квесты': 'Seleccionados a mano: solo quests terminadas',
   'Сделать лучшим': 'Marcar como mejor',
   'Вернуть в общий каталог': 'Devolver al catálogo general',

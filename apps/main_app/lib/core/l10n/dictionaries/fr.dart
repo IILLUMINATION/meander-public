@@ -975,7 +975,6 @@ final Map<String, String> frStrings = {
   'В тренде': 'Tendances',
   'Выбор редакции': 'Choix de la rédaction',
   'Лучшие': 'Les meilleurs',
-  'ЛУЧШИЙ': 'TOP',
   'Отобраны вручную: только доделанные квесты': 'Sélectionnés à la main : uniquement des quêtes terminées',
   'Сделать лучшим': 'Mettre en avant',
   'Вернуть в общий каталог': 'Remettre dans le catalogue général',

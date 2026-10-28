@@ -975,7 +975,6 @@ final Map<String, String> ptBrStrings = {
   'В тренде': 'Em alta',
   'Выбор редакции': 'Seleção da editoria',
   'Лучшие': 'Os melhores',
-  'ЛУЧШИЙ': 'TOP',
   'Отобраны вручную: только доделанные квесты': 'Escolhidos a dedo: apenas quests finalizadas',
   'Сделать лучшим': 'Marcar como melhor',
   'Вернуть в общий каталог': 'Voltar ao catálogo geral',

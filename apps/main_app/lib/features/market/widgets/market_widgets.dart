@@ -214,14 +214,6 @@ class MarketQuestCard extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          if (quest.isBest) ...[
-                            MarketBadge(
-                              label: tr('ЛУЧШИЙ'),
-                              background: const Color(0xFFFFB300),
-                              foreground: Colors.black87,
-                            ),
-                            const SizedBox(height: 4),
-                          ],
                           if (quest.isNsfw) ...[
                             const SizedBox(height: 4),
                             MarketBadge(

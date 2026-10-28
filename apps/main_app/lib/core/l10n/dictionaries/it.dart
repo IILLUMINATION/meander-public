@@ -975,7 +975,6 @@ final Map<String, String> itStrings = {
   'В тренде': 'Di tendenza',
   'Выбор редакции': 'Scelta della redazione',
   'Лучшие': 'I migliori',
-  'ЛУЧШИЙ': 'TOP',
   'Отобраны вручную: только доделанные квесты': 'Scelti a mano: solo quest completate',
   'Сделать лучшим': 'Segna come migliore',
   'Вернуть в общий каталог': 'Riporta al catalogo generale',

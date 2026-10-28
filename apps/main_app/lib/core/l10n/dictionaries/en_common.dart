@@ -141,7 +141,6 @@ final Map<String, String> enCommon = {
   'В тренде': 'Trending',
   'Выбор редакции': 'Editors\' picks',
   'Лучшие': 'Best',
-  'ЛУЧШИЙ': 'BEST',
   'Отобраны вручную: только доделанные квесты': 'Hand-picked: only finished quests',
   'Сделать лучшим': 'Make it best',
   'Вернуть в общий каталог': 'Return to general catalog',

@@ -1176,7 +1176,6 @@ final Map<String, String> trStrings = {
   'В тренде': 'Trendde',
   'Выбор редакции': 'Editörün seçimi',
   'Лучшие': 'En iyiler',
-  'ЛУЧШИЙ': 'EN İYİ',
   'Отобраны вручную: только доделанные квесты': 'Elle seçildi: yalnızca tamamlanmış görevler',
   'Сделать лучшим': 'En iyilere ekle',
   'Вернуть в общий каталог': 'Genel kataloğa geri döndür',

@@ -975,7 +975,6 @@ final Map<String, String> deStrings = {
   'В тренде': 'Angesagt',
   'Выбор редакции': 'Redaktionstipps',
   'Лучшие': 'Die Besten',
-  'ЛУЧШИЙ': 'TOP',
   'Отобраны вручную: только доделанные квесты': 'Von Hand ausgewählt: nur fertige Quests',
   'Сделать лучшим': 'Zu den Besten',
   'Вернуть в общий каталог': 'Zurück in den allgemeinen Katalog',
