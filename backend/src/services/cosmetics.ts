@@ -13,7 +13,7 @@ import pool from '../config/database';
 //  поэтому сюда не надо заливать ассеты.
 // ============================================================================
 
-export type CosmeticSlot = 'banner' | 'avatar_frame' | 'name_style' | 'effect';
+export type CosmeticSlot = 'banner' | 'background' | 'avatar_frame' | 'name_style' | 'effect';
 export type CosmeticTier = 'common' | 'rare' | 'epic' | 'legendary';
 
 export interface CosmeticDef {
@@ -44,6 +44,20 @@ const ROWS: ReadonlyArray<readonly [string, CosmeticSlot, CosmeticTier]> = [
     ['solar_prominence', 'banner', 'epic'],
     ['green_horizon', 'banner', 'legendary'],
     ['rose_quartz', 'banner', 'common'],
+    // Арт-баннеры и фоны из одного набора картинок: баннер — полоса в шапке,
+    // фон — та же картинка под затемнением на всю страницу профиля.
+    ['art_night_meadow', 'banner', 'common'],
+    ['art_golden_field', 'banner', 'common'],
+    ['art_lone_tree', 'banner', 'common'],
+    ['art_forest_bridge', 'banner', 'common'],
+    ['art_pond_robot', 'banner', 'common'],
+    ['art_open_road', 'banner', 'common'],
+    ['bg_night_meadow', 'background', 'common'],
+    ['bg_golden_field', 'background', 'common'],
+    ['bg_lone_tree', 'background', 'common'],
+    ['bg_forest_bridge', 'background', 'common'],
+    ['bg_pond_robot', 'background', 'common'],
+    ['bg_open_road', 'background', 'common'],
     ['prism_ring', 'avatar_frame', 'rare'],
     ['neon_pulse', 'avatar_frame', 'rare'],
     ['gold_laurel', 'avatar_frame', 'legendary'],
@@ -88,7 +102,7 @@ export const COSMETICS: ReadonlyMap<string, CosmeticDef> = new Map(
     ROWS.map(([id, slot, tier]) => [id, { id, slot, tier }] as const),
 );
 
-export const COSMETIC_SLOTS: CosmeticSlot[] = ['banner', 'avatar_frame', 'name_style', 'effect'];
+export const COSMETIC_SLOTS: CosmeticSlot[] = ['banner', 'background', 'avatar_frame', 'name_style', 'effect'];
 
 /// Бесплатные предметы не требуют записи в `user_cosmetics`.
 export function isFreeCosmetic(id: string): boolean {
