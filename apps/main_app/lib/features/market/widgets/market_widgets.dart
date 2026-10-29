@@ -606,17 +606,21 @@ class MarketFiltersSheet extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final selectedCat = ref.watch(marketCategoryProvider);
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        4,
-        16,
-        16 + MediaQuery.of(context).viewInsets.bottom,
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.85,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          4,
+          16,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
             child: Row(
@@ -707,16 +711,8 @@ class MarketFiltersSheet extends ConsumerWidget {
                 )
                 .toList(),
           ),
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.check_rounded),
-              label: Text(tr('Применить')),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

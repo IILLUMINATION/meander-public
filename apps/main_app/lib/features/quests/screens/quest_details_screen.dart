@@ -14,6 +14,7 @@ import 'package:canvas_app/features/editor/workspace/editor_workspace_controller
 import 'package:canvas_app/features/editor/workspace/editor_workspace_session.dart';
 import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
 import 'package:canvas_app/features/game/screens/load_game_screen.dart';
+import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/features/quests/screens/apk_build_options_screen.dart';
@@ -27,6 +28,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
+import 'package:canvas_app/shared/widgets/catalog_shell.dart';
 
 // План 020-C4.5: операции над квестом — через ядро (QuestStore).
 Future<QuestStore> _qs() => QuestStore.defaultInstance();
@@ -68,6 +70,9 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
   /// Ключ кнопки «Сценарий и Главы» — на неё указывает обучение.
   final GlobalKey _openEditorKey = GlobalKey();
 
+  static const double _heroExpandedHeight = 300;
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -84,6 +89,12 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
           .read(tutorialControllerProvider.notifier)
           .registerTarget(TutorialTargets.openEditorTile, _openEditorKey);
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   // ---------------------------------------------------------------------------
@@ -522,155 +533,382 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
           return _buildContent(quest);
         },
       ),
-      floatingActionButton: questAsync.maybeWhen(
-        data: (quest) => quest == null
-            ? null
-            : FloatingActionButton.extended(
-                heroTag: 'play_${widget.questId}',
-                onPressed: () => _play(quest),
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(
-                  tr('Играть'),
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-        orElse: () => null,
-      ),
     );
   }
 
   Widget _buildContent(Quest quest) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720),
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            _buildAppBar(quest),
-            SliverToBoxAdapter(child: _Header(quest: quest)),
-            SliverToBoxAdapter(child: _MetaChipsRow(quest: quest)),
-            if (quest.description != null &&
-                quest.description!.trim().isNotEmpty)
-              SliverToBoxAdapter(
-                child: _DescriptionCard(text: quest.description!),
-              ),
-            SliverToBoxAdapter(child: _StartNodeCard(quest: quest)),
-            SliverToBoxAdapter(
-              child: _BuilderSection(
-                quest: quest,
-                openEditorKey: _openEditorKey,
-                onSettings: () => _openSettings(quest),
-                onEditor: () => _openEditor(quest),
-                onResources: () => _openResources(quest),
-                onStartNode: () => _selectStartNode(quest),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _ManagementSection(
-                quest: quest,
-                isExporting: _isExporting,
-                isExportingTxt: _isExportingTxt,
-                isExportingPdf: _isExportingPdf,
-                onHistory: () => _openHistory(quest),
-                onShareSheet: () => _shareSheet(quest),
-                onPublish: () => _submitQuestForModeration(quest),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _DangerZone(
-                onReset: () => _resetProgress(quest),
-                onDelete: () => _confirmDelete(quest),
-              ),
-            ),
-            // отступ под FAB
-            const SliverPadding(padding: EdgeInsets.only(bottom: 120)),
-          ],
+    return CustomScrollView(
+      controller: _scrollController,
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        _buildAppBar(quest),
+        SliverToBoxAdapter(
+          child: _LocalActionPanel(
+            onPlay: () => _play(quest),
+            onOpenMarket: quest.marketQuestId == null
+                ? null
+                : () => _openMarketPage(quest),
+          ),
         ),
+        SliverToBoxAdapter(child: _MetaChipsRow(quest: quest)),
+        SliverToBoxAdapter(child: _StartNodeCard(quest: quest)),
+        SliverToBoxAdapter(
+          child: _BuilderSection(
+            quest: quest,
+            openEditorKey: _openEditorKey,
+            onSettings: () => _openSettings(quest),
+            onEditor: () => _openEditor(quest),
+            onResources: () => _openResources(quest),
+            onStartNode: () => _selectStartNode(quest),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: _ManagementSection(
+            quest: quest,
+            isExporting: _isExporting,
+            isExportingTxt: _isExportingTxt,
+            isExportingPdf: _isExportingPdf,
+            onHistory: () => _openHistory(quest),
+            onShareSheet: () => _shareSheet(quest),
+            onPublish: () => _submitQuestForModeration(quest),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: _DangerZone(
+            onReset: () => _resetProgress(quest),
+            onDelete: () => _confirmDelete(quest),
+          ),
+        ),
+        const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
+      ],
+    );
+  }
+
+  void _openMarketPage(Quest quest) {
+    final id = quest.marketQuestId;
+    if (id == null || id.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MarketQuestLoaderScreen(questId: id),
       ),
     );
   }
 
   SliverAppBar _buildAppBar(Quest quest) {
+    final scheme = Theme.of(context).colorScheme;
     return SliverAppBar(
-      backgroundColor: Colors.transparent,
+      expandedHeight: _heroExpandedHeight,
+      pinned: true,
+      stretch: true,
+      backgroundColor: scheme.surface,
       surfaceTintColor: Colors.transparent,
       shadowColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
-      pinned: false,
-      floating: true,
-      snap: true,
-      toolbarHeight: 56,
+      titleSpacing: 0,
+      title: _CollapsedTitle(
+        title: quest.title,
+        controller: _scrollController,
+        expandedHeight: _heroExpandedHeight,
+      ),
+      leading: CatalogGlassIconButton(
+        icon: Icons.arrow_back_rounded,
+        onPressed: () => Navigator.pop(context),
+      ),
       actions: [
         if (!quest.isReadOnly)
-          IconButton(
+          CatalogGlassIconButton(
+            icon: Icons.ios_share_rounded,
             tooltip: tr('Поделиться'),
-            icon: const Icon(Icons.ios_share_rounded),
             onPressed: () => _shareSheet(quest),
           ),
       ],
+      flexibleSpace: Stack(
+        fit: StackFit.expand,
+        children: [
+          FlexibleSpaceBar(
+            stretchModes: const [StretchMode.zoomBackground],
+            background: Stack(
+              fit: StackFit.expand,
+              children: [_QuestCover(quest: quest)],
+            ),
+          ),
+          _LocalHeroOverlay(
+            quest: quest,
+            scheme: scheme,
+            controller: _scrollController,
+            expandedHeight: _heroExpandedHeight,
+          ),
+        ],
+      ),
     );
   }
 }
 
 // ============================================================================
-//  HEADER: обложка + название
+//  HERO: обложка, затемнение и название как на странице маркета
 // ============================================================================
 
-class _Header extends StatelessWidget {
+class _LocalHeroOverlay extends StatelessWidget {
   final Quest quest;
-  const _Header({required this.quest});
+  final ColorScheme scheme;
+  final ScrollController controller;
+  final double expandedHeight;
+
+  const _LocalHeroOverlay({
+    required this.quest,
+    required this.scheme,
+    required this.controller,
+    required this.expandedHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final collapseStart = expandedHeight - kToolbarHeight - topPadding;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final offset = controller.hasClients ? controller.offset : 0.0;
+        final fade = collapseStart <= 0
+            ? 0.0
+            : (1 - offset / collapseStart).clamp(0.0, 1.0);
+        final gradientFade = collapseStart <= 0
+            ? 1.0
+            : ((collapseStart - offset) / 48).clamp(0.0, 1.0);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 180,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: gradientFade,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          scheme.surface.withOpacity(0.6),
+                          scheme.surface,
+                        ],
+                        stops: const [0.0, 0.7, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 20,
+              child: IgnorePointer(
+                ignoring: fade <= 0.05,
+                child: Opacity(
+                  opacity: fade,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        quest.title,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              shadows: const [
+                                Shadow(
+                                  blurRadius: 12,
+                                  color: Colors.black54,
+                                ),
+                              ],
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.person_rounded,
+                            size: 18,
+                            color: Colors.white70,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              quest.author ?? tr('Локальный проект'),
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _LocalActionPanel extends StatelessWidget {
+  final VoidCallback onPlay;
+  final VoidCallback? onOpenMarket;
+
+  const _LocalActionPanel({
+    required this.onPlay,
+    required this.onOpenMarket,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Обложка
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: _QuestCover(quest: quest),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Название
-          Text(
-            quest.title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: scheme.onSurface,
-              height: 1.2,
-            ),
-          ),
-          const SizedBox(height: 6),
-          // Автор
-          Row(
-            children: [
-              Icon(
-                Icons.edit_note_rounded,
-                size: 16,
-                color: scheme.onSurfaceVariant,
+          Material(
+            color: scheme.secondary,
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPlay,
+              child: SizedBox(
+                height: 60,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.play_arrow_rounded,
+                      color: scheme.onSecondary,
+                      size: 26,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      tr('Играть'),
+                      style: textTheme.titleMedium?.copyWith(
+                        color: scheme.onSecondary,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  quest.author ?? tr('Локальный проект'),
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (onOpenMarket != null) ...[
+            const SizedBox(height: 10),
+            Material(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(18),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onOpenMarket,
+                child: SizedBox(
+                  height: 58,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 16),
+                      Icon(
+                        Icons.storefront_rounded,
+                        color: scheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              tr('Открыть страницу квеста'),
+                              style: textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                            Text(
+                              tr('Страница в маркете'),
+                              style: textTheme.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.open_in_new_rounded,
+                        color: scheme.onSurfaceVariant,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 16),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _CollapsedTitle extends StatelessWidget {
+  final String title;
+  final ScrollController controller;
+  final double expandedHeight;
+
+  const _CollapsedTitle({
+    required this.title,
+    required this.controller,
+    required this.expandedHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final collapseStart = expandedHeight - kToolbarHeight - topPadding;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final offset = controller.hasClients ? controller.offset : 0.0;
+        final progress = collapseStart <= 0
+            ? 1.0
+            : ((offset - collapseStart + 40) / 40).clamp(0.0, 1.0);
+        return Opacity(
+          opacity: progress,
+          child: IgnorePointer(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -733,7 +971,7 @@ class _MetaChipsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -834,68 +1072,6 @@ class _MetaChip extends StatelessWidget {
 // ============================================================================
 //  DESCRIPTION
 // ============================================================================
-
-class _DescriptionCard extends StatefulWidget {
-  final String text;
-  const _DescriptionCard({required this.text});
-
-  @override
-  State<_DescriptionCard> createState() => _DescriptionCardState();
-}
-
-class _DescriptionCardState extends State<_DescriptionCard> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isLong = widget.text.length > 220;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Material(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: Material(
-          type: MaterialType.transparency,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.text,
-                  maxLines: _expanded ? null : 5,
-                  overflow: _expanded ? null : TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 14,
-                    height: 1.45,
-                  ),
-                ),
-                if (isLong) ...[
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: () => setState(() => _expanded = !_expanded),
-                    child: Text(
-                      _expanded ? tr('Свернуть') : tr('Читать дальше'),
-                      style: TextStyle(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ============================================================================
 //  START NODE CARD
