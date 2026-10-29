@@ -778,7 +778,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       // его S256-хеш. state отсекает редирект от чужой сессии браузера.
       final String verifier = generatePkceVerifier();
       final String challenge = pkceChallenge(verifier);
-      final String state = generatePkceVerifier(length: 32);
+      final String state = generateOAuthState();
       final String authUrl =
           'https://accounts.google.com/o/oauth2/v2/auth'
           '?response_type=code'
