@@ -19,7 +19,9 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 2.8.16+261
 
 environment:
-  sdk: ^3.9.2
+  # material_3_expressive 1.2.0 требует Dart 3.13 / Flutter 3.47.
+  sdk: ^3.13.0
+  flutter: ">=3.47.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -104,6 +106,7 @@ dependencies:
   # единственный релиз media_kit_video с починенным h/w-рендером на Linux.
   media_kit: ^1.2.3
   media_kit_video: ^2.0.1
+  material_3_expressive: ^1.2.0
 
 # Значки платформ. Android и Windows здесь ВЫКЛЮЧЕНЫ намеренно: их делает
 # tool/build_icons.py из assets/icon/logo.svg — адаптивный VectorDrawable
