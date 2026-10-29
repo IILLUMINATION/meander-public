@@ -32,14 +32,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
-import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
 // ============================================================================
 //  БИБЛИОТЕКА — Material You / Material 3 редизайн
 // ============================================================================
 
 const double _kCompactBreakpoint = 600;
-const double _kMediumBreakpoint = 900;
 
 enum LibrarySort { az, za, createdDate, openedDate }
 
@@ -408,24 +406,30 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
           final result = await showAppDialog<bool>(
             context: context,
             barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              title: Text(tr('Обнаружен конфликт')),
-              content: Text(
-                trf(
-                  'Квест «{questTitle}» уже существует. Заменить его версией из бэкапа?',
-                  {'questTitle': questTitle},
+            builder: (ctx) => M3ETheme(
+              data: _m3eTheme,
+              child: M3EDialog(
+                title: tr('Обнаружен конфликт'),
+                content: Text(
+                  trf(
+                    'Квест «{questTitle}» уже существует. Заменить его версией из бэкапа?',
+                    {'questTitle': questTitle},
+                  ),
+                  style: _m3eTheme.textTheme.bodyMedium,
                 ),
+                actions: [
+                  M3EButton(
+                    label: Text(tr('Пропустить')),
+                    style: M3EButtonStyle.text,
+                    onPressed: () => Navigator.pop(ctx, false),
+                  ),
+                  M3EButton(
+                    label: Text(tr('Заменить')),
+                    style: M3EButtonStyle.filled,
+                    onPressed: () => Navigator.pop(ctx, true),
+                  ),
+                ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: Text(tr('Пропустить')),
-                ),
-                FilledButton.tonal(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: Text(tr('Заменить')),
-                ),
-              ],
             ),
           );
           return result ?? false;
@@ -492,44 +496,38 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       showAppDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            _refreshProgressDialog = setDialogState;
-            final scheme = Theme.of(ctx).colorScheme;
-            final progress = _operationProgress;
-            return Dialog(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 28,
-                  horizontal: 28,
-                ),
-                child: Column(
+        builder: (ctx) => M3ETheme(
+          data: _m3eTheme,
+          child: StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              _refreshProgressDialog = setDialogState;
+              final progress = _operationProgress;
+              return M3EDialog(
+                title: tr('Выполняется...'),
+                content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (progress == null)
-                      CircularProgressIndicator(color: scheme.primary)
+                      const M3EProgressIndicator.circularWavy(size: 48)
                     else ...[
-                      LinearProgressIndicator(
-                        value: progress,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
+                      M3EProgressIndicator.linear(value: progress),
                       const SizedBox(height: 12),
                       Text(
                         '${(progress * 100).round()}%',
-                        style: Theme.of(ctx).textTheme.labelMedium,
+                        style: _m3eTheme.textTheme.labelMedium,
                       ),
                     ],
                     const SizedBox(height: 20),
                     Text(
                       _operationStatus,
                       textAlign: TextAlign.center,
-                      style: Theme.of(ctx).textTheme.bodyMedium,
+                      style: _m3eTheme.textTheme.bodyMedium,
                     ),
                   ],
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
         // Крючок пересборки окна больше не жив: вызывать его после pop —
         // assertion на мёртвом StatefulBuilder.
@@ -551,128 +549,126 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
   }
 
   void _showQuestOptions(Quest quest) {
-    final scheme = Theme.of(context).colorScheme;
-    showAdaptiveSheet(
-      context: context,
-      scrollable: true,
+    M3EBottomSheet.showAdaptive<void>(
+      context,
+      title: tr('Действия'),
       showDragHandle: true,
-      backgroundColor: scheme.surface,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!quest.isReadOnly || quest.isCorrupted)
-              ListTile(
-                leading: Icon(Icons.share_rounded, color: scheme.onSurface),
-                title: Text(tr('Экспортировать (.mnd)')),
-                subtitle: Text(tr('Копия квеста без сохранений')),
-                onTap: () {
-                  Navigator.pop(context);
-                  _exportQuest(quest);
-                },
-              ),
-            if (!quest.isReadOnly || quest.isCorrupted)
-              ListTile(
-                leading: Icon(Icons.save_rounded, color: scheme.onSurface),
-                title: Text(tr('Бэкап (с сохранениями)')),
-                subtitle: Text(tr('Включая игровой прогресс')),
-                onTap: () {
-                  Navigator.pop(context);
-                  _exportQuest(quest, includeSaves: true);
-                },
-              ),
-            if (!quest.isCorrupted)
-              ListTile(
-                leading: Icon(
-                  Icons.picture_as_pdf_rounded,
-                  color: scheme.onSurface,
+      initialValue: M3EBottomSheetValue.expanded,
+      builder: (_) => M3ETheme(
+        data: _m3eTheme,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!quest.isReadOnly || quest.isCorrupted)
+                M3EListItem(
+                  headline: tr('Экспортировать (.mnd)'),
+                  supportingText: tr('Копия квеста без сохранений'),
+                  leading: const Icon(Icons.share_rounded),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _exportQuest(quest);
+                  },
                 ),
-                title: Text(tr('Экспортировать в PDF')),
-                subtitle: Text(tr('Книга с содержанием и якорями')),
+              if (!quest.isReadOnly || quest.isCorrupted)
+                M3EListItem(
+                  headline: tr('Бэкап (с сохранениями)'),
+                  supportingText: tr('Включая игровой прогресс'),
+                  leading: const Icon(Icons.save_rounded),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _exportQuest(quest, includeSaves: true);
+                  },
+                ),
+              if (!quest.isCorrupted)
+                M3EListItem(
+                  headline: tr('Экспортировать в PDF'),
+                  supportingText: tr('Книга с содержанием и якорями'),
+                  leading: const Icon(Icons.picture_as_pdf_rounded),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _exportQuestAsPdf(quest);
+                  },
+                ),
+              if (!quest.isReadOnly &&
+                  !quest.isMarketDownloaded &&
+                  !quest.isCorrupted)
+                M3EListItem(
+                  headline: tr('Редактировать'),
+                  leading: const Icon(Icons.edit_rounded),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _editQuest(quest);
+                  },
+                ),
+              M3EListItem(
+                headline: tr('Удалить квест'),
+                leading: Icon(
+                  Icons.delete_outline_rounded,
+                  color: _m3eTheme.colorScheme.error,
+                ),
                 onTap: () {
                   Navigator.pop(context);
-                  _exportQuestAsPdf(quest);
+                  _confirmDeleteQuest(quest);
                 },
               ),
-            if (!quest.isReadOnly &&
-                !quest.isMarketDownloaded &&
-                !quest.isCorrupted)
-              ListTile(
-                leading: Icon(Icons.edit_rounded, color: scheme.onSurface),
-                title: Text(tr('Редактировать')),
-                onTap: () {
-                  Navigator.pop(context);
-                  _editQuest(quest);
-                },
-              ),
-            ListTile(
-              leading: Icon(Icons.delete_outline_rounded, color: scheme.error),
-              title: Text(
-                tr('Удалить квест'),
-                style: TextStyle(color: scheme.error),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _confirmDeleteQuest(quest);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _confirmDeleteQuest(Quest quest) async {
-    final scheme = Theme.of(context).colorScheme;
     bool alsoDeleteRemote = true;
     final result = await showAppDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          title: Text(tr('Удалить квест?')),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                trf(
-                  'Квест «{p0}» будет удалён с устройства. Это действие необратимо.',
-                  {'p0': quest.title},
+      builder: (ctx) => M3ETheme(
+        data: _m3eTheme,
+        child: StatefulBuilder(
+          builder: (ctx, setLocal) => M3EDialog(
+            title: tr('Удалить квест?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  trf(
+                    'Квест «{p0}» будет удалён с устройства. Это действие необратимо.',
+                    {'p0': quest.title},
+                  ),
+                  style: _m3eTheme.textTheme.bodyMedium,
                 ),
-                style: const TextStyle(fontSize: 14, height: 1.4),
+                const SizedBox(height: 12),
+                M3EListItem(
+                  headline: tr('Также удалить из облака'),
+                  supportingText: tr(
+                    'Если выключить — в облаке останется бэкап',
+                  ),
+                  leading: M3ECheckbox(
+                    value: alsoDeleteRemote,
+                    onChanged: (v) =>
+                        setLocal(() => alsoDeleteRemote = v ?? false),
+                  ),
+                  onTap: () =>
+                      setLocal(() => alsoDeleteRemote = !alsoDeleteRemote),
+                ),
+              ],
+            ),
+            actions: [
+              M3EButton(
+                label: Text(tr('Отмена')),
+                style: M3EButtonStyle.text,
+                onPressed: () => Navigator.pop(ctx, false),
               ),
-              const SizedBox(height: 12),
-              CheckboxListTile(
-                value: alsoDeleteRemote,
-                onChanged: (v) => setLocal(() => alsoDeleteRemote = v ?? false),
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                title: Text(
-                  tr('Также удалить из облака'),
-                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
-                ),
-                subtitle: Text(
-                  tr('Если выключить — в облаке останется бэкап'),
-                  style: TextStyle(fontSize: 12),
-                ),
+              M3EButton(
+                label: Text(tr('Удалить')),
+                style: M3EButtonStyle.filled,
+                onPressed: () => Navigator.pop(ctx, true),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(tr('Отмена')),
-            ),
-            FilledButton.tonal(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: FilledButton.styleFrom(
-                backgroundColor: scheme.errorContainer,
-                foregroundColor: scheme.onErrorContainer,
-              ),
-              child: Text(tr('Удалить')),
-            ),
-          ],
         ),
       ),
     );
@@ -723,137 +719,129 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
   }
 
   void _showSortSheet() {
-    final scheme = Theme.of(context).colorScheme;
-    showAdaptiveSheet(
-      context: context,
-      scrollable: true,
-      isScrollControlled: true,
+    final m3e = _m3eTheme;
+    M3EBottomSheet.showAdaptive<void>(
+      context,
+      title: tr('Сортировка'),
       showDragHandle: true,
-      backgroundColor: scheme.surface,
+      initialValue: M3EBottomSheetValue.expanded,
       builder: (_) {
-        return StatefulBuilder(
-          builder: (ctx, setSheet) {
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  4,
-                  20,
-                  20 + MediaQuery.of(ctx).viewInsets.bottom,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.tune_rounded, color: scheme.primary),
-                        const SizedBox(width: 10),
-                        Text(
-                          tr('Сортировка'),
-                          style: Theme.of(ctx).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _SortChoiceTile(
-                      label: tr('По алфавиту А–Я'),
-                      icon: Icons.sort_by_alpha_rounded,
-                      selected: _sort == LibrarySort.az,
-                      onTap: () => setSheet(() => _sort = LibrarySort.az),
-                    ),
-                    _SortChoiceTile(
-                      label: tr('По алфавиту Я–А'),
-                      icon: Icons.sort_by_alpha_rounded,
-                      selected: _sort == LibrarySort.za,
-                      onTap: () => setSheet(() => _sort = LibrarySort.za),
-                    ),
-                    _SortChoiceTile(
-                      label: tr('По дате создания'),
-                      icon: Icons.event_note_rounded,
-                      selected: _sort == LibrarySort.createdDate,
-                      onTap: () =>
-                          setSheet(() => _sort = LibrarySort.createdDate),
-                    ),
-                    _SortChoiceTile(
-                      label: tr('По дате последнего открытия'),
-                      icon: Icons.schedule_rounded,
-                      selected: _sort == LibrarySort.openedDate,
-                      onTap: () =>
-                          setSheet(() => _sort = LibrarySort.openedDate),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_sort == LibrarySort.createdDate ||
-                        _sort == LibrarySort.openedDate)
+        return M3ETheme(
+          data: m3e,
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) {
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    4,
+                    20,
+                    20 + MediaQuery.of(ctx).viewInsets.bottom,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            tr('Порядок'),
-                            style: Theme.of(ctx).textTheme.titleSmall,
+                          Icon(
+                            Icons.tune_rounded,
+                            color: m3e.colorScheme.primary,
                           ),
-                          SegmentedButton<bool>(
-                            segments: [
-                              ButtonSegment(
-                                value: true,
-                                label: Text(tr('Сначала новые')),
-                                icon: Icon(Icons.arrow_downward_rounded),
-                              ),
-                              ButtonSegment(
-                                value: false,
-                                label: Text(tr('Сначала старые')),
-                                icon: Icon(Icons.arrow_upward_rounded),
-                              ),
-                            ],
-                            selected: {_isDescending},
-                            onSelectionChanged: (s) =>
-                                setSheet(() => _isDescending = s.first),
+                          const SizedBox(width: 10),
+                          Text(
+                            tr('Сортировка'),
+                            style: m3e.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ],
                       ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () {
-                          setState(() {});
-                          Navigator.pop(ctx);
-                        },
-                        icon: const Icon(Icons.check_rounded),
-                        label: Text(tr('Применить')),
+                      const SizedBox(height: 16),
+                      _SortChoiceTile(
+                        label: tr('По алфавиту А–Я'),
+                        icon: Icons.sort_by_alpha_rounded,
+                        selected: _sort == LibrarySort.az,
+                        onTap: () => setSheet(() => _sort = LibrarySort.az),
                       ),
-                    ),
-                  ],
+                      _SortChoiceTile(
+                        label: tr('По алфавиту Я–А'),
+                        icon: Icons.sort_by_alpha_rounded,
+                        selected: _sort == LibrarySort.za,
+                        onTap: () => setSheet(() => _sort = LibrarySort.za),
+                      ),
+                      _SortChoiceTile(
+                        label: tr('По дате создания'),
+                        icon: Icons.event_note_rounded,
+                        selected: _sort == LibrarySort.createdDate,
+                        onTap: () =>
+                            setSheet(() => _sort = LibrarySort.createdDate),
+                      ),
+                      _SortChoiceTile(
+                        label: tr('По дате последнего открытия'),
+                        icon: Icons.schedule_rounded,
+                        selected: _sort == LibrarySort.openedDate,
+                        onTap: () =>
+                            setSheet(() => _sort = LibrarySort.openedDate),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_sort == LibrarySort.createdDate ||
+                          _sort == LibrarySort.openedDate)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              tr('Порядок'),
+                              style: m3e.textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 8),
+                            M3ESegmentedButton<bool>(
+                              segments: [
+                                M3ESegment(
+                                  value: true,
+                                  label: tr('Сначала новые'),
+                                  icon: const Icon(
+                                    Icons.arrow_downward_rounded,
+                                  ),
+                                ),
+                                M3ESegment(
+                                  value: false,
+                                  label: tr('Сначала старые'),
+                                  icon: const Icon(Icons.arrow_upward_rounded),
+                                ),
+                              ],
+                              selected: {_isDescending},
+                              onSelectionChanged: (s) =>
+                                  setSheet(() => _isDescending = s.first),
+                            ),
+                          ],
+                        ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3EButton(
+                          label: Text(tr('Применить')),
+                          icon: const Icon(Icons.check_rounded),
+                          style: M3EButtonStyle.filled,
+                          onPressed: () {
+                            setState(() {});
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
   }
 
   void _showSnack(String text, {bool success = false, bool error = false}) {
-    final scheme = Theme.of(context).colorScheme;
-    Color? bg;
-    Color? fg;
-    if (success) {
-      bg = scheme.primary;
-      fg = scheme.onPrimary;
-    } else if (error) {
-      bg = scheme.error;
-      fg = scheme.onError;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        backgroundColor: bg,
-        behavior: SnackBarBehavior.floating,
-        showCloseIcon: true,
-        closeIconColor: fg,
-      ),
-    );
+    M3ESnackbar.show(context, message: text, showCloseButton: true);
   }
 
   // ---------------------------------------------------------------------------
@@ -886,8 +874,6 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       });
     }
 
-    final scheme = Theme.of(context).colorScheme;
-
     return M3ETheme(
       data: _m3eTheme,
       child: PopScope(
@@ -897,17 +883,16 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
           _clearFilters();
         },
         child: Scaffold(
-          backgroundColor: scheme.surface,
+          backgroundColor: _m3eTheme.colorScheme.surface,
           body: SafeArea(
             bottom: false,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.maxWidth;
                 final isCompact = width < _kCompactBreakpoint;
-                final isMedium = width >= _kMediumBreakpoint;
                 final hPad = isCompact ? 16.0 : 24.0;
 
-                return RefreshIndicator(
+                return M3ERefreshIndicator(
                   onRefresh: _refreshAll,
                   child: CustomScrollView(
                     controller: _scrollController,
@@ -915,15 +900,41 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     slivers: [
-                      _buildAppBar(),
                       SliverToBoxAdapter(
                         child: Padding(
-                          padding: EdgeInsets.fromLTRB(hPad, 4, hPad, 16),
-                          child: _LibraryHero(
+                          padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 16),
+                          child: _LibraryDashboard(
                             stats: libraryStats,
                             isSyncing: syncState.isSyncing,
                             syncEnabled: syncState.settings.enabled,
                             isOperationInProgress: _isOperationInProgress,
+                            activeFilter: _typeFilter,
+                            leadingIcon: _isFiltering
+                                ? Icons.close_rounded
+                                : (widget.isRoot
+                                      ? null
+                                      : Icons.arrow_back_rounded),
+                            leadingTooltip: _isFiltering
+                                ? tr('Сбросить фильтр')
+                                : tr('Назад'),
+                            onLeading: _isFiltering
+                                ? _clearFilters
+                                : (widget.isRoot
+                                      ? null
+                                      : () => Navigator.pop(context)),
+                            onOpenLibrary: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => MyLibraryScreen(),
+                              ),
+                            ),
+                            onOpenPresets: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => LocalPresetsScreen(),
+                              ),
+                            ),
+                            onFilter: (f) => setState(() => _typeFilter = f),
                             onSync: _openSyncSettings,
                             onSyncLongPress: _openGitHubLegacySettings,
                             onImport: _isOperationInProgress
@@ -995,11 +1006,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
                         ),
                       ),
                       const SliverToBoxAdapter(child: SizedBox(height: 12)),
-                      _buildQuestsSliver(
-                        questsAsync,
-                        isMedium: isMedium,
-                        hPad: hPad,
-                      ),
+                      _buildQuestsSliver(questsAsync, hPad: hPad),
                       const SliverPadding(padding: EdgeInsets.only(bottom: 96)),
                     ],
                   ),
@@ -1017,55 +1024,6 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  SliverAppBar _buildAppBar() {
-    return SliverAppBar(
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      pinned: false,
-      floating: true,
-      snap: true,
-      toolbarHeight: 56,
-      automaticallyImplyLeading: !widget.isRoot && !_isFiltering,
-      actions: [
-        M3EIconButton(
-          icon: const Icon(Icons.collections_bookmark_rounded),
-          tooltip: tr('Моя библиотека'),
-          variant: M3EIconButtonVariant.standard,
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => MyLibraryScreen()),
-          ),
-        ),
-        M3EIconButton(
-          icon: const Icon(Icons.smart_button_rounded),
-          tooltip: tr('Локальные пресеты'),
-          variant: M3EIconButtonVariant.standard,
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => LocalPresetsScreen()),
-          ),
-        ),
-      ],
-      leading: _isFiltering
-          ? M3EIconButton(
-              icon: const Icon(Icons.arrow_back_rounded),
-              tooltip: tr('Сбросить фильтр'),
-              variant: M3EIconButtonVariant.standard,
-              onPressed: _clearFilters,
-            )
-          : (widget.isRoot
-                ? null
-                : M3EIconButton(
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    variant: M3EIconButtonVariant.standard,
-                    onPressed: () => Navigator.pop(context),
-                  )),
     );
   }
 
@@ -1114,18 +1072,20 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
 
   Widget _buildQuestsSliver(
     AsyncValue<List<Quest>> async, {
-    required bool isMedium,
     required double hPad,
   }) {
     return async.when(
       loading: () => SliverPadding(
         padding: EdgeInsets.symmetric(horizontal: hPad),
-        sliver: SliverList(
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 380,
+            mainAxisExtent: 340,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
           delegate: SliverChildBuilderDelegate(
-            (_, __) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
-              child: _QuestCardShimmer(),
-            ),
+            (_, _) => const _QuestCardShimmer(),
             childCount: 4,
           ),
         ),
@@ -1178,35 +1138,16 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
           return null;
         }
 
-        if (isMedium) {
-          return SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: hPad),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 420,
-                mainAxisExtent: 110,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final quest = filtered[index];
-                return _QuestListCard(
-                  key: keyForQuest(quest),
-                  quest: quest,
-                  onTap: () => _openQuest(quest),
-                  onMoreTap: () => _showQuestOptions(quest),
-                );
-              }, childCount: filtered.length),
-            ),
-          );
-        }
-
         return SliverPadding(
           padding: EdgeInsets.symmetric(horizontal: hPad),
-          sliver: SliverList.separated(
-            itemCount: filtered.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 380,
+              mainAxisExtent: 340,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
               final quest = filtered[index];
               return _QuestListCard(
                 key: keyForQuest(quest),
@@ -1214,7 +1155,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
                 onTap: () => _openQuest(quest),
                 onMoreTap: () => _showQuestOptions(quest),
               );
-            },
+            }, childCount: filtered.length),
           ),
         );
       },
@@ -1298,22 +1239,49 @@ class _LibraryStats {
 //  HERO-СЕКЦИЯ
 // ============================================================================
 
-class _LibraryHero extends StatelessWidget {
+String _librarySubtitle(_LibraryStats stats) {
+  if (stats.total == 0) return tr('Пока пусто — создайте свой первый квест');
+  final parts = <String>[
+    '${stats.total} ${trp(['квест', 'квеста', 'квестов'], stats.total)}',
+  ];
+  if (stats.market > 0) parts.add('${stats.market} ${tr('из маркета')}');
+  if (stats.local > 0) parts.add('${stats.local} ${tr('локальных')}');
+  if (stats.corrupted > 0) {
+    parts.add('${stats.corrupted} ${tr('повреждённых')}');
+  }
+  return parts.join(' · ');
+}
+
+class _LibraryDashboard extends StatelessWidget {
   final _LibraryStats stats;
   final bool isSyncing;
   final bool syncEnabled;
   final bool isOperationInProgress;
+  final LibraryTypeFilter activeFilter;
+  final IconData? leadingIcon;
+  final String? leadingTooltip;
+  final VoidCallback? onLeading;
+  final VoidCallback onOpenLibrary;
+  final VoidCallback onOpenPresets;
+  final ValueChanged<LibraryTypeFilter> onFilter;
   final VoidCallback onSync;
   final VoidCallback? onSyncLongPress;
   final VoidCallback? onImport;
   final VoidCallback? onBackup;
   final VoidCallback? onRestore;
 
-  const _LibraryHero({
+  const _LibraryDashboard({
     required this.stats,
     required this.isSyncing,
     required this.syncEnabled,
     required this.isOperationInProgress,
+    required this.activeFilter,
+    required this.leadingIcon,
+    required this.leadingTooltip,
+    required this.onLeading,
+    required this.onOpenLibrary,
+    required this.onOpenPresets,
+    required this.onFilter,
     required this.onSync,
     required this.onSyncLongPress,
     required this.onImport,
@@ -1325,163 +1293,167 @@ class _LibraryHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final m3e = M3ETheme.of(context);
     final scheme = m3e.colorScheme;
-    // Высота — по содержимому, но не меньше привычных 160. Раньше рамка была
-    // строго 160 px, и на телефоне шириной 360 px подзаголовок переносился на
-    // вторую строку: кнопки упираться было некуда, RenderFlex переполнялся
-    // ровно на первом экране, который видит новичок.
-    return M3ECard(
-      variant: M3ECardVariant.filled,
-      padding: EdgeInsets.zero,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 160),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              scheme.primaryContainer,
-              Color.alphaBlend(
-                scheme.secondaryContainer.withOpacity(0.6),
-                scheme.primaryContainer,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            if (leadingIcon != null)
+              M3EIconButton(
+                icon: Icon(leadingIcon!),
+                tooltip: leadingTooltip,
+                variant: M3EIconButtonVariant.standard,
+                onPressed: onLeading,
+              ),
+            Expanded(
+              child: Text(
+                tr('Мои квесты'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: m3e.textTheme.headlineLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: scheme.onSurface,
+                ),
+              ),
+            ),
+            M3EIconButton(
+              icon: const Icon(Icons.collections_bookmark_rounded),
+              tooltip: tr('Моя библиотека'),
+              variant: M3EIconButtonVariant.standard,
+              onPressed: onOpenLibrary,
+            ),
+            M3EIconButton(
+              icon: const Icon(Icons.smart_button_rounded),
+              tooltip: tr('Локальные пресеты'),
+              variant: M3EIconButtonVariant.standard,
+              onPressed: onOpenPresets,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _librarySubtitle(stats),
+          style: m3e.textTheme.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            _statCard(
+              m3e,
+              icon: Icons.auto_stories_rounded,
+              value: stats.total,
+              label: tr('Все'),
+              selected: activeFilter == LibraryTypeFilter.all,
+              onTap: () => onFilter(LibraryTypeFilter.all),
+            ),
+            const SizedBox(width: 8),
+            _statCard(
+              m3e,
+              icon: Icons.shop_rounded,
+              value: stats.market,
+              label: tr('Маркет'),
+              selected: activeFilter == LibraryTypeFilter.marketDownloaded,
+              onTap: () => onFilter(LibraryTypeFilter.marketDownloaded),
+            ),
+            const SizedBox(width: 8),
+            _statCard(
+              m3e,
+              icon: Icons.devices_other_rounded,
+              value: stats.local,
+              label: tr('Локальные'),
+              selected: activeFilter == LibraryTypeFilter.local,
+              onTap: () => onFilter(LibraryTypeFilter.local),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            M3EButton(
+              label: Text(tr('Синк')),
+              icon: isSyncing
+                  ? const M3EProgressIndicator.circularWavy(size: 16)
+                  : Icon(
+                      syncEnabled
+                          ? Icons.cloud_done_rounded
+                          : Icons.cloud_off_rounded,
+                    ),
+              style: M3EButtonStyle.tonal,
+              size: M3EButtonSize.xs,
+              onPressed: onSync,
+              onLongPress: onSyncLongPress,
+            ),
+            const SizedBox(width: 8),
+            M3EButton(
+              label: Text(tr('Импорт')),
+              icon: isOperationInProgress
+                  ? const M3EProgressIndicator.circularWavy(size: 16)
+                  : const Icon(Icons.file_upload_outlined),
+              style: M3EButtonStyle.outlined,
+              size: M3EButtonSize.xs,
+              onPressed: onImport,
+            ),
+            const Spacer(),
+            _HeroMenuButton(onBackup: onBackup, onRestore: onRestore),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _statCard(
+    M3EThemeData m3e, {
+    required IconData icon,
+    required int value,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final scheme = m3e.colorScheme;
+    return Expanded(
+      child: M3ECard(
+        variant: selected ? M3ECardVariant.filled : M3ECardVariant.outlined,
+        color: selected ? scheme.primaryContainer : null,
+        onPressed: onTap,
+        padding: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: selected ? scheme.onPrimaryContainer : scheme.primary,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$value',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: m3e.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: selected
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurface,
+                ),
+              ),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: m3e.textTheme.labelSmall?.copyWith(
+                  color: selected
+                      ? scheme.onPrimaryContainer.withOpacity(0.8)
+                      : scheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
         ),
-        child: Stack(
-          clipBehavior: Clip.hardEdge,
-          children: [
-            Positioned(
-              right: -22,
-              bottom: -30,
-              child: Icon(
-                Icons.auto_stories_rounded,
-                size: 180,
-                color: scheme.onPrimaryContainer.withOpacity(0.10),
-              ),
-            ),
-
-            // Заголовок и счётчики
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    tr('Моя библиотека'),
-                    style: m3e.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: scheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _buildSubtitle(),
-                    style: TextStyle(
-                      color: scheme.onPrimaryContainer.withOpacity(0.78),
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  // Не Spacer, а фиксированный зазор: колонка теперь минимальной
-                  // высоты и не знает, сколько рамка доберёт до 160 px.
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      // Пилюли занимают весь остаток строки: внутри Expanded они
-                      // сжимаются на узком экране, но не делят свободное место
-                      // со Spacer — иначе неиспанная доля уезжала в конец, и
-                      // «3 точки» стояли не у правого края.
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Flexible(
-                              child: _HeroActionButton(
-                                icon: isSyncing
-                                    ? Icons.sync
-                                    : (syncEnabled
-                                          ? Icons.cloud_done_rounded
-                                          : Icons.cloud_off_rounded),
-                                label: tr('Синк'),
-                                onTap: onSync,
-                                onLongPress: onSyncLongPress,
-                                busy: isSyncing,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: _HeroActionButton(
-                                icon: Icons.file_upload_outlined,
-                                label: tr('Импорт'),
-                                onTap: onImport,
-                                busy: isOperationInProgress,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Симметричный правый зазор: у «Синк» слева есть врезка
-                      // от края рамки, а круглая кнопка прилипала к скруглению.
-                      Padding(
-                        padding: const EdgeInsets.only(left: 10),
-                        child: _HeroMenuButton(
-                          onBackup: onBackup,
-                          onRestore: onRestore,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
-    );
-  }
-
-  String _buildSubtitle() {
-    if (stats.total == 0) return tr('Пока пусто — создайте свой первый квест');
-    final parts = <String>[
-      '${stats.total} ${trp(['квест', 'квеста', 'квестов'], stats.total)}',
-    ];
-    if (stats.market > 0) parts.add('${stats.market} ${tr('из маркета')}');
-    if (stats.local > 0) parts.add('${stats.local} ${tr('локальных')}');
-    if (stats.corrupted > 0) {
-      parts.add('${stats.corrupted} ${tr('повреждённых')}');
-    }
-    return parts.join(' · ');
-  }
-}
-
-class _HeroActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-  final VoidCallback? onLongPress;
-  final bool busy;
-
-  const _HeroActionButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.onLongPress,
-    this.busy = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    return M3EButton(
-      label: Text(label, overflow: TextOverflow.ellipsis),
-      icon: busy
-          ? const M3EProgressIndicator.circularWavy(size: 16)
-          : Icon(icon),
-      style: M3EButtonStyle.tonal,
-      size: M3EButtonSize.xs,
-      onPressed: enabled ? onTap : null,
-      onLongPress: enabled ? onLongPress : null,
     );
   }
 }
@@ -1493,38 +1465,27 @@ class _HeroMenuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = M3ETheme.of(context).colorScheme;
-    return Material(
-      color: scheme.onPrimaryContainer.withOpacity(0.12),
-      shape: const CircleBorder(),
-      child: PopupMenuButton<String>(
+    return M3EMenu.entries(
+      anchorBuilder: (context, open) => M3EIconButton(
+        icon: const Icon(Icons.more_horiz_rounded),
         tooltip: tr('Резервные копии'),
-        icon: Icon(Icons.more_horiz_rounded, color: scheme.onPrimaryContainer),
-        onSelected: (v) {
-          if (v == 'backup') onBackup?.call();
-          if (v == 'restore') onRestore?.call();
-        },
-        itemBuilder: (_) => [
-          PopupMenuItem(
-            value: 'backup',
-            enabled: onBackup != null,
-            child: ListTile(
-              leading: Icon(Icons.archive_outlined),
-              title: Text(tr('Бэкап всех квестов')),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          PopupMenuItem(
-            value: 'restore',
-            enabled: onRestore != null,
-            child: ListTile(
-              leading: Icon(Icons.unarchive_outlined),
-              title: Text(tr('Восстановить из бэкапа')),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        ],
+        variant: M3EIconButtonVariant.tonal,
+        onPressed: open,
       ),
+      entries: [
+        M3EMenuEntry(
+          label: tr('Бэкап всех квестов'),
+          leading: const Icon(Icons.archive_outlined),
+          enabled: onBackup != null,
+          onPressed: onBackup,
+        ),
+        M3EMenuEntry(
+          label: tr('Восстановить из бэкапа'),
+          leading: const Icon(Icons.unarchive_outlined),
+          enabled: onRestore != null,
+          onPressed: onRestore,
+        ),
+      ],
     );
   }
 }
@@ -1957,47 +1918,12 @@ class _SortChoiceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? scheme.secondaryContainer : Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: selected
-                    ? scheme.onSecondaryContainer
-                    : scheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: selected
-                        ? scheme.onSecondaryContainer
-                        : scheme.onSurface,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              if (selected)
-                Icon(
-                  Icons.check_rounded,
-                  size: 18,
-                  color: scheme.onSecondaryContainer,
-                ),
-            ],
-          ),
-        ),
-      ),
+    return M3EListItem(
+      headline: label,
+      leading: Icon(icon),
+      trailing: selected ? const Icon(Icons.check_rounded) : null,
+      selected: selected,
+      onTap: onTap,
     );
   }
 }
@@ -2032,40 +1958,49 @@ class _QuestListCard extends ConsumerWidget {
       border: isCorrupted
           ? BorderSide(color: scheme.error.withOpacity(0.5))
           : null,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: _LocalQuestPreviewImage(
-                quest: quest,
-                width: 76,
-                height: 76,
-              ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: _LocalQuestPreviewImage(
+              quest: quest,
+              width: 480,
+              height: 270,
             ),
-            const SizedBox(width: 14),
-            Expanded(
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Flexible(
+                      Expanded(
                         child: Text(
                           quest.title,
                           style: m3e.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: scheme.onSurface,
                           ),
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 4),
                       _QuestBadges(quest: quest),
+                      M3EIconButton(
+                        icon: Icon(
+                          Icons.more_vert_rounded,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        tooltip: tr('Действия'),
+                        variant: M3EIconButtonVariant.standard,
+                        size: M3EIconButtonSize.xs,
+                        onPressed: onMoreTap,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -2101,8 +2036,8 @@ class _QuestListCard extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  if (quest.lastOpened != null && !isCorrupted) ...[
-                    const SizedBox(height: 2),
+                  const Spacer(),
+                  if (quest.lastOpened != null && !isCorrupted)
                     Row(
                       children: [
                         Icon(
@@ -2124,7 +2059,6 @@ class _QuestListCard extends ConsumerWidget {
                         ),
                       ],
                     ),
-                  ],
                   Consumer(
                     builder: (context, childRef, _) {
                       return FutureBuilder<int>(
@@ -2133,29 +2067,26 @@ class _QuestListCard extends ConsumerWidget {
                             .getQuestPlaytime(quest.id),
                         builder: (context, snapshot) {
                           final playtime = snapshot.data ?? 0;
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.timer_outlined,
-                                  size: 12,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    trf('Вы играли: {p0}', {
-                                      'p0': PlaytimeFormatter.format(playtime),
-                                    }),
-                                    overflow: TextOverflow.ellipsis,
-                                    style: m3e.textTheme.labelSmall?.copyWith(
-                                      color: scheme.onSurfaceVariant,
-                                    ),
+                          return Row(
+                            children: [
+                              Icon(
+                                Icons.timer_outlined,
+                                size: 12,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  trf('Вы играли: {p0}', {
+                                    'p0': PlaytimeFormatter.format(playtime),
+                                  }),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: m3e.textTheme.labelSmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           );
                         },
                       );
@@ -2164,18 +2095,8 @@ class _QuestListCard extends ConsumerWidget {
                 ],
               ),
             ),
-            M3EIconButton(
-              icon: Icon(
-                Icons.more_vert_rounded,
-                color: scheme.onSurfaceVariant,
-              ),
-              tooltip: tr('Действия'),
-              variant: M3EIconButtonVariant.standard,
-              size: M3EIconButtonSize.xs,
-              onPressed: onMoreTap,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -2249,7 +2170,7 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return M3ETooltip(
       message: tooltip,
       child: Container(
         width: 22,
@@ -2328,48 +2249,52 @@ class _QuestCardShimmer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 100,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Row(
+    final m3e = M3ETheme.of(context);
+    final scheme = m3e.colorScheme;
+    return M3ECard(
+      variant: M3ECardVariant.filled,
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-            ),
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Container(color: scheme.surfaceContainerHigh),
           ),
-          const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  height: 14,
-                  width: 160,
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    height: 18,
+                    width: 160,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  height: 11,
-                  width: 100,
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(6),
+                  const SizedBox(height: 8),
+                  Container(
+                    height: 12,
+                    width: 100,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  Container(
+                    height: 12,
+                    width: 140,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
