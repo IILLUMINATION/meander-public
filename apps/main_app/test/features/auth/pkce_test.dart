@@ -64,6 +64,7 @@ void main() {
       expect(generatePkceVerifier().length, 64);
       expect(generatePkceVerifier(length: 43).length, 43);
       expect(generatePkceVerifier(length: 128).length, 128);
+      expect(() => generatePkceVerifier(length: 32), throwsA(isA<AssertionError>()));
       expect(() => generatePkceVerifier(length: 42), throwsA(isA<AssertionError>()));
       expect(() => generatePkceVerifier(length: 129), throwsA(isA<AssertionError>()));
     });
@@ -76,6 +77,20 @@ void main() {
 
     test('два вызова дают разные значения', () {
       expect(generatePkceVerifier(), isNot(generatePkceVerifier()));
+    });
+  });
+
+  group('generateOAuthState', () {
+    test('не наследует ограничение PKCE: 32 символа допустимы', () {
+      expect(generateOAuthState().length, 32);
+      expect(generateOAuthState(length: 16).length, 16);
+    });
+
+    test('алфавит url-safe и значения не повторяются', () {
+      final s = generateOAuthState();
+      expect(RegExp(r'^[A-Za-z0-9\-._~]+$').hasMatch(s), isTrue);
+      expect(Uri.encodeQueryComponent(s), s);
+      expect(generateOAuthState(), isNot(generateOAuthState()));
     });
   });
 }
