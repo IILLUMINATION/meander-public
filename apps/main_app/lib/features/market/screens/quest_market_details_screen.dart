@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
@@ -33,6 +34,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/widgets/catalog_shell.dart';
 import 'package:collection/collection.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -115,6 +117,13 @@ class _QuestMarketDetailsScreenState
   bool _isCurrentUserAdminFlag = false;
   bool _isAdminActionProcessing = false;
 
+  static const double _heroExpandedHeight = 300;
+  static const double _pullToOpenCoverThreshold = 200;
+
+  final ScrollController _scrollController = ScrollController();
+  double _pullDistance = 0;
+  bool _isCoverViewerOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +134,43 @@ class _QuestMarketDetailsScreenState
       _updateCurrentQuestData();
       _countView();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification) {
+      final pixels = notification.metrics.pixels;
+      _pullDistance = pixels < 0 ? -pixels : 0;
+    } else if (notification is OverscrollNotification) {
+      _pullDistance =
+          notification.overscroll < 0 ? -notification.overscroll : 0;
+    } else if (notification is ScrollEndNotification) {
+      _pullDistance = 0;
+    }
+
+    if (_pullDistance >= _pullToOpenCoverThreshold && !_isCoverViewerOpen) {
+      final url = _currentQuest.previewImageUrl?.trim();
+      if (url != null && url.isNotEmpty) {
+        _isCoverViewerOpen = true;
+        _pullDistance = 0;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context)
+              .push(
+                MaterialPageRoute(
+                  builder: (_) => FullScreenImageViewer(imageUrls: [url]),
+                ),
+              )
+              .whenComplete(() => _isCoverViewerOpen = false);
+        });
+      }
+    }
+    return false;
   }
 
   /// «Страницу открыли». Без этого авторидиет только скачивания, а между
@@ -801,19 +847,28 @@ class _QuestMarketDetailsScreenState
         _isVersionUpdateAvailable(_localQuestVersion, quest.version);
 
     return Scaffold(
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: CustomScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(),
+          slivers: [
           // ────────────────────────────────────────────────────────────────
           //  HERO HEADER
           // ────────────────────────────────────────────────────────────────
           SliverAppBar(
-            expandedHeight: 300,
+            expandedHeight: _heroExpandedHeight,
             pinned: true,
             stretch: true,
             backgroundColor: scheme.surface,
             surfaceTintColor: Colors.transparent,
             elevation: 0,
+            titleSpacing: 0,
+            title: _CollapsedTitle(
+              title: quest.title,
+              controller: _scrollController,
+              expandedHeight: _heroExpandedHeight,
+            ),
             leading: CatalogGlassIconButton(
               icon: Icons.arrow_back_rounded,
               onPressed: () => Navigator.pop(context),
@@ -877,12 +932,15 @@ class _QuestMarketDetailsScreenState
                       : _showAdminActionsSheet,
                 ),
             ],
-            flexibleSpace: FlexibleSpaceBar(
-              stretchModes: const [
-                StretchMode.zoomBackground,
-                StretchMode.blurBackground,
-              ],
-              background: Stack(
+            flexibleSpace: Stack(
+              fit: StackFit.expand,
+              children: [
+                FlexibleSpaceBar(
+              stretchModes: const [StretchMode.zoomBackground],
+              background: _ScrollBlur(
+                controller: _scrollController,
+                expandedHeight: _heroExpandedHeight,
+                child: Stack(
                 fit: StackFit.expand,
                 children: [
                   if (quest.previewImageUrl != null &&
@@ -908,122 +966,18 @@ class _QuestMarketDetailsScreenState
                         size: 64,
                       ),
                     ),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          scheme.surface.withOpacity(0.6),
-                          scheme.surface,
-                        ],
-                        stops: const [0.4, 0.8, 1.0],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 20,
-                    left: 20,
-                    right: 20,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (quest.genres.isNotEmpty)
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: quest.genres
-                                .map((g) => CatalogGenreChip(
-                                      label: genreLabel(normalizeGenreId(g)),
-                                    ))
-                                .toList(),
-                          )
-                        else if (quest.category != null)
-                          CatalogGenreChip(
-                            label: genreLabel(normalizeGenreId(quest.category)),
-                          ),
-                        const SizedBox(height: 10),
-                        Text(
-                          quest.title,
-                          style: textTheme.headlineMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            shadows: const [
-                              Shadow(blurRadius: 12, color: Colors.black54),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        InkWell(
-                          onTap: quest.authorId != null
-                              ? () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        ProfileScreen(userId: quest.authorId!),
-                                  ),
-                                )
-                              : null,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.person_rounded,
-                                size: 18,
-                                color: quest.authorIsVerified
-                                    ? Colors.lightBlueAccent
-                                    : Colors.white70,
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  quest.authorName ?? tr('Автор неизвестен'),
-                                  style: textTheme.titleSmall?.copyWith(
-                                    color: quest.authorIsVerified
-                                        ? Colors.lightBlueAccent
-                                        : Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (quest.authorIsVerified) ...[
-                                const SizedBox(width: 4),
-                                const Icon(
-                                  Icons.verified_rounded,
-                                  color: Colors.lightBlueAccent,
-                                  size: 16,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.visibility_rounded,
-                              size: 18,
-                              color: Colors.white70,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '${formatCount(quest.viewsCount)} '
-                              '${trpMany(['просмотр', 'просмотра', 'просмотров'])}',
-                              style: textTheme.labelLarge?.copyWith(
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
+            ),
+                ),
+                _HeroOverlay(
+                  quest: quest,
+                  scheme: scheme,
+                  textTheme: textTheme,
+                  controller: _scrollController,
+                  expandedHeight: _heroExpandedHeight,
+                ),
+              ],
             ),
           ),
 
@@ -1278,7 +1232,8 @@ class _QuestMarketDetailsScreenState
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2360,7 +2315,259 @@ class __ReviewDialogState extends State<_ReviewDialog> {
   }
 }
 
-class FullScreenImageViewer extends StatelessWidget {
+class _HeroOverlay extends StatelessWidget {
+  final MarketQuest quest;
+  final ColorScheme scheme;
+  final TextTheme textTheme;
+  final ScrollController controller;
+  final double expandedHeight;
+
+  const _HeroOverlay({
+    required this.quest,
+    required this.scheme,
+    required this.textTheme,
+    required this.controller,
+    required this.expandedHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final collapseStart = expandedHeight - kToolbarHeight - topPadding;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final offset = controller.hasClients ? controller.offset : 0.0;
+        final fade = collapseStart <= 0
+            ? 0.0
+            : (1 - offset / collapseStart).clamp(0.0, 1.0);
+        final gradientFade = collapseStart <= 0
+            ? 1.0
+            : ((collapseStart - offset) / 48).clamp(0.0, 1.0);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 180,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: gradientFade,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          scheme.surface.withOpacity(0.6),
+                          scheme.surface,
+                        ],
+                        stops: const [0.0, 0.7, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 20,
+              left: 20,
+              right: 20,
+              child: IgnorePointer(
+                ignoring: fade <= 0.05,
+                child: Opacity(
+                  opacity: fade,
+                  child: _ScrollBlur(
+                    controller: controller,
+                    expandedHeight: expandedHeight,
+                    child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (quest.genres.isNotEmpty)
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: quest.genres
+                              .map((g) => CatalogGenreChip(
+                                    label: genreLabel(normalizeGenreId(g)),
+                                  ))
+                              .toList(),
+                        )
+                      else if (quest.category != null)
+                        CatalogGenreChip(
+                          label: genreLabel(normalizeGenreId(quest.category)),
+                        ),
+                      const SizedBox(height: 10),
+                      Text(
+                        quest.title,
+                        style: textTheme.headlineMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          shadows: const [
+                            Shadow(blurRadius: 12, color: Colors.black54),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: quest.authorId != null
+                            ? () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ProfileScreen(userId: quest.authorId!),
+                                ),
+                              )
+                            : null,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.person_rounded,
+                              size: 18,
+                              color: quest.authorIsVerified
+                                  ? Colors.lightBlueAccent
+                                  : Colors.white70,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                quest.authorName ?? tr('Автор неизвестен'),
+                                style: textTheme.titleSmall?.copyWith(
+                                  color: quest.authorIsVerified
+                                      ? Colors.lightBlueAccent
+                                      : Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (quest.authorIsVerified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified_rounded,
+                                color: Colors.lightBlueAccent,
+                                size: 16,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.visibility_rounded,
+                            size: 18,
+                            color: Colors.white70,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${formatCount(quest.viewsCount)} '
+                            '${trpMany(['просмотр', 'просмотра', 'просмотров'])}',
+                            style: textTheme.labelLarge?.copyWith(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ScrollBlur extends StatelessWidget {
+  final ScrollController controller;
+  final double expandedHeight;
+  final Widget child;
+
+  const _ScrollBlur({
+    required this.controller,
+    required this.expandedHeight,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final collapseStart = expandedHeight - kToolbarHeight - topPadding;
+    final blurEnd = (collapseStart - 40).clamp(1.0, double.infinity);
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final offset = controller.hasClients ? controller.offset : 0.0;
+        final progress = offset <= 0
+            ? 0.0
+            : (offset / blurEnd).clamp(0.0, 1.0);
+        if (progress <= 0) return child;
+        final sigma = progress * 8;
+        return ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: sigma,
+            sigmaY: sigma,
+            tileMode: ui.TileMode.decal,
+          ),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
+class _CollapsedTitle extends StatelessWidget {
+  final String title;
+  final ScrollController controller;
+  final double expandedHeight;
+
+  const _CollapsedTitle({
+    required this.title,
+    required this.controller,
+    required this.expandedHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final collapseStart = expandedHeight - kToolbarHeight - topPadding;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final offset = controller.hasClients ? controller.offset : 0.0;
+        final progress = collapseStart <= 0
+            ? 1.0
+            : ((offset - collapseStart + 40) / 40).clamp(0.0, 1.0);
+        return Opacity(
+          opacity: progress,
+          child: IgnorePointer(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class FullScreenImageViewer extends StatefulWidget {
   final List<String> imageUrls;
   final int initialIndex;
   const FullScreenImageViewer({
@@ -2369,7 +2576,38 @@ class FullScreenImageViewer extends StatelessWidget {
     this.initialIndex = 0,
   });
   @override
+  State<FullScreenImageViewer> createState() => _FullScreenImageViewerState();
+}
+
+class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goTo(int index) {
+    if (index < 0 || index >= widget.imageUrls.length) return;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final hasMultiple = widget.imageUrls.length > 1;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -2377,15 +2615,124 @@ class FullScreenImageViewer extends StatelessWidget {
         iconTheme: const IconThemeData(color: Colors.white),
         systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
-      body: PhotoViewGallery.builder(
-        itemCount: imageUrls.length,
-        pageController: PageController(initialPage: initialIndex),
-        builder: (context, index) => PhotoViewGalleryPageOptions(
-          imageProvider: CachedNetworkImageProvider(imageUrls[index]),
-          minScale: PhotoViewComputedScale.contained,
-          maxScale: PhotoViewComputedScale.covered * 2,
+      body: Stack(
+        children: [
+          ScrollConfiguration(
+            behavior: const _GalleryScrollBehavior(),
+            child: PhotoViewGallery.builder(
+              itemCount: widget.imageUrls.length,
+              pageController: _pageController,
+              scrollPhysics: const BouncingScrollPhysics(),
+              onPageChanged: (index) =>
+                  setState(() => _currentIndex = index),
+              loadingBuilder: (context, event) => const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+              builder: (context, index) => PhotoViewGalleryPageOptions(
+                imageProvider:
+                    CachedNetworkImageProvider(widget.imageUrls[index]),
+                minScale: PhotoViewComputedScale.contained,
+                maxScale: PhotoViewComputedScale.covered * 2,
+              ),
+            ),
+          ),
+          if (hasMultiple) ...[
+            Positioned(
+              left: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: _GalleryArrow(
+                  icon: Icons.chevron_left_rounded,
+                  enabled: _currentIndex > 0,
+                  onTap: () => _goTo(_currentIndex - 1),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: _GalleryArrow(
+                  icon: Icons.chevron_right_rounded,
+                  enabled: _currentIndex < widget.imageUrls.length - 1,
+                  onTap: () => _goTo(_currentIndex + 1),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 24,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_currentIndex + 1} / ${widget.imageUrls.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GalleryArrow extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _GalleryArrow({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return const SizedBox(width: 48, height: 48);
+    return Material(
+      color: Colors.black.withValues(alpha: 0.4),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(icon, color: Colors.white, size: 32),
         ),
       ),
     );
   }
+}
+
+class _GalleryScrollBehavior extends MaterialScrollBehavior {
+  const _GalleryScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
 }

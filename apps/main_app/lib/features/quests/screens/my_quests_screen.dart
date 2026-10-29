@@ -2081,7 +2081,7 @@ class _QuestListCard extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(
+                        Flexible(
                           child: Text(
                             quest.title,
                             style: Theme.of(context).textTheme.titleMedium
