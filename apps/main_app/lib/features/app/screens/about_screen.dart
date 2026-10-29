@@ -4,6 +4,7 @@
 
 import 'dart:convert';
 
+import 'package:canvas_app/core/services/build_info_service.dart';
 import 'package:canvas_app/core/services/talker_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -105,7 +106,11 @@ class AboutScreenData {
 // ============================================================================
 
 class AboutScreen extends StatefulWidget {
-  const AboutScreen({super.key});
+  /// Позволяет подставить сведения о сборке в тестах. В приложении
+  /// `AppBuildInfoService.load()` читает их из `--dart-define` или `.git`.
+  final AppBuildInfo? buildInfo;
+
+  const AboutScreen({super.key, this.buildInfo});
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -115,10 +120,12 @@ class _AboutScreenState extends State<AboutScreen> {
   Future<AboutScreenData>? _aboutDataFuture;
   bool _testersExpanded = false;
   String _appVersion = '…';
+  late final AppBuildInfo _buildInfo;
 
   @override
   void initState() {
     super.initState();
+    _buildInfo = widget.buildInfo ?? AppBuildInfoService.load();
     _aboutDataFuture = _loadAboutData();
     _loadAppVersion();
   }
@@ -204,7 +211,9 @@ class _AboutScreenState extends State<AboutScreen> {
           scrolledUnderElevation: 0,
         ),
 
-        SliverToBoxAdapter(child: _VersionHeader(version: _appVersion)),
+        SliverToBoxAdapter(
+          child: _VersionHeader(version: _appVersion, buildInfo: _buildInfo),
+        ),
 
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
         _Header(title: tr('Список изменений'), icon: Icons.auto_awesome_rounded),
@@ -286,7 +295,8 @@ class _AboutScreenState extends State<AboutScreen> {
 
 class _VersionHeader extends StatelessWidget {
   final String version;
-  const _VersionHeader({required this.version});
+  final AppBuildInfo buildInfo;
+  const _VersionHeader({required this.version, required this.buildInfo});
 
   @override
   Widget build(BuildContext context) {
@@ -339,6 +349,19 @@ class _VersionHeader extends StatelessWidget {
                       color: scheme.onPrimaryContainer,
                     ),
                   ),
+                  if (buildInfo.isKnown) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${tr('Ветка')}: ${buildInfo.branch} · '
+                      '${tr('Коммит')}: ${buildInfo.commit}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: scheme.onPrimaryContainer.withOpacity(0.8),
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
