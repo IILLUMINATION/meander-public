@@ -30,6 +30,7 @@ import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:canvas_app/core/theme/m3e_theme.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 
@@ -116,10 +117,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final theme = Theme.of(context);
-    _m3eTheme = theme.brightness == Brightness.dark
-        ? M3EThemeData.dark(seedColor: theme.colorScheme.primary)
-        : M3EThemeData.light(seedColor: theme.colorScheme.primary);
+    _m3eTheme = m3eThemeFrom(Theme.of(context));
   }
 
   @override
@@ -1080,7 +1078,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
         sliver: SliverGrid(
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
             maxCrossAxisExtent: 380,
-            mainAxisExtent: 340,
+            childAspectRatio: 1,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),

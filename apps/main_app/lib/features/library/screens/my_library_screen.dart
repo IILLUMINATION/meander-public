@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:canvas_app/core/theme/m3e_theme.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/hub/screens/hub_screen.dart';
 import 'package:canvas_app/features/guides/guide_catalog.dart';
@@ -124,10 +125,7 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final theme = Theme.of(context);
-    _m3eTheme = theme.brightness == Brightness.dark
-        ? M3EThemeData.dark(seedColor: theme.colorScheme.primary)
-        : M3EThemeData.light(seedColor: theme.colorScheme.primary);
+    _m3eTheme = m3eThemeFrom(Theme.of(context));
   }
 
   @override

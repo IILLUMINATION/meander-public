@@ -7,6 +7,8 @@ import 'package:canvas_app/core/theme/app_theme.dart';
 import 'package:canvas_app/core/theme/init_provider.dart';
 import 'package:canvas_app/core/theme/theme_preset_provider.dart';
 import 'package:canvas_app/core/theme/theme_provider.dart';
+import 'package:canvas_app/core/theme/m3e_theme.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
 import 'package:canvas_app/core/services/streak_service.dart';
 import 'package:canvas_app/features/app/screens/splash_screen.dart';
@@ -49,38 +51,51 @@ class _AppState extends ConsumerState<App> {
 
     final lightTheme = AppTheme.fromPreset(preset, Brightness.light);
     final darkTheme = AppTheme.fromPreset(preset, Brightness.dark);
+    final effectiveBrightness = themeMode == ThemeMode.dark
+        ? Brightness.dark
+        : themeMode == ThemeMode.light
+        ? Brightness.light
+        : WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    final activeTheme = effectiveBrightness == Brightness.dark
+        ? darkTheme
+        : lightTheme;
 
-    return MaterialApp(
-      navigatorKey: navigatorKey,
-      title: 'Meander',
-      debugShowCheckedModeBanner: false,
-      // Язык интерфейса: `tr()` берёт строки из L10n, а locale нужен
-      // виджетам Material (даты, подсказки, направление текста).
-      // `materialLocale`, а не сам код: импортированный язык Material может
-      // не знать, и тогда обвеска падает с «No MaterialLocalizations found».
-      locale: language.materialLocale,
-      supportedLocales: [
-        for (final item in L10n.supported) item.materialLocale
-      ],
-      localizationsDelegates: appLocalizationsDelegates,
-      scrollBehavior: AppScrollBehavior(),
-      theme: lightTheme,
-      darkTheme: darkTheme,
-      themeMode: themeMode,
-      navigatorObservers: [],
-      builder: (context, child) => Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
-        child: MouseRegion(
-          onHover: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
-          child: PluginHostRunner(
-            child: DesktopNavigationWrapper(
-              child: TutorialHost(child: child ?? const SizedBox.shrink()),
+    return M3ETheme(
+      data: m3eThemeFrom(activeTheme),
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        title: 'Meander',
+        debugShowCheckedModeBanner: false,
+        // Язык интерфейса: `tr()` берёт строки из L10n, а locale нужен
+        // виджетам Material (даты, подсказки, направление текста).
+        // `materialLocale`, а не сам код: импортированный язык Material может
+        // не знать, и тогда обвеска падает с «No MaterialLocalizations found».
+        locale: language.materialLocale,
+        supportedLocales: [
+          for (final item in L10n.supported) item.materialLocale,
+        ],
+        localizationsDelegates: appLocalizationsDelegates,
+        scrollBehavior: AppScrollBehavior(),
+        theme: lightTheme,
+        darkTheme: darkTheme,
+        themeMode: themeMode,
+        navigatorObservers: [],
+        builder: (context, child) => Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) =>
+              ref.read(playtimeServiceProvider).registerInteraction(),
+          child: MouseRegion(
+            onHover: (_) =>
+                ref.read(playtimeServiceProvider).registerInteraction(),
+            child: PluginHostRunner(
+              child: DesktopNavigationWrapper(
+                child: TutorialHost(child: child ?? const SizedBox.shrink()),
+              ),
             ),
           ),
         ),
+        home: SplashScreen(),
       ),
-      home: SplashScreen(),
     );
   }
 }
