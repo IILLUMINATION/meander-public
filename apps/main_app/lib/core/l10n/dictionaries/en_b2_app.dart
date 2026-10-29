@@ -4,6 +4,8 @@
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enB2App = {
   'Версия {version}': 'Version {version}',
+  'Ветка': 'Branch',
+  'Коммит': 'Commit',
   'Добро пожаловать\nв Meander': 'Welcome\nin Meander',
   'Доступно обновление': 'Update available',
   'Контент 18+ может содержать нецензурную лексику, жестокость и материалы для взрослых.\n\nВам исполнилось 18 лет?': '18+ content may contain strong language, violence and adult material.\n\nHave you turned 18?',
