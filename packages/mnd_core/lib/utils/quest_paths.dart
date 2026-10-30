@@ -39,6 +39,19 @@ class QuestPaths {
   /// Легаси-файл нод — `nodes.json` (фактически использует редактор).
   static String nodesLegacy(String questId) => 'quests/$questId/nodes.json';
 
+  /// Индекс per-node формата: лёгкие метаданные для канваса, группы,
+  /// комментарии и рёбра. Тела нод лежат рядом, в [nodeBody].
+  static String nodesIndex(String questId) =>
+      'quests/$questId/nodes/index.json';
+
+  /// Тело одной ноды per-node формата.
+  static String nodeBody(String questId, String nodeId) =>
+      'quests/$questId/nodes/$nodeId.json';
+
+  /// Бэкап монолита перед миграцией на per-node формат.
+  static String nodesMigrationBackup(String questId) =>
+      'quests/$questId/nodes.json.v1_backup';
+
   /// Оба возможных расположения файла нод — порядок совпадает с приоритетом
   /// загрузчика в ядре (канонический → легаси).
   static List<String> nodesCandidates(String questId) => [
