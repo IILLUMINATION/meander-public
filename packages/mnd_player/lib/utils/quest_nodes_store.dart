@@ -24,51 +24,78 @@ class QuestNodesStore {
     final legacy = QuestPaths.nodesLegacy(questId);
     final canonical = QuestPaths.nodesCanonical(questId);
 
-    Map<String, dynamic>? legacyData;
-    Map<String, dynamic>? canonicalData;
-    try {
-      if (await qs.exists(legacy)) legacyData = await qs.readJson(legacy);
-    } catch (_) {}
-    try {
-      if (await qs.exists(canonical)) {
-        canonicalData = await qs.readJson(canonical);
-      }
-    } catch (_) {}
+    final legacyText = await _readText(qs, legacy);
+    final canonicalText = await _readText(qs, canonical);
+
+    // Обе копии синхронизированы байт-в-байт — это штатное состояние после
+    // записи. Парсим только одну: на большом nodes.json второй jsonDecode
+    // стоит ещё ~15 мс.
+    if (legacyText != null &&
+        canonicalText != null &&
+        legacyText == canonicalText) {
+      return _decode(canonicalText) ?? <String, dynamic>{};
+    }
+
+    final legacyData = _decode(legacyText);
+    final canonicalData = _decode(canonicalText);
 
     final canonicalHasData = _hasNodes(canonicalData);
     final legacyHasData = _hasNodes(legacyData);
 
     Map<String, dynamic> chosen;
+    var chosenFromLegacy = false;
     if (canonicalHasData && !legacyHasData) {
       chosen = canonicalData!;
     } else if (legacyHasData && !canonicalHasData) {
       chosen = legacyData!;
+      chosenFromLegacy = true;
     } else if (canonicalHasData && legacyHasData) {
       // Обе копии непустые: при расхождении доверяем более свежей по mtime.
       // Иначе старый импорт в canonical затирал бы правки редактора в legacy.
       final canonicalTime = await _mtime(canonical);
       final legacyTime = await _mtime(legacy);
-      chosen =
+      final useLegacy =
           legacyTime != null &&
-              (canonicalTime == null || legacyTime.isAfter(canonicalTime))
-          ? legacyData!
-          : canonicalData!;
+          (canonicalTime == null || legacyTime.isAfter(canonicalTime));
+      chosen = useLegacy ? legacyData! : canonicalData!;
+      chosenFromLegacy = useLegacy;
     } else {
       chosen = canonicalData ?? legacyData ?? <String, dynamic>{};
     }
 
     // Лечим расхождение/отсутствие копии, но не создаём файлы для пустого
-    // квеста и не перезаписываем одинаковое.
+    // квеста и не перезаписываем уже синхронизированное.
     if (chosen.isNotEmpty) {
-      final encoded = jsonEncode(chosen);
-      if (canonicalData == null || jsonEncode(canonicalData) != encoded) {
-        await qs.writeJson(canonical, chosen);
-      }
-      if (legacyData == null || jsonEncode(legacyData) != encoded) {
+      if (chosenFromLegacy) {
+        if (canonicalText == null || canonicalText != legacyText) {
+          await qs.writeJson(canonical, chosen);
+        }
+      } else if (legacyText == null || legacyText != canonicalText) {
         await qs.writeJson(legacy, chosen);
       }
     }
     return chosen;
+  }
+
+  static Future<String?> _readText(QuestStore qs, String relPath) async {
+    try {
+      return await qs.readText(relPath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic>? _decode(String? text) {
+    if (text == null) return null;
+    if (text.isEmpty) return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      return <String, dynamic>{};
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Записать документ нод в оба места. `QuestStore.transact` в Rust-режиме

@@ -56,5 +56,24 @@ void main() {
       expect(read['title'], data['title']);
       expect((read['nodes'] as List).first['text'], 'Привет, путник!');
     });
+
+    test('кэш отдаёт независимые вложенные структуры', () async {
+      await FileStorage.writeJsonFile('clone.json', {
+        'nodes': [
+          {'id': 'n1', 'text': 'Привет, путник!'},
+        ],
+      });
+
+      final first = await FileStorage.readJsonFile('clone.json');
+      ((first['nodes'] as List).first as Map)['text'] = 'изменено';
+      (first['nodes'] as List).add({'id': 'n2'});
+
+      final second = await FileStorage.readJsonFile('clone.json');
+      expect((second['nodes'] as List), hasLength(1));
+      expect(
+        ((second['nodes'] as List).first as Map)['text'],
+        'Привет, путник!',
+      );
+    });
   });
 }

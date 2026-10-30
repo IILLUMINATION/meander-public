@@ -24,16 +24,28 @@ Map<String, dynamic>? _tryDecodeJson(String content, {String? path}) {
   }
 }
 
+/// Глубокая копия JSON-значения без `jsonEncode`/`jsonDecode`.
+///
+/// Старая реализация клонировала кэш через сериализацию: на `nodes.json`
+/// в ~660 КБ это стоило ~34 мс на каждое чтение (encode + decode). Рекурсивное
+/// копирование сохраняет изоляцию кэша, но не платит за строку и парсер.
+dynamic _cloneJsonValue(dynamic value) {
+  if (value is Map) {
+    final copy = <String, dynamic>{};
+    for (final entry in value.entries) {
+      copy[entry.key.toString()] = _cloneJsonValue(entry.value);
+    }
+    return copy;
+  }
+  if (value is List) {
+    return [for (final item in value) _cloneJsonValue(item)];
+  }
+  return value;
+}
+
 Map<String, dynamic> _cloneJsonMap(Map<String, dynamic> source) {
-  final encoded = jsonEncode(source);
-  final decoded = jsonDecode(encoded);
-  if (decoded is Map<String, dynamic>) {
-    return decoded;
-  }
-  if (decoded is Map) {
-    return Map<String, dynamic>.from(decoded);
-  }
-  return <String, dynamic>{};
+  final copy = _cloneJsonValue(source);
+  return copy is Map<String, dynamic> ? copy : <String, dynamic>{};
 }
 
 class _Lock {
