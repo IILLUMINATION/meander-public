@@ -268,16 +268,18 @@ impl GameEngine {
         let prefix = format!("quests/{quest_id}/");
 
         let config = Quest::from_json(&store.read_json(&format!("{prefix}config.json"))?);
-        // Два исторических места: канонический nodes/nodes.json (импорт) и
-        // legacy nodes.json (редактор). Читаем канонический первым; если он
-        // пуст/отсутствует — legacy. Это не даёт «пустому» файлу одной из
-        // копий спрятать стартовую ноду.
-        let mut nodes = load_json_array(
-            store.as_ref(),
-            &format!("{prefix}nodes/nodes.json"),
-            "nodes",
-            SavedNode::from_json,
-        );
+        // v2: nodes/index.json + nodes/<id>.json. Если индекс есть и тела
+        // читаются — он источник правды. Иначе старый fallback:
+        // nodes/nodes.json → nodes.json.
+        let mut nodes = load_per_node_nodes(store.as_ref(), &prefix).unwrap_or_default();
+        if nodes.is_empty() {
+            nodes = load_json_array(
+                store.as_ref(),
+                &format!("{prefix}nodes/nodes.json"),
+                "nodes",
+                SavedNode::from_json,
+            );
+        }
         if nodes.is_empty() {
             nodes = load_json_array(
                 store.as_ref(),
@@ -2078,6 +2080,25 @@ fn uuid_v4() -> String {
 ///
 /// Поддерживает и `{ "nodes": [...] }`, и голый массив. Пустой массив —
 /// если файла нет или он повреждён.
+/// Загрузить v2-ноды: индекс задаёт порядок, тела — содержимое.
+/// `None`, если индекса нет или хотя бы одного тела не хватает: тогда
+/// вызывающий использует старый монолит.
+fn load_per_node_nodes(store: &dyn ScriptAssetStore, prefix: &str) -> Option<Vec<SavedNode>> {
+    let index = store.read_json(&format!("{prefix}nodes/index.json"))?;
+    let summaries = index.get("nodes")?.as_array()?;
+    if summaries.is_empty() {
+        return None;
+    }
+
+    let mut nodes = Vec::with_capacity(summaries.len());
+    for summary in summaries {
+        let id = summary.get("id")?.as_str()?;
+        let body = store.read_json(&format!("{prefix}nodes/{id}.json"))?;
+        nodes.push(SavedNode::from_json(&body));
+    }
+    Some(nodes)
+}
+
 fn load_json_array<T>(
     store: &dyn ScriptAssetStore,
     path: &str,

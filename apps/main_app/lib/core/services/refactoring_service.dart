@@ -178,8 +178,8 @@ class RefactoringService {
     }
 
     if (nodesChanged) {
-      ops.add(QuestOp.writeJson(QuestPaths.nodesLegacy(questId), nodesData));
-      ops.add(QuestOp.writeJson(QuestPaths.nodesCanonical(questId), nodesData));
+      // Ноды пишем через единый store после транзакции: он обновит и legacy,
+      // и v2-индекс/тела, если квест уже переведён на per-node формат.
       modifiedFiles++;
       print('[Refactor] Updated nodes');
     }
@@ -190,6 +190,9 @@ class RefactoringService {
     if (ops.isNotEmpty) {
       final store = await QuestStore.defaultInstance();
       await store.transact(ops);
+    }
+    if (nodesChanged) {
+      await QuestNodesStore.write(questId, nodesData);
     }
 
     if (modifiedFiles > 0) {

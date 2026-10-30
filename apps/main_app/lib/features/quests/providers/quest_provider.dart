@@ -341,6 +341,15 @@ final questProvider = FutureProvider.family<Quest?, String>((
     }
 
     await _migrateLastEditedAt(questId, config);
+
+    // Первое открытие старого квеста: переводим ноды на v2 с бэкапом.
+    // Ошибка миграции не должна блокировать открытие — остаёмся на legacy.
+    try {
+      await QuestNodesStore.ensurePerNode(questId);
+    } catch (e) {
+      print('⚠️ [Quest] per-node migration failed: $e');
+    }
+
     final updatedQuest = Quest.fromJson(config).copyWith(
       id: questId,
       lastOpened: now,

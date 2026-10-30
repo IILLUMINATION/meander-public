@@ -19,6 +19,33 @@ Future<Map<String, dynamic>> _readMap(String rel) async =>
 Future<T> _qsync<T>(String key, Future<T> Function() action) =>
     QuestStore.synchronized<T>(key, action);
 
+/// (всего нод в квесте, нод в главе) — для safety-check удаления.
+Future<(int, int)> nodeDeletionStats(
+  String questId, {
+  String? chapterId,
+}) async {
+  try {
+    final index = await QuestNodesStore.readIndex(questId);
+    final nodes = (index['nodes'] as List<dynamic>? ?? []).whereType<Map>();
+    final total = nodes.length;
+    final chapter = chapterId == null
+        ? total
+        : nodes.where((n) => n['chapterId']?.toString() == chapterId).length;
+    return (total, chapter);
+  } catch (_) {
+    return (0, 0);
+  }
+}
+
+Map<String, dynamic> _summaryAsNodeJson(Map<dynamic, dynamic> raw) {
+  final json = Map<String, dynamic>.from(raw);
+  final description = json['description'];
+  if (description is String && description.isNotEmpty) {
+    json['content'] = {'items': <dynamic>[], 'description': description};
+  }
+  return json;
+}
+
 class TagNodesInfo {
   final String questId;
   final String tagId;
@@ -62,15 +89,35 @@ final allQuestNodesProvider = FutureProvider.autoDispose
       });
     });
 
+/// Лёгкий индекс квеста для канваса: без тел нод и без их content.
+final canvasIndexProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, questId) async {
+      return _qsync('nodes_$questId', () async {
+        try {
+          return await QuestNodesStore.readIndex(questId);
+        } catch (e) {
+          return <String, dynamic>{
+            'nodes': <dynamic>[],
+            'groups': <dynamic>[],
+            'comments': <dynamic>[],
+            'edges': <dynamic>[],
+          };
+        }
+      });
+    });
+
 final tagNodesProvider = FutureProvider.autoDispose
     .family<List<SavedNode>, TagNodesInfo>((ref, tagInfo) async {
       try {
-        final allNodes = await ref.watch(
-          allQuestNodesProvider(tagInfo.questId).future,
+        final index = await ref.watch(
+          canvasIndexProvider(tagInfo.questId).future,
         );
-        return allNodes
-            .where((node) => node.chapterId == tagInfo.tagId)
-            .toList();
+        final nodes = (index['nodes'] as List<dynamic>? ?? []);
+        return [
+          for (final raw in nodes)
+            if (raw is Map && raw['chapterId']?.toString() == tagInfo.tagId)
+              SavedNode.fromJson(_summaryAsNodeJson(raw)),
+        ];
       } catch (e) {
         return [];
       }
@@ -78,17 +125,15 @@ final tagNodesProvider = FutureProvider.autoDispose
 
 final canvasExtraDataProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>, String>((ref, questId) async {
-      return _qsync('nodes_$questId', () async {
-        try {
-          final data = await QuestNodesStore.read(questId);
-          return {
-            'groups': data['groups'] ?? [],
-            'comments': data['comments'] ?? [],
-          };
-        } catch (e) {
-          return {'groups': [], 'comments': []};
-        }
-      });
+      try {
+        final index = await ref.watch(canvasIndexProvider(questId).future);
+        return {
+          'groups': index['groups'] ?? <dynamic>[],
+          'comments': index['comments'] ?? <dynamic>[],
+        };
+      } catch (e) {
+        return {'groups': <dynamic>[], 'comments': <dynamic>[]};
+      }
     });
 
 final tagCameraStateProvider = FutureProvider.autoDispose
@@ -127,6 +172,30 @@ Future<bool> saveCanvasData(
 }) async {
   return _qsync('nodes_$questId', () async {
     try {
+      if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+        final index = await QuestNodesStore.readIndex(questId);
+        final existingChapterCount = (index['nodes'] as List<dynamic>? ?? [])
+            .whereType<Map>()
+            .where((n) => n['chapterId']?.toString() == chapterId)
+            .length;
+        if (nodes.isEmpty && existingChapterCount > 0) {
+          print('⚠️ saveCanvasData: пустая глава, запись отменена');
+          return false;
+        }
+        await QuestNodesStore.writeCanvasLayout(
+          questId,
+          chapterId: chapterId,
+          nodes: [for (final node in nodes) node.toJson()],
+          groups: groups?.map((g) => g.toJson()).toList(),
+          comments: comments?.map((c) => c.toJson()).toList(),
+        );
+        await _updateQuestPluginDependencies(questId, [
+          for (final node in nodes) node.toJson(),
+        ]);
+        QuestContentChangeBus.instance.markChanged(questId);
+        return true;
+      }
+
       final existingData = await QuestNodesStore.read(questId);
 
       final allNodesJson = (existingData['nodes'] as List<dynamic>? ?? [])
@@ -211,6 +280,21 @@ Map<String, dynamic> _mergeNodeJson(
 Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
   return _qsync('nodes_$questId', () async {
     try {
+      if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+        for (final node in nodesToSave) {
+          final previous = await QuestNodesStore.readNode(questId, node.id);
+          await QuestNodesStore.writeNode(
+            questId,
+            _mergeNodeJson(previous ?? const {}, node.toJson()),
+          );
+        }
+        await _updateQuestPluginDependencies(questId, [
+          for (final node in nodesToSave) node.toJson(),
+        ]);
+        QuestContentChangeBus.instance.markChanged(questId);
+        return true;
+      }
+
       final nodesData = await QuestNodesStore.read(questId);
 
       final currentNodesJson = (nodesData['nodes'] as List<dynamic>? ?? []);
@@ -247,6 +331,13 @@ Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
 Future<bool> deleteNode(String questId, String nodeId) async {
   return _qsync('nodes_$questId', () async {
     try {
+      if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+        await QuestNodesStore.deleteNode(questId, nodeId);
+        await _removeNodeReferences(questId, nodeId);
+        QuestContentChangeBus.instance.markChanged(questId);
+        return true;
+      }
+
       final nodesData = await QuestNodesStore.read(questId);
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
@@ -264,6 +355,27 @@ Future<bool> deleteNode(String questId, String nodeId) async {
   });
 }
 
+Future<void> _removeNodeReferences(String questId, String nodeId) async {
+  try {
+    final configPath = QuestPaths.config(questId);
+    final qs = await _qs();
+    if (!await qs.exists(configPath)) return;
+    final config = await _readMap(configPath);
+    final connections = (config['connections'] as List<dynamic>? ?? []).where((
+      conn,
+    ) {
+      if (conn is! Map) return false;
+      return conn['fromId']?.toString() != nodeId &&
+          conn['toId']?.toString() != nodeId;
+    }).toList();
+    final next = <String, dynamic>{...config, 'connections': connections};
+    if (config['startNodeId']?.toString() == nodeId) {
+      next['startNodeId'] = '';
+    }
+    await qs.writeJson(configPath, next);
+  } catch (_) {}
+}
+
 Future<void> _updateQuestPluginDependencies(
   String questId,
   List<dynamic> nodesJson,
@@ -273,7 +385,11 @@ Future<void> _updateQuestPluginDependencies(
     final configPath = QuestPaths.config(questId);
     if (!await (await _qs()).exists(configPath)) return;
     final config = await _readMap(configPath);
-    config['pluginDependencies'] = deps;
+    final existing = (config['pluginDependencies'] as List<dynamic>? ?? [])
+        .map((e) => e.toString())
+        .toSet();
+    final merged = {...existing, ...deps}.toList()..sort();
+    config['pluginDependencies'] = merged;
     await (await _qs()).writeJson(configPath, config);
   } catch (_) {}
 }

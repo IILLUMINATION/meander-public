@@ -207,6 +207,137 @@ class QuestNodesStore {
     };
   }
 
+  /// Убедиться, что квест переведён на v2. Для старого квеста создаёт
+  /// бэкап и раскладывает тела; повторный вызов ничего не делает.
+  static Future<bool> ensurePerNode(String questId) async {
+    if (await hasPerNodeIndex(questId)) return false;
+    return migrateToPerNode(questId);
+  }
+
+  /// Сохранить раскладку канваса, не перезаписывая тела неизменённых нод.
+  ///
+  /// [nodes] — полные сериализованные ноды главы (нужны для новых нод и
+  /// рёбер). Для существующих нод тело читается только если изменились
+  /// заголовок/позиция/цвет/глава.
+  static Future<void> writeCanvasLayout(
+    String questId, {
+    required String chapterId,
+    required List<Map<String, dynamic>> nodes,
+    List<dynamic>? groups,
+    List<dynamic>? comments,
+  }) async {
+    final qs = await QuestStore.defaultInstance();
+    if (!await qs.exists(QuestPaths.nodesIndex(questId))) {
+      await migrateToPerNode(questId);
+    }
+
+    final index = await readIndex(questId);
+    final oldSummaries = (index['nodes'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+
+    final oldChapter = <String, Map<String, dynamic>>{};
+    for (final summary in oldSummaries) {
+      if (summary['chapterId']?.toString() != chapterId) continue;
+      final id = summary['id']?.toString();
+      if (id != null && id.isNotEmpty) oldChapter[id] = summary;
+    }
+
+    final newById = <String, Map<String, dynamic>>{};
+    for (final node in nodes) {
+      final id = node['id']?.toString();
+      if (id == null || id.isEmpty) continue;
+      newById[id] = buildNodeSummary(node);
+    }
+
+    final summaries =
+        oldSummaries
+            .where((s) => s['chapterId']?.toString() != chapterId)
+            .toList()
+          ..addAll(newById.values);
+
+    final oldGroups = (index['groups'] as List<dynamic>? ?? []).toList();
+    final oldComments = (index['comments'] as List<dynamic>? ?? []).toList();
+    final nextGroups = groups == null
+        ? oldGroups
+        : [
+            ...oldGroups.where((g) => g is! Map || g['chapterId'] != chapterId),
+            ...groups,
+          ];
+    final nextComments = comments == null
+        ? oldComments
+        : [
+            ...oldComments.where(
+              (c) => c is! Map || c['chapterId'] != chapterId,
+            ),
+            ...comments,
+          ];
+
+    // Тела: новые и изменившиеся.
+    for (final entry in newById.entries) {
+      final id = entry.key;
+      final summary = entry.value;
+      final previous = oldChapter[id];
+      if (previous != null && _sameLayout(previous, summary)) continue;
+
+      Map<String, dynamic> body;
+      final bodyPath = QuestPaths.nodeBody(questId, id);
+      if (previous != null && await qs.exists(bodyPath)) {
+        body =
+            await qs.readJson(bodyPath) ??
+            Map<String, dynamic>.from(
+              nodes.firstWhere((n) => n['id']?.toString() == id),
+            );
+      } else {
+        body = Map<String, dynamic>.from(
+          nodes.firstWhere((n) => n['id']?.toString() == id),
+        );
+      }
+      for (final key in const ['chapterId', 'title', 'x', 'y', 'color']) {
+        if (nodes
+            .firstWhere((n) => n['id']?.toString() == id)
+            .containsKey(key)) {
+          body[key] = nodes.firstWhere((n) => n['id']?.toString() == id)[key];
+        }
+      }
+      await qs.writeJson(bodyPath, body);
+    }
+
+    // Удалённые из главы ноды: тело больше не нужно.
+    for (final id in oldChapter.keys) {
+      if (newById.containsKey(id)) continue;
+      final bodyPath = QuestPaths.nodeBody(questId, id);
+      if (await qs.exists(bodyPath)) await qs.delete(bodyPath);
+    }
+
+    final touchedIds = {...oldChapter.keys, ...newById.keys};
+    final edges = (index['edges'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) => !touchedIds.contains(e['from']?.toString()))
+        .toList();
+    for (final node in nodes) {
+      edges.addAll(_edgesForNode(node));
+    }
+
+    await qs.writeJson(QuestPaths.nodesIndex(questId), {
+      ...index,
+      formatVersionKey: perNodeFormatVersion,
+      'nodes': summaries,
+      'groups': nextGroups,
+      'comments': nextComments,
+      'edges': _dedupeEdges(edges),
+    });
+  }
+
+  static bool _sameLayout(Map<String, dynamic> a, Map<String, dynamic> b) {
+    for (final key in const ['chapterId', 'title', 'x', 'y', 'color']) {
+      if (a[key] != b[key]) return false;
+    }
+    return true;
+  }
+
   /// Перевести монолит в `nodes/index.json` + `nodes/<id>.json`.
   ///
   /// Старые `nodes.json` и `nodes/nodes.json` не удаляются: это и бэкап,
@@ -345,6 +476,10 @@ class QuestNodesStore {
     for (final entry in node.entries) {
       if (entry.key == 'content') continue;
       summary[entry.key] = entry.value;
+    }
+    final content = node['content'];
+    if (content is Map && content['description'] is String) {
+      summary['description'] = content['description'];
     }
     summary.putIfAbsent('type', () => 'node');
     return summary;

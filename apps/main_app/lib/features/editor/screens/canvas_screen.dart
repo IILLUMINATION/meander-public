@@ -416,7 +416,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              trf('Не удалось закрепить шаблон в квесте: {p0}', {'p0': friendlyError(e)}),
+              trf('Не удалось закрепить шаблон в квесте: {p0}', {
+                'p0': friendlyError(e),
+              }),
             ),
             backgroundColor: Colors.red,
           ),
@@ -452,7 +454,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name})),
+            content: Text(
+              trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name}),
+            ),
             backgroundColor: Colors.cyan,
           ),
         );
@@ -481,7 +485,10 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
             style: TextStyle(color: scheme.onSurface),
           ),
           content: Text(
-            trf('Этот шаблон ссылается на плагины: {p0}. Если они не установлены в текущем квесте, нода может работать некорректно. Продолжить вставку?', {'p0': pluginIds.join(", ")}),
+            trf(
+              'Этот шаблон ссылается на плагины: {p0}. Если они не установлены в текущем квесте, нода может работать некорректно. Продолжить вставку?',
+              {'p0': pluginIds.join(", ")},
+            ),
             style: TextStyle(color: scheme.onSurfaceVariant),
           ),
           actions: [
@@ -537,14 +544,11 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
       if (!mounted) return;
       final report = installed.assetsReport;
       final msg = report.copied > 0
-          ? trf(
-            'Нода «{p0}» вставлена (ресурсов: {p1}, пропущено: {p2})',
-            {
+          ? trf('Нода «{p0}» вставлена (ресурсов: {p1}, пропущено: {p2})', {
               'p0': newNode.title,
               'p1': report.copied,
               'p2': report.skippedExisting,
-            },
-          )
+            })
           : trf('Нода «{p0}» вставлена', {'p0': newNode.title});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), backgroundColor: Colors.blue),
@@ -596,7 +600,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           style: TextStyle(color: scheme.onSurface),
         ),
         content: Text(
-          tr('Это действие автоматически расставит все ноды на холсте. Ручное расположение будет утеряно.'),
+          tr(
+            'Это действие автоматически расставит все ноды на холсте. Ручное расположение будет утеряно.',
+          ),
           style: TextStyle(color: scheme.onSurfaceVariant),
         ),
         actions: [
@@ -622,14 +628,27 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
     CanvasNotifier notifier,
   ) async {
     final scheme = Theme.of(context).colorScheme;
+    final statsFuture = nodeDeletionStats(widget.questId);
+    final selectedCount = notifier.selectedNodeCount;
     final result = await showAppDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: scheme.surfaceContainerHigh,
         title: Text(tr('Удалить?'), style: TextStyle(color: scheme.onSurface)),
-        content: Text(
-          tr('Это действие нельзя отменить.'),
-          style: TextStyle(color: scheme.onSurfaceVariant),
+        content: FutureBuilder<(int, int)>(
+          future: statsFuture,
+          builder: (context, snapshot) {
+            final stats = snapshot.data;
+            final dangerous =
+                stats != null && stats.$1 > 0 && selectedCount * 2 > stats.$1;
+            return Text(
+              dangerous
+                  ? '${tr('Это действие нельзя отменить.')}\n\n'
+                        '$selectedCount / ${stats.$1} нод'
+                  : tr('Это действие нельзя отменить.'),
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -953,7 +972,10 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           ),
           ListTile(
             leading: Icon(Icons.palette_rounded, color: scheme.onSurface),
-            title: Text(tr('Цвет ноды'), style: TextStyle(color: scheme.onSurface)),
+            title: Text(
+              tr('Цвет ноды'),
+              style: TextStyle(color: scheme.onSurface),
+            ),
             onTap: () {
               Navigator.of(sheetContext).pop();
               _showColorPickerForNode(context, notifier, node.color);
@@ -2022,8 +2044,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           CanvasTool(
             icon: Icons.crop_square_rounded,
             label: tr('Создать группу'),
-            description:
-                tr('Объединить ноды в визуальную группу с названием и цветом.'),
+            description: tr(
+              'Объединить ноды в визуальную группу с названием и цветом.',
+            ),
             onTap: () => _showGroupDialog(notifier),
           ),
           CanvasTool(
@@ -2052,8 +2075,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           CanvasTool(
             icon: Icons.collections_bookmark_rounded,
             label: tr('Менеджер шаблонов'),
-            description:
-                tr('Управление шаблонами нод этого квеста и глобальной библиотекой.'),
+            description: tr(
+              'Управление шаблонами нод этого квеста и глобальной библиотекой.',
+            ),
             onTap: _openTemplateManager,
           ),
         ],
@@ -2064,8 +2088,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           CanvasTool(
             icon: Icons.filter_alt_rounded,
             label: tr('Фильтр стрелок'),
-            description:
-                tr('Показывать только нужные типы связей между нодами.'),
+            description: tr(
+              'Показывать только нужные типы связей между нодами.',
+            ),
             isActive: !allArrows,
             badge: allArrows
                 ? null
@@ -2076,8 +2101,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           CanvasTool(
             icon: Icons.select_all_rounded,
             label: tr('Мульти-выделение'),
-            description:
-                tr('Выделять несколько нод рамкой для групповых операций.'),
+            description: tr(
+              'Выделять несколько нод рамкой для групповых операций.',
+            ),
             isActive: state.selectionMode,
             onTap: notifier.toggleSelectionMode,
           ),
@@ -2086,23 +2112,26 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
                 ? Icons.grid_on_rounded
                 : Icons.grid_off_rounded,
             label: tr('Привязка к сетке'),
-            description:
-                tr('Ноды автоматически выравниваются по сетке при перемещении.'),
+            description: tr(
+              'Ноды автоматически выравниваются по сетке при перемещении.',
+            ),
             isActive: state.isSnapToGridEnabled,
             onTap: notifier.toggleSnapToGrid,
           ),
           CanvasTool(
             icon: Icons.auto_fix_high_rounded,
             label: tr('Выровнять ноды'),
-            description:
-                tr('Автоматически расставить все ноды на холсте по структуре.'),
+            description: tr(
+              'Автоматически расставить все ноды на холсте по структуре.',
+            ),
             onTap: () => _showTidyUpConfirmationDialog(notifier),
           ),
           CanvasTool(
             icon: Icons.center_focus_strong_rounded,
             label: tr('Сбросить камеру'),
-            description:
-                tr('Вернуть масштаб и положение холста к начальному виду.'),
+            description: tr(
+              'Вернуть масштаб и положение холста к начальному виду.',
+            ),
             onTap: notifier.resetCamera,
           ),
         ],
@@ -2115,8 +2144,9 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
             label: _showOnlyProblematic
                 ? tr('Скрыть проблемные')
                 : tr('Показать проблемные'),
-            description:
-                tr('Подсветить на холсте только ноды с битыми ссылками и ошибками.'),
+            description: tr(
+              'Подсветить на холсте только ноды с битыми ссылками и ошибками.',
+            ),
             isActive: _showOnlyProblematic,
             badge: _problemNodeIds.isEmpty ? null : '${_problemNodeIds.length}',
             onTap: () {
@@ -2131,15 +2161,17 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
           CanvasTool(
             icon: Icons.fact_check_rounded,
             label: tr('Проверить квест'),
-            description:
-                tr('Полный статический анализ квеста: битые ссылки, недостижимые ноды, конфликты видимости.'),
+            description: tr(
+              'Полный статический анализ квеста: битые ссылки, недостижимые ноды, конфликты видимости.',
+            ),
             onTap: () => unawaited(_openQuestValidation()),
           ),
           CanvasTool(
             icon: Icons.refresh_rounded,
             label: tr('Пересканировать'),
-            description:
-                tr('Заново проверить все ноды на битые ссылки и ошибки.'),
+            description: tr(
+              'Заново проверить все ноды на битые ссылки и ошибки.',
+            ),
             onTap: () => unawaited(_refreshProblemNodes()),
           ),
         ],

@@ -218,6 +218,45 @@ void main() {
     expect(n1!['title'], 'A2');
   });
 
+  test('writeCanvasLayout обновляет раскладку, не трогая чужие тела', () async {
+    const q = 'canvas-layout';
+    await seedLegacy(q);
+    await QuestNodesStore.ensurePerNode(q);
+
+    final next = doc();
+    ((next['nodes'] as List).first as Map)['x'] = 77.0;
+    await QuestNodesStore.writeCanvasLayout(
+      q,
+      chapterId: 'ch',
+      nodes: (next['nodes'] as List).cast<Map<String, dynamic>>(),
+      groups: const [
+        {'id': 'g2', 'chapterId': 'ch'},
+      ],
+      comments: const [
+        {'id': 'c2', 'chapterId': 'ch'},
+      ],
+    );
+
+    final index = await QuestNodesStore.readIndex(q);
+    final n1 = (index['nodes'] as List).firstWhere((n) => n['id'] == 'n1');
+    expect(n1['x'], 77.0);
+    expect((index['groups'] as List).single['id'], 'g2');
+    expect((index['comments'] as List).single['id'], 'c2');
+
+    final body = await QuestNodesStore.readNode(q, 'n1');
+    expect(body!['x'], 77.0);
+    expect(body['content']['items'], hasLength(1));
+  });
+
+  test('ensurePerNode создаёт бэкап при автомиграции', () async {
+    const q = 'auto-migrate';
+    await seedLegacy(q);
+
+    expect(await QuestNodesStore.ensurePerNode(q), isTrue);
+    expect(file(QuestPaths.nodesMigrationBackup(q)).existsSync(), isTrue);
+    expect(await QuestNodesStore.ensurePerNode(q), isFalse);
+  });
+
   test('readAll добирает отсутствующее тело из legacy', () async {
     const q = 'missing-body';
     await seedLegacy(q);
