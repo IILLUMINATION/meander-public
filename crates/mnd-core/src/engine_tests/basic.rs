@@ -368,6 +368,72 @@ fn from_disk_missing_config_is_none() {
 }
 
 #[test]
+fn from_disk_reads_canonical_nodes_when_legacy_missing() {
+    use std::fs;
+
+    let root = std::env::temp_dir().join(format!("mnd_engine_canonical_{}", uuid_v4()));
+    fs::create_dir_all(root.join("quests/q1/nodes")).unwrap();
+    fs::write(
+        root.join("quests/q1/config.json"),
+        serde_json::json!({
+            "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes/nodes.json"),
+        serde_json::json!({
+            "nodes": [{"id": "n1", "title": "Canonical", "content": {"items": []}}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut engine = GameEngine::from_disk("q1", &root).expect("движок создан");
+    let view = engine.start_new(None).unwrap();
+    assert_eq!(view.node_id, "n1");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn from_disk_empty_canonical_falls_back_to_legacy() {
+    use std::fs;
+
+    let root = std::env::temp_dir().join(format!("mnd_engine_empty_canonical_{}", uuid_v4()));
+    fs::create_dir_all(root.join("quests/q1/nodes")).unwrap();
+    fs::write(
+        root.join("quests/q1/config.json"),
+        serde_json::json!({
+            "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // canonical есть, но пустой — как после сбоя редактора.
+    fs::write(
+        root.join("quests/q1/nodes/nodes.json"),
+        serde_json::json!({"nodes": []}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes.json"),
+        serde_json::json!({
+            "nodes": [{"id": "n1", "title": "Legacy", "content": {"items": []}}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut engine = GameEngine::from_disk("q1", &root).expect("движок создан");
+    let view = engine.start_new(None).unwrap();
+    assert_eq!(view.node_id, "n1");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn from_disk_call_lua_reads_lua_file_and_inline() {
     use std::fs;
 

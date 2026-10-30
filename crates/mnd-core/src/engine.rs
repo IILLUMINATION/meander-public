@@ -268,12 +268,24 @@ impl GameEngine {
         let prefix = format!("quests/{quest_id}/");
 
         let config = Quest::from_json(&store.read_json(&format!("{prefix}config.json"))?);
-        let nodes = load_json_array(
+        // Два исторических места: канонический nodes/nodes.json (импорт) и
+        // legacy nodes.json (редактор). Читаем канонический первым; если он
+        // пуст/отсутствует — legacy. Это не даёт «пустому» файлу одной из
+        // копий спрятать стартовую ноду.
+        let mut nodes = load_json_array(
             store.as_ref(),
-            &format!("{prefix}nodes.json"),
+            &format!("{prefix}nodes/nodes.json"),
             "nodes",
             SavedNode::from_json,
         );
+        if nodes.is_empty() {
+            nodes = load_json_array(
+                store.as_ref(),
+                &format!("{prefix}nodes.json"),
+                "nodes",
+                SavedNode::from_json,
+            );
+        }
         let templates = load_json_array(
             store.as_ref(),
             &format!("{prefix}res/templates.json"),

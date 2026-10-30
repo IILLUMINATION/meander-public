@@ -8,7 +8,7 @@ import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/core/services/export_service.dart';
 import 'package:canvas_app/core/services/publish_upload.dart';
 import 'package:mnd_player/utils/file_storage.dart';
-import 'package:mnd_player/utils/quest_store.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
@@ -20,11 +20,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
-
-// План 020-C4.5: операции над квестом — через ядро (QuestStore).
-Future<QuestStore> _qs() => QuestStore.defaultInstance();
-Future<Map<String, dynamic>> _readMap(String rel) async =>
-    await (await _qs()).readJson(rel) ?? <String, dynamic>{};
 
 // ============================================================================
 //  ПУБЛИКАЦИЯ КВЕСТА — Material 3 редизайн
@@ -190,7 +185,9 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              tr('Указывайте, если это демо. Если модератор обнаружит, что квест демо, но не отмечен — будет бан аккаунта.'),
+                              tr(
+                                'Указывайте, если это демо. Если модератор обнаружит, что квест демо, но не отмечен — будет бан аккаунта.',
+                              ),
                               style: TextStyle(
                                 color: scheme.onTertiaryContainer,
                                 fontSize: 12,
@@ -263,16 +260,19 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
                     const SizedBox(height: 8),
 
                     _RuleBullet(
-                      text:
-                          tr('Запрещены порнография, обнажёнка, сексуализация несовершеннолетних'),
+                      text: tr(
+                        'Запрещены порнография, обнажёнка, сексуализация несовершеннолетних',
+                      ),
                     ),
                     _RuleBullet(
-                      text:
-                          tr('Запрещены пропаганда насилия, экстремизма, ненависти'),
+                      text: tr(
+                        'Запрещены пропаганда насилия, экстремизма, ненависти',
+                      ),
                     ),
                     _RuleBullet(
-                      text:
-                          tr('Запрещены доксинг, вредоносные ссылки, мошенничество'),
+                      text: tr(
+                        'Запрещены доксинг, вредоносные ссылки, мошенничество',
+                      ),
                     ),
                     _RuleBullet(
                       text: tr('Запрещены чужие авторские материалы без прав'),
@@ -350,14 +350,20 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
   String _mapErrorToFriendlyMessage(String error) {
     final e = error.toLowerCase();
     if (e.contains("file size exceeds limit")) {
-      return tr('Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.');
+      return tr(
+        'Размер квеста превышает лимит сервера. Сейчас лимит для обычных аккаунтов: 100 МБ, для верифицированных: 500 МБ.',
+      );
     }
     if (e.contains("413") || e.contains("file too large")) {
-      return tr('Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.');
+      return tr(
+        'Сервер отклонил загрузку: файл слишком большой (HTTP 413). Проверь лимиты на backend/nginx.',
+      );
     }
     if (e.contains("connection reset by peer") ||
         e.contains("socketexception")) {
-      return tr('Соединение сброшено сервером во время загрузки. Обычно это лимит размера на прокси (nginx) или таймаут upload.');
+      return tr(
+        'Соединение сброшено сервером во время загрузки. Обычно это лимит размера на прокси (nginx) или таймаут upload.',
+      );
     }
     if (e.contains("rate limit")) {
       return tr('Вы публикуете слишком часто. Подождите пару часов.');
@@ -467,7 +473,9 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
       _progress = 0.2 + 0.7 * fraction;
       _status = _allBytesSent
           ? tr('Сервер проверяет и сохраняет пакет...')
-          : trf('Загрузка пакета: {p0}%', {'p0': (fraction * 100).toStringAsFixed(0)});
+          : trf('Загрузка пакета: {p0}%', {
+              'p0': (fraction * 100).toStringAsFixed(0),
+            });
     });
   }
 
@@ -510,11 +518,10 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
   /// не запретил публикацию верифицированному автору.
   Future<bool?> _lookupAuthorVerification(String userId) async {
     try {
-      final profile =
-          await ref
-              .read(apiServiceProvider)
-              .get('profiles/$userId')
-              .timeout(const Duration(seconds: 5));
+      final profile = await ref
+          .read(apiServiceProvider)
+          .get('profiles/$userId')
+          .timeout(const Duration(seconds: 5));
       if (profile is! Map) return null;
       final value = profile['is_verified'];
       if (value is bool) return value;
@@ -563,11 +570,8 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
       );
       final estimatedPlaytime = (estimatedPlaytimeSeconds / 60).ceil();
       int nodeCount = 0;
-      final nodesPath = QuestPaths.nodesLegacy(widget.quest.id);
-      if (await (await _qs()).exists(nodesPath)) {
-        final nodesData = await _readMap(nodesPath);
-        nodeCount = (nodesData['nodes'] as List<dynamic>? ?? []).length;
-      }
+      final nodesData = await QuestNodesStore.read(widget.quest.id);
+      nodeCount = (nodesData['nodes'] as List<dynamic>? ?? []).length;
 
       final mndData = await ExportService.createMndFile(widget.quest.id);
       final tempDir = await getTemporaryDirectory();
@@ -730,8 +734,14 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
               e.toString().replaceAll('Exception: ', ''),
             )
           : _allBytesSent
-          ? trf('Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.', {'p0': _stallSeconds})
-          : trf('Загрузка встала: {p0} секунд по соединению не прошло ни одного байта. Публикацию не записали, квест остался у тебя — попробуй опубликовать заново.', {'p0': _stallSeconds});
+          ? trf(
+              'Пакет ушёл на сервер, но ответ не пришёл за {p0} с. Публикация могла и не записаться: проверь «Мои квесты» и, если её там нет, опубликуй заново.',
+              {'p0': _stallSeconds},
+            )
+          : trf(
+              'Загрузка встала: {p0} секунд по соединению не прошло ни одного байта. Публикацию не записали, квест остался у тебя — попробуй опубликовать заново.',
+              {'p0': _stallSeconds},
+            );
       setState(() {
         _isComplete = true;
         _hasError = true;
@@ -765,9 +775,7 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
   Future<int> _calculateEstimatedPlaytime(String questId) async {
     double totalSeconds = 0.0;
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      if (!await (await _qs()).exists(nodesPath)) return 0;
-      final nodesData = await _readMap(nodesPath);
+      final nodesData = await QuestNodesStore.read(questId);
       final nodesList = nodesData['nodes'] as List<dynamic>? ?? [];
 
       for (final nodeJson in nodesList) {

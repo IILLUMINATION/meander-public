@@ -5,6 +5,7 @@ import 'package:canvas_app/core/services/local_history_service.dart';
 import 'package:mnd_player/services/font_service.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_player/utils/trigger_reference.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -232,7 +233,10 @@ class QuestCleanerService {
             id: 'conn_orphan_${conn['id'] ?? '$fromId->$toId'}',
             category: tr('Связи'),
             title: tr('Битая связь'),
-            description: trf('"{fromTitle}" -> "{toTitle}". Одна из нод удалена.', {'fromTitle': fromTitle, 'toTitle': toTitle}),
+            description: trf(
+              '"{fromTitle}" -> "{toTitle}". Одна из нод удалена.',
+              {'fromTitle': fromTitle, 'toTitle': toTitle},
+            ),
             type: 'remove_connection',
             payload: {'id': conn['id'], 'fromId': fromId, 'toId': toId},
           ),
@@ -298,7 +302,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'node_with_missing_chapter_$nodeId',
             category: tr('Ноды'),
-            title: trf('Нода в удаленной главе: {nodeTitle}', {'nodeTitle': nodeTitle}),
+            title: trf('Нода в удаленной главе: {nodeTitle}', {
+              'nodeTitle': nodeTitle,
+            }),
             description: tr('У ноды отсутствует валидная глава.'),
             type: 'bind_node_to_first_chapter',
             payload: {'nodeId': nodeId},
@@ -358,7 +364,10 @@ class QuestCleanerService {
                   id: 'target_missing_${nodeId}_${item['id'] ?? ''}',
                   category: tr('Ноды'),
                   title: tr('Ссылка на несуществующую ноду'),
-                  description: trf('Нода "{nodeTitle}" содержит битую ссылку.', {'nodeTitle': nodeTitle}),
+                  description: trf(
+                    'Нода "{nodeTitle}" содержит битую ссылку.',
+                    {'nodeTitle': nodeTitle},
+                  ),
                   type: 'noop',
                   payload: {},
                 ),
@@ -474,7 +483,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'script_read_fail_${_safeId(scriptPath)}',
             category: tr('Скрипты'),
-            title: trf('Скрипт не читается: {p0}', {'p0': resolveDisplayName(scriptPath)}),
+            title: trf('Скрипт не читается: {p0}', {
+              'p0': resolveDisplayName(scriptPath),
+            }),
             description: friendlyError(e),
             type: 'delete_script',
             payload: {'scriptPath': scriptPath},
@@ -491,7 +502,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'script_broken_json_${_safeId(scriptPath)}',
             category: tr('Скрипты'),
-            title: trf('Битый JSON скрипта: {p0}', {'p0': resolveDisplayName(scriptPath)}),
+            title: trf('Битый JSON скрипта: {p0}', {
+              'p0': resolveDisplayName(scriptPath),
+            }),
             description: friendlyError(e),
             type: 'delete_script',
             payload: {'scriptPath': scriptPath},
@@ -505,7 +518,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'script_bad_shape_${_safeId(scriptPath)}',
             category: tr('Скрипты'),
-            title: trf('Невалидная структура: {p0}', {'p0': resolveDisplayName(scriptPath)}),
+            title: trf('Невалидная структура: {p0}', {
+              'p0': resolveDisplayName(scriptPath),
+            }),
             description: tr('Корневой JSON должен быть объектом.'),
             type: 'delete_script',
             payload: {'scriptPath': scriptPath},
@@ -526,7 +541,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'script_empty_${_safeId(scriptPath)}',
             category: tr('Скрипты'),
-            title: trf('Пустой скрипт: {p0}', {'p0': resolveDisplayName(scriptPath)}),
+            title: trf('Пустой скрипт: {p0}', {
+              'p0': resolveDisplayName(scriptPath),
+            }),
             description: tr('В скрипте нет блоков.'),
             type: 'delete_script',
             payload: {'scriptPath': scriptPath},
@@ -570,9 +587,12 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'node_isolated_$nodeId',
             category: tr('Ноды'),
-            title: trf('Изолированная нода: {nodeTitle}', {'nodeTitle': nodeTitle}),
-            description:
-                tr('Нода не связана переходами и не используется как целевая.'),
+            title: trf('Изолированная нода: {nodeTitle}', {
+              'nodeTitle': nodeTitle,
+            }),
+            description: tr(
+              'Нода не связана переходами и не используется как целевая.',
+            ),
             type: 'delete_node',
             payload: {'nodeId': nodeId},
           ),
@@ -586,7 +606,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'script_missing_${_safeId(refScript)}',
             category: tr('Скрипты'),
-            title: trf('Отсутствующий скрипт: {p0}', {'p0': resolveDisplayName(refScript)}),
+            title: trf('Отсутствующий скрипт: {p0}', {
+              'p0': resolveDisplayName(refScript),
+            }),
             description: tr('На скрипт есть ссылка, но файл не найден.'),
             type: 'noop',
             payload: {},
@@ -601,7 +623,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'script_unused_${_safeId(script)}',
             category: tr('Скрипты'),
-            title: trf('Неиспользуемый скрипт: {p0}', {'p0': resolveDisplayName(script)}),
+            title: trf('Неиспользуемый скрипт: {p0}', {
+              'p0': resolveDisplayName(script),
+            }),
             description: tr('Скрипт не найден в ссылках нод/контента.'),
             type: 'delete_script',
             payload: {'scriptPath': script},
@@ -653,7 +677,9 @@ class QuestCleanerService {
           QuestCleanerIssue(
             id: 'resource_unused_${_safeId(file)}',
             category: tr('Ресурсы'),
-            title: trf('Неиспользуемый ресурс: {p0}', {'p0': resolveDisplayName(file)}),
+            title: trf('Неиспользуемый ресурс: {p0}', {
+              'p0': resolveDisplayName(file),
+            }),
             description: tr('Файл не используется в главах/нодах/контенте.'),
             type: 'delete_resource',
             payload: {'resourcePath': file},
@@ -680,7 +706,9 @@ class QuestCleanerService {
             QuestCleanerIssue(
               id: 'meta_orphan_${_safeId(key)}',
               category: 'Metadata',
-              title: trf('Сиротская запись metadata: {p0}', {'p0': resolveDisplayName(rawKey)}),
+              title: trf('Сиротская запись metadata: {p0}', {
+                'p0': resolveDisplayName(rawKey),
+              }),
               description: tr('Файл для записи metadata не найден.'),
               type: 'remove_metadata_entry',
               payload: {'metadataKey': rawKey},
@@ -694,10 +722,12 @@ class QuestCleanerService {
             QuestCleanerIssue(
               id: 'meta_unused_${_safeId(key)}',
               category: 'Metadata',
-              title:
-                  trf('Неиспользуемая запись metadata: {p0}', {'p0': resolveDisplayName(rawKey)}),
-              description:
-                  tr('Файл существует, но не используется в текущей структуре квеста.'),
+              title: trf('Неиспользуемая запись metadata: {p0}', {
+                'p0': resolveDisplayName(rawKey),
+              }),
+              description: tr(
+                'Файл существует, но не используется в текущей структуре квеста.',
+              ),
               type: 'remove_metadata_entry',
               payload: {'metadataKey': rawKey},
             ),
@@ -827,12 +857,7 @@ class QuestCleanerService {
   }
 
   Future<Map<String, dynamic>> _readNodesData(String questId) async {
-    final nodesPath = QuestPaths.nodesLegacy(questId);
-    if (!await (await _qs()).exists(nodesPath)) {
-      return {'nodes': [], 'groups': [], 'comments': []};
-    }
-
-    final data = await _readMap(nodesPath);
+    final data = await QuestNodesStore.read(questId);
     return {
       'nodes': (data['nodes'] as List<dynamic>? ?? []).toList(),
       'groups': (data['groups'] as List<dynamic>? ?? []).toList(),
@@ -844,13 +869,10 @@ class QuestCleanerService {
     if (nodeId.isEmpty) return;
 
     await _qsync('nodes_$questId', () async {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      if (!await (await _qs()).exists(nodesPath)) return;
-
-      final data = await _readMap(nodesPath);
+      final data = await QuestNodesStore.read(questId);
       final nodes = (data['nodes'] as List<dynamic>? ?? []).toList();
       nodes.removeWhere((n) => (n as Map)['id']?.toString() == nodeId);
-      await (await _qs()).writeJson(nodesPath, {...data, 'nodes': nodes});
+      await QuestNodesStore.write(questId, {...data, 'nodes': nodes});
     });
 
     await _qsync('config_$questId', () async {
@@ -898,9 +920,7 @@ class QuestCleanerService {
         final firstTagId = tags.first['id']?.toString();
         if (firstTagId == null || firstTagId.isEmpty) return;
 
-        final nodesPath = QuestPaths.nodesLegacy(questId);
-        if (!await (await _qs()).exists(nodesPath)) return;
-        final nodesData = await _readMap(nodesPath);
+        final nodesData = await QuestNodesStore.read(questId);
         final nodes = (nodesData['nodes'] as List<dynamic>? ?? []).toList();
 
         final index = nodes.indexWhere(
@@ -912,10 +932,7 @@ class QuestCleanerService {
         node['chapterId'] = firstTagId;
         nodes[index] = node;
 
-        await (await _qs()).writeJson(nodesPath, {
-          ...nodesData,
-          'nodes': nodes,
-        });
+        await QuestNodesStore.write(questId, {...nodesData, 'nodes': nodes});
       });
     });
   }
@@ -925,7 +942,6 @@ class QuestCleanerService {
 
     await _qsync('nodes_$questId', () async {
       await _qsync('config_$questId', () async {
-        final nodesPath = QuestPaths.nodesLegacy(questId);
         final configPath = QuestPaths.config(questId);
 
         if (!await (await _qs()).exists(configPath)) return;
@@ -949,7 +965,7 @@ class QuestCleanerService {
                 (c) => (c as Map)['chapterId']?.toString() == tagId,
               );
 
-        await (await _qs()).writeJson(nodesPath, {
+        await QuestNodesStore.write(questId, {
           'nodes': nodes,
           'groups': groups,
           'comments': comments,

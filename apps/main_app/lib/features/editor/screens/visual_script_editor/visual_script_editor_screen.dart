@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:canvas_app/core/services/refactoring_service.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:canvas_app/features/editor/providers/visual_script_clipboard_provider.dart';
 import 'package:canvas_app/features/editor/services/script_providers.dart';
@@ -565,7 +566,8 @@ class _VisualScriptEditorScreenState
         }
       }
     } catch (e) {
-      if (mounted) _showSnack(trf('Ошибка: {p0}', {'p0': friendlyError(e)}), error: true);
+      if (mounted)
+        _showSnack(trf('Ошибка: {p0}', {'p0': friendlyError(e)}), error: true);
     }
   }
 
@@ -650,7 +652,8 @@ class _VisualScriptEditorScreenState
         _showSnack(tr('Сохранено'), success: true);
       }
     } catch (e) {
-      if (mounted) _showSnack(trf('Ошибка: {p0}', {'p0': friendlyError(e)}), error: true);
+      if (mounted)
+        _showSnack(trf('Ошибка: {p0}', {'p0': friendlyError(e)}), error: true);
     }
   }
 
@@ -825,10 +828,7 @@ class _VisualScriptEditorScreenState
   }
 
   Future<Map<String, String>> _loadNodeNamesById() async {
-    final nodesPath = QuestPaths.nodesLegacy(widget.questId);
-    if (!await FileStorage.exists(nodesPath)) return {};
-
-    final nodesData = await FileStorage.readJsonFile(nodesPath);
+    final nodesData = await QuestNodesStore.read(widget.questId);
     final nodes = (nodesData['nodes'] as List<dynamic>? ?? []);
     final result = <String, String>{};
     for (final node in nodes) {
@@ -1067,8 +1067,8 @@ class _VisualScriptEditorScreenState
 
   Rect? _viewportRect() {
     if (!_scrollController.hasClients) return null;
-    final box =
-        _scrollController.position.context.storageContext.findRenderObject();
+    final box = _scrollController.position.context.storageContext
+        .findRenderObject();
     if (box is! RenderBox || !box.hasSize) return null;
     return box.localToGlobal(Offset.zero) & box.size;
   }
@@ -1171,12 +1171,20 @@ class _VisualScriptEditorScreenState
     final loc = locateBlockInTree(block.id, _blocks);
     switch (action) {
       case ScriptBlockMenuAction.copy:
-        ref.read(visualScriptClipboardProvider.notifier).state =
-            VisualScriptClipboardItem(blocks: [block.clone()], operation: 'copy');
+        ref
+            .read(visualScriptClipboardProvider.notifier)
+            .state = VisualScriptClipboardItem(
+          blocks: [block.clone()],
+          operation: 'copy',
+        );
         _showSnack(blockOperationToast(action, block), success: true);
       case ScriptBlockMenuAction.cut:
-        ref.read(visualScriptClipboardProvider.notifier).state =
-            VisualScriptClipboardItem(blocks: [block.clone()], operation: 'cut');
+        ref
+            .read(visualScriptClipboardProvider.notifier)
+            .state = VisualScriptClipboardItem(
+          blocks: [block.clone()],
+          operation: 'cut',
+        );
         if (loc != null) {
           loc.list.removeAt(loc.index);
           setState(() {});
@@ -1216,7 +1224,10 @@ class _VisualScriptEditorScreenState
     if (clipboardItem.operation == 'cut') {
       ref.read(visualScriptClipboardProvider.notifier).state = null;
     }
-    _showSnack(trf('Блоки вставлены ({p0})', {'p0': clonedBlocks.length}), info: true);
+    _showSnack(
+      trf('Блоки вставлены ({p0})', {'p0': clonedBlocks.length}),
+      info: true,
+    );
   }
 
   void _deleteEventBlock(int index) {
@@ -1405,7 +1416,8 @@ class _VisualScriptEditorScreenState
                     questId: widget.questId,
                     availableFunctionNames: availableFunctionNames,
                     onDelete: () => _deleteEventBlock(index),
-                    onMenuAction: (action) => _handleBlockMenuAction(action, block),
+                    onMenuAction: (action) =>
+                        _handleBlockMenuAction(action, block),
                     onBlockDrop: _handleBlockDrop,
                     onDragUpdate: _handleBlockDragUpdate,
                     onDragEnd: _stopScrollTimer,

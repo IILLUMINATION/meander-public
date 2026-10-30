@@ -2,6 +2,7 @@ import 'dart:convert'; // Для jsonDecode/jsonEncode (Deep Copy)
 import 'dart:ui' show Offset;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/utils/quest_store.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/quest_content_change_bus.dart';
 import 'package:mnd_core/models/saved_node.dart';
@@ -39,14 +40,7 @@ final allQuestNodesProvider = FutureProvider.autoDispose
     .family<List<SavedNode>, String>((ref, questId) async {
       return _qsync('nodes_$questId', () async {
         try {
-          final nodesPath = QuestPaths.nodesLegacy(questId);
-          if (!await (await _qs()).exists(nodesPath)) {
-            return [];
-          }
-
-          final Object? zzObj = await _readMap(nodesPath);
-          final nodesData =
-              (zzObj ?? <String, dynamic>{}) as Map<String, dynamic>;
+          final nodesData = await QuestNodesStore.read(questId);
           final nodesJson = nodesData['nodes'] as List<dynamic>? ?? [];
 
           final validNodes = <SavedNode>[];
@@ -86,11 +80,7 @@ final canvasExtraDataProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>, String>((ref, questId) async {
       return _qsync('nodes_$questId', () async {
         try {
-          final nodesPath = QuestPaths.nodesLegacy(questId);
-          if (!await (await _qs()).exists(nodesPath)) {
-            return {'groups': [], 'comments': []};
-          }
-          final data = await _readMap(nodesPath);
+          final data = await QuestNodesStore.read(questId);
           return {
             'groups': data['groups'] ?? [],
             'comments': data['comments'] ?? [],
@@ -137,15 +127,15 @@ Future<bool> saveCanvasData(
 }) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-
-      Map<String, dynamic> existingData = {};
-      if (await (await _qs()).exists(nodesPath)) {
-        existingData = await _readMap(nodesPath);
-      }
+      final existingData = await QuestNodesStore.read(questId);
 
       final allNodesJson = (existingData['nodes'] as List<dynamic>? ?? [])
           .toList();
+      if (nodes.isEmpty && allNodesJson.isNotEmpty) {
+        // Загрузка нод не удалась/пришла пустой — не затираем главу.
+        print('⚠️ saveCanvasData: пустой список нод, запись отменена');
+        return false;
+      }
       final existingChapterNodesById = <String, Map<String, dynamic>>{};
       for (final rawNode in allNodesJson) {
         if (rawNode is! Map) continue;
@@ -188,7 +178,7 @@ Future<bool> saveCanvasData(
         'comments': allCommentsJson,
       };
 
-      await (await _qs()).writeJson(nodesPath, newData);
+      await QuestNodesStore.write(questId, newData);
       await _updateQuestPluginDependencies(questId, allNodesJson);
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
@@ -221,11 +211,7 @@ Map<String, dynamic> _mergeNodeJson(
 Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      Map<String, dynamic> nodesData = {};
-      if (await (await _qs()).exists(nodesPath)) {
-        nodesData = await _readMap(nodesPath);
-      }
+      final nodesData = await QuestNodesStore.read(questId);
 
       final currentNodesJson = (nodesData['nodes'] as List<dynamic>? ?? []);
       final nodeMap = <String, Map<String, dynamic>>{};
@@ -245,7 +231,7 @@ Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
 
       nodesData['nodes'] = nodeMap.values.toList();
 
-      await (await _qs()).writeJson(nodesPath, nodesData);
+      await QuestNodesStore.write(questId, nodesData);
       await _updateQuestPluginDependencies(
         questId,
         nodesData['nodes'] as List<dynamic>? ?? const [],
@@ -261,15 +247,14 @@ Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
 Future<bool> deleteNode(String questId, String nodeId) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      final nodesData = await _readMap(nodesPath);
+      final nodesData = await QuestNodesStore.read(questId);
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
       allNodesJson.removeWhere(
         (node) => (node as Map<String, dynamic>)['id'] == nodeId,
       );
       nodesData['nodes'] = allNodesJson;
-      await (await _qs()).writeJson(nodesPath, nodesData);
+      await QuestNodesStore.write(questId, nodesData);
       await _updateQuestPluginDependencies(questId, allNodesJson);
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
@@ -533,8 +518,7 @@ Future<void> updateNode(String questId, SavedNode nodeToSave) async {
 Future<bool> duplicateNode(String questId, String originalNodeId) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      final nodesData = await _readMap(nodesPath);
+      final nodesData = await QuestNodesStore.read(questId);
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
 
@@ -556,7 +540,7 @@ Future<bool> duplicateNode(String questId, String originalNodeId) async {
       allNodesJson.add(deepCopy);
       nodesData['nodes'] = allNodesJson;
 
-      await (await _qs()).writeJson(nodesPath, nodesData);
+      await QuestNodesStore.write(questId, nodesData);
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
     } catch (e) {
@@ -573,8 +557,7 @@ Future<bool> copyNodeToChapter(
 ) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      final nodesData = await _readMap(nodesPath);
+      final nodesData = await QuestNodesStore.read(questId);
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
 
@@ -595,7 +578,7 @@ Future<bool> copyNodeToChapter(
       allNodesJson.add(copiedNode);
       nodesData['nodes'] = allNodesJson;
 
-      await (await _qs()).writeJson(nodesPath, nodesData);
+      await QuestNodesStore.write(questId, nodesData);
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
     } catch (e) {
@@ -612,8 +595,7 @@ Future<bool> moveNodeToChapter(
 ) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      final nodesData = await _readMap(nodesPath);
+      final nodesData = await QuestNodesStore.read(questId);
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
 
@@ -629,7 +611,7 @@ Future<bool> moveNodeToChapter(
       allNodesJson[nodeIndex] = nodeToMove;
       nodesData['nodes'] = allNodesJson;
 
-      await (await _qs()).writeJson(nodesPath, nodesData);
+      await QuestNodesStore.write(questId, nodesData);
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
     } catch (e) {
