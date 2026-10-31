@@ -4,6 +4,10 @@ import 'package:canvas_app/features/market/providers/market_provider.dart';
 import 'package:canvas_app/features/market/providers/recommendations_provider.dart';
 import 'package:canvas_app/features/market/widgets/market_widgets.dart';
 import 'package:canvas_app/features/market/widgets/partner_banner.dart';
+import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
+import 'package:canvas_app/core/utils/count_format.dart';
+import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
+import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/models/market_quest_model.dart';
 import 'package:canvas_app/plugin_host/plugin_slot_renderer.dart';
 import 'package:canvas_app/shared/widgets/catalog_shell.dart';
@@ -144,8 +148,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                         selectedCategory: selectedCategory,
                       ),
                     ),
-                    if (isExpanded)
-                      SizedBox(width: 320, child: _RightAside()),
+                    if (isExpanded) SizedBox(width: 320, child: _RightAside()),
                   ],
                 ),
               ),
@@ -164,11 +167,13 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   }) {
     final mainQuestsAsync = ref.watch(marketQuestsProviderNew);
     // Полка «Лучшие» — ручной отбор. Пока куратор никого не выбрал, секции
-    // нет вовсе: пустая витрина обещала бы контент, которого ещё не существует.
+    // нет вовсе: пустая витрина обещала бы контент, которого ещё нет.
     final bestQuests =
         ref.watch(bestQuestsProvider).valueOrNull ?? const <MarketQuest>[];
+    final total = mainQuestsAsync.valueOrNull?.length ?? 0;
     final isCompact = width < kCatalogCompactBreakpoint;
-    final hPad = isCompact ? 16.0 : 24.0;
+    // Читаемая колонка: на широком окне полка не растягивается.
+    final hPad = width > 820 ? (width - 760) / 2 : (isCompact ? 16.0 : 24.0);
 
     return CustomScrollView(
       controller: _scrollController,
@@ -176,10 +181,29 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         parent: AlwaysScrollableScrollPhysics(),
       ),
       slivers: [
-        _buildAppBar(context, isFiltering),
         SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.fromLTRB(hPad, 8, hPad, 0),
+            child: _MarketHeader(
+              isRoot: widget.isRoot,
+              isFiltering: isFiltering,
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              onChanged: (value) =>
+                  ref.read(marketSearchProvider.notifier).state = value,
+              onClear: _clearSearch,
+              onFilter: () => _openFiltersSheet(context),
+              onCategory: (value) =>
+                  ref.read(marketCategoryProvider.notifier).state = value,
+              selectedCategory: selectedCategory,
+              total: total,
+              bestCount: bestQuests.length,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 0),
             child: PluginSlotRenderer(slotId: 'market.header'),
           ),
         ),
@@ -193,72 +217,68 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           ),
 
         if (!isFiltering && !mainQuestsAsync.hasError) ...[
-          if (isCompact) ...[
-            const SliverToBoxAdapter(child: SizedBox(height: 8)),
-            SliverToBoxAdapter(child: _CategoryChipsRow()),
-          ],
-          const SliverToBoxAdapter(child: SizedBox(height: 16)),
+          const SliverToBoxAdapter(child: SizedBox(height: 20)),
 
           // Hero — Выбор редакции
           SliverToBoxAdapter(
-            child: CatalogSectionHeader(
+            child: _MarketSectionHeader(
               title: tr('Выбор редакции'),
               icon: Icons.auto_awesome_rounded,
+              hPad: hPad,
               onSeeAll: () =>
                   ref.read(marketCategoryProvider.notifier).state = 'featured',
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          const SliverToBoxAdapter(child: SizedBox(height: 10)),
           SliverToBoxAdapter(
-            child: _FeaturedCarousel(provider: meanderRecommendsProvider),
+            child: _MarketShelf(
+              provider: meanderRecommendsProvider,
+              hPad: hPad,
+              hero: true,
+            ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // Лучшие — ручной отбор, виден только когда он не пуст
           if (bestQuests.isNotEmpty) ...[
             SliverToBoxAdapter(
-              child: CatalogSectionHeader(
+              child: _MarketSectionHeader(
                 title: tr('Лучшие'),
                 icon: Icons.workspace_premium_rounded,
+                hPad: hPad,
                 subtitle: tr('Отобраны вручную: только доделанные квесты'),
                 onSeeAll: () =>
                     ref.read(marketCategoryProvider.notifier).state = 'best',
               ),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            const SliverToBoxAdapter(child: SizedBox(height: 10)),
             SliverToBoxAdapter(
-              child: _HorizontalQuestList(
-                provider: bestQuestsProvider,
-                height: 215,
-                cardWidth: 170,
-              ),
+              child: _MarketShelf(provider: bestQuestsProvider, hPad: hPad),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            const SliverToBoxAdapter(child: SizedBox(height: 22)),
           ],
 
-          // Подобрано для вас
           SliverToBoxAdapter(
-            child: CatalogSectionHeader(
+            child: _MarketSectionHeader(
               title: tr('Подобрано для вас'),
               icon: Icons.recommend_rounded,
+              hPad: hPad,
               subtitle: tr('Микс из ваших жанров, авторов и трендов'),
               onSeeAll: () =>
                   ref.read(marketCategoryProvider.notifier).state = 'for_you',
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          const SliverToBoxAdapter(child: SizedBox(height: 10)),
           SliverToBoxAdapter(
-            child: _HorizontalQuestList(
+            child: _MarketShelf(
               provider: personalRecommendsProvider,
-              height: 215,
-              cardWidth: 170,
-              emptyHint:
-                  tr('Откройте пару квестов, и мы соберём персональную ленту'),
+              hPad: hPad,
+              emptyHint: tr(
+                'Откройте пару квестов, и мы соберём персональную ленту',
+              ),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // Партнёрский баннер №1
           const SliverToBoxAdapter(
             child: PartnerBannerSlot(
               slotId: 'market.top',
@@ -266,26 +286,24 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
               padding: EdgeInsets.symmetric(horizontal: 16),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // В тренде
           SliverToBoxAdapter(
-            child: CatalogSectionHeader(
+            child: _MarketSectionHeader(
               title: tr('В тренде'),
               icon: Icons.trending_up_rounded,
+              hPad: hPad,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          const SliverToBoxAdapter(child: SizedBox(height: 10)),
           SliverToBoxAdapter(
-            child: _HorizontalQuestList(
+            child: _MarketShelf(
               provider: marketQuestsProviderPopular,
-              height: 215,
-              cardWidth: 170,
+              hPad: hPad,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // Похожие на ваши любимые (опционально)
           Consumer(
             builder: (context, ref, _) {
               final similar = ref.watch(similarToFavoritesProvider);
@@ -301,21 +319,23 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                   return SliverMainAxisGroup(
                     slivers: [
                       SliverToBoxAdapter(
-                        child: CatalogSectionHeader(
+                        child: _MarketSectionHeader(
                           title: tr('Похожие на ваши любимые'),
                           icon: Icons.favorite_rounded,
-                          subtitle: tr('На основе квестов, которые вы открывали'),
+                          hPad: hPad,
+                          subtitle: tr(
+                            'На основе квестов, которые вы открывали',
+                          ),
                         ),
                       ),
-                      const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                      const SliverToBoxAdapter(child: SizedBox(height: 10)),
                       SliverToBoxAdapter(
-                        child: _HorizontalQuestList(
+                        child: _MarketShelf(
                           provider: similarToFavoritesProvider,
-                          height: 215,
-                          cardWidth: 170,
+                          hPad: hPad,
                         ),
                       ),
-                      const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                      const SliverToBoxAdapter(child: SizedBox(height: 22)),
                     ],
                   );
                 },
@@ -323,25 +343,23 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
             },
           ),
 
-          // Скрытые алмазы
           SliverToBoxAdapter(
-            child: CatalogSectionHeader(
+            child: _MarketSectionHeader(
               title: tr('Скрытые алмазы'),
               icon: Icons.diamond_outlined,
+              hPad: hPad,
               subtitle: tr('Малоизвестные квесты, которые стоит попробовать'),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          const SliverToBoxAdapter(child: SizedBox(height: 10)),
           SliverToBoxAdapter(
-            child: _HorizontalQuestList(
+            child: _MarketShelf(
               provider: undiscoveredQuestsProvider,
-              height: 215,
-              cardWidth: 170,
+              hPad: hPad,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // Партнёрский баннер №2 (компактный)
           const SliverToBoxAdapter(
             child: PartnerBannerSlot(
               slotId: 'market.mid',
@@ -349,48 +367,51 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
               padding: EdgeInsets.symmetric(horizontal: 16),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // Демо-версии
           SliverToBoxAdapter(
-            child: CatalogSectionHeader(
+            child: _MarketSectionHeader(
               title: tr('Демо-версии'),
               icon: Icons.science_outlined,
+              hPad: hPad,
               subtitle: tr('Незаконченные квесты для тестов и отзывов'),
               onSeeAll: () =>
                   ref.read(marketCategoryProvider.notifier).state = 'demo',
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          const SliverToBoxAdapter(child: SizedBox(height: 10)),
           SliverToBoxAdapter(
-            child: _HorizontalQuestList(
+            child: _MarketShelf(
               provider: demoQuestsProvider,
-              height: 205,
-              cardWidth: 160,
+              hPad: hPad,
+              showDemo: true,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
 
-          // Последние действия (только если нет правой панели)
           if (width < kCatalogExpandedBreakpoint) ...[
             SliverToBoxAdapter(
-              child: CatalogSectionHeader(
+              child: _MarketSectionHeader(
                 title: tr('Последние действия'),
                 icon: Icons.bolt_rounded,
+                hPad: hPad,
                 subtitle: tr('Лайки, отзывы и публикации в реальном времени'),
               ),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            const SliverToBoxAdapter(child: SizedBox(height: 10)),
             SliverToBoxAdapter(
-              child: MarketRecentActivityFeed(
-                provider: marketRecentActivityProvider,
-                maxItems: 8,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: hPad),
+                child: MarketRecentActivityFeed(
+                  provider: marketRecentActivityProvider,
+                  maxItems: 8,
+                  horizontalPadding: 0,
+                ),
               ),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            const SliverToBoxAdapter(child: SizedBox(height: 22)),
           ],
 
-          // Партнёрский баннер №3
           const SliverToBoxAdapter(
             child: PartnerBannerSlot(
               slotId: 'market.bottom',
@@ -398,13 +419,12 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
               padding: EdgeInsets.symmetric(horizontal: 16),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 22)),
         ],
 
-        // Главный grid (скрываем заголовок и сетку, если уже показан блок ошибки выше)
         if (isFiltering || !mainQuestsAsync.hasError) ...[
           SliverToBoxAdapter(
-            child: CatalogSectionHeader(
+            child: _MarketSectionHeader(
               title: isFiltering
                   ? (selectedCategory != null
                         ? _getCategoryTitle(selectedCategory)
@@ -413,13 +433,14 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
               icon: isFiltering
                   ? Icons.search_rounded
                   : Icons.new_releases_outlined,
+              hPad: hPad,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          const SliverToBoxAdapter(child: SizedBox(height: 4)),
           if (isFiltering)
-            _buildSearchResultsGrid(width)
+            _buildSearchResultsList(hPad)
           else
-            _buildMainGrid(width),
+            _buildMainList(hPad),
         ],
 
         const SliverPadding(padding: EdgeInsets.only(bottom: 96)),
@@ -427,62 +448,31 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
     );
   }
 
-  SliverAppBar _buildAppBar(BuildContext context, bool isFiltering) {
-    final showClear = isFiltering;
-    return SliverAppBar(
-      backgroundColor: Colors.transparent,
-      floating: true,
-      pinned: false,
-      snap: true,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      toolbarHeight: 76,
-      automaticallyImplyLeading: !widget.isRoot && !showClear,
-      leading: showClear
-          ? IconButton(
-              icon: const Icon(Icons.arrow_back_rounded),
-              tooltip: tr('Сбросить фильтр'),
-              onPressed: _clearFilters,
-            )
-          : null,
-      titleSpacing: showClear ? 0 : 16,
-      title: CatalogSearchField(
-        controller: _searchController,
-        focusNode: _searchFocusNode,
-        hintText: tr('Найти историю, автора, жанр…'),
-        onChanged: (value) =>
-            ref.read(marketSearchProvider.notifier).state = value,
-        onClear: _clearSearch,
-        onFilterTap: () => _openFiltersSheet(context),
-      ),
-      actions: const [],
-    );
-  }
-
-  Widget _buildMainGrid(double width) {
+  Widget _buildMainList(double hPad) {
     final questsAsync = ref.watch(marketQuestsProviderNew);
     return questsAsync.when(
-      loading: () => CatalogGridShimmer(width: width),
+      loading: () => _MarketRowsShimmer(hPad: hPad),
       error: (e, _) => SliverToBoxAdapter(
         child: MarketErrorBlock(error: e, onRetry: _refreshAll),
       ),
       data: (quests) {
         final filtered = quests.where((q) => !q.isDemo).toList();
-        return _QuestSliverGrid(quests: filtered, width: width);
+        if (filtered.isEmpty) {
+          return const SliverToBoxAdapter(child: MarketEmptyState());
+        }
+        return _MarketQuestList(quests: filtered, hPad: hPad);
       },
     );
   }
 
-  Widget _buildSearchResultsGrid(double width) {
+  Widget _buildSearchResultsList(double hPad) {
     final selectedCategory = ref.watch(marketCategoryProvider);
     final searchQuery = ref.watch(marketSearchProvider);
 
     if (selectedCategory == 'for_you') {
       final async = ref.watch(personalRecommendsProvider);
       return async.when(
-        loading: () => CatalogGridShimmer(width: width),
+        loading: () => _MarketRowsShimmer(hPad: hPad),
         error: (e, _) => SliverToBoxAdapter(
           child: MarketErrorBlock(error: e, onRetry: _refreshAll),
         ),
@@ -490,14 +480,14 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           if (quests.isEmpty) {
             return const SliverToBoxAdapter(child: MarketEmptyState());
           }
-          return _QuestSliverGrid(quests: quests, width: width);
+          return _MarketQuestList(quests: quests, hPad: hPad);
         },
       );
     }
 
     final questsAsync = ref.watch(filteredMarketQuestsProvider);
     return questsAsync.when(
-      loading: () => CatalogGridShimmer(width: width),
+      loading: () => _MarketRowsShimmer(hPad: hPad),
       error: (e, _) => SliverToBoxAdapter(
         child: MarketErrorBlock(error: e, onRetry: _refreshAll),
       ),
@@ -510,7 +500,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         if (list.isEmpty) {
           return const SliverToBoxAdapter(child: MarketEmptyState());
         }
-        return _QuestSliverGrid(quests: list, width: width);
+        return _MarketQuestList(quests: list, hPad: hPad);
       },
     );
   }
@@ -631,16 +621,216 @@ class _RightAside extends ConsumerWidget {
 }
 
 // ============================================================================
-//  ЧИПЫ КАТЕГОРИЙ (компактный режим)
+//  ШАПКА, ПОИСК, ТАБЫ
 // ============================================================================
 
-class _CategoryChipsRow extends ConsumerWidget {
-  const _CategoryChipsRow();
+class _MarketHeader extends StatelessWidget {
+  final bool isRoot;
+  final bool isFiltering;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final VoidCallback onFilter;
+  final ValueChanged<String?> onCategory;
+  final String? selectedCategory;
+  final int total;
+  final int bestCount;
+
+  const _MarketHeader({
+    required this.isRoot,
+    required this.isFiltering,
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+    required this.onClear,
+    required this.onFilter,
+    required this.onCategory,
+    required this.selectedCategory,
+    required this.total,
+    required this.bestCount,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final selected = ref.watch(marketCategoryProvider);
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final parts = <String>[
+      '$total ${trp(['квест', 'квеста', 'квестов'], total)}',
+      if (bestCount > 0) '${tr('Лучшие')}: $bestCount',
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!isRoot)
+              IconButton(
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+                tooltip: tr('Назад'),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr('Маркет'),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.6,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    parts.join(' · '),
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: tr('Фильтры'),
+              child: Material(
+                color: scheme.surfaceContainerHigh,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onFilter,
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(
+                      Icons.tune_rounded,
+                      size: 20,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _MarketSearchField(
+          controller: controller,
+          focusNode: focusNode,
+          onChanged: onChanged,
+          onClear: onClear,
+          onFilter: onFilter,
+        ),
+        const SizedBox(height: 4),
+        _MarketFilterTabs(selected: selectedCategory, onSelected: onCategory),
+      ],
+    );
+  }
+}
 
+class _MarketSearchField extends StatefulWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final VoidCallback onFilter;
+
+  const _MarketSearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+    required this.onClear,
+    required this.onFilter,
+  });
+
+  @override
+  State<_MarketSearchField> createState() => _MarketSearchFieldState();
+}
+
+class _MarketSearchFieldState extends State<_MarketSearchField> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onChange);
+    super.dispose();
+  }
+
+  void _onChange() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasText = widget.controller.text.isNotEmpty;
+    return SizedBox(
+      height: 52,
+      child: Material(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        child: Row(
+          children: [
+            const SizedBox(width: 16),
+            Icon(
+              Icons.search_rounded,
+              size: 22,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: widget.controller,
+                focusNode: widget.focusNode,
+                style: TextStyle(color: scheme.onSurface, fontSize: 15),
+                decoration: InputDecoration(
+                  isCollapsed: true,
+                  border: InputBorder.none,
+                  hintText: tr('Найти историю, автора, жанр…'),
+                  hintStyle: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 15,
+                  ),
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: widget.onChanged,
+              ),
+            ),
+            if (hasText)
+              IconButton(
+                icon: const Icon(Icons.close_rounded),
+                tooltip: tr('Очистить'),
+                onPressed: widget.onClear,
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.tune_rounded),
+                tooltip: tr('Фильтры'),
+                onPressed: widget.onFilter,
+              ),
+            const SizedBox(width: 6),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MarketFilterTabs extends StatelessWidget {
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  const _MarketFilterTabs({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final entries = <(String, String?, IconData)>[
       (tr('Все'), null, Icons.apps_rounded),
       (tr('Лучшие'), 'best', Icons.workspace_premium_rounded),
@@ -650,41 +840,157 @@ class _CategoryChipsRow extends ConsumerWidget {
       (tr('Проверенные'), 'verified', Icons.verified_rounded),
       (tr('Демо'), 'demo', Icons.science_outlined),
       ...kMarketCategories.map(
-        (c) => (
-          translateCategory(c),
-          c,
-          categoryIcon(c),
-        ),
+        (c) => (translateCategory(c), c, categoryIcon(c)),
       ),
     ];
 
-    return CatalogCategoryChipsRow(
-      entries: entries
-          .map((e) => CatalogChipEntry(e.$1, e.$2, e.$3))
-          .toList(),
-      selected: selected,
-      onSelected: (value) =>
-          ref.read(marketCategoryProvider.notifier).state = value,
+    // Табы-подчёркивания вместо «пилюль»: строка остаётся спокойной,
+    // активная грань читается по подчёркиванию, а не по заливке.
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 18),
+        itemBuilder: (context, i) {
+          final entry = entries[i];
+          final isSelected = selected == entry.$2;
+          final color = isSelected ? scheme.primary : scheme.onSurfaceVariant;
+          return InkWell(
+            onTap: () => onSelected(entry.$2),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: const EdgeInsets.only(top: 10, bottom: 7),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    width: 2,
+                    color: isSelected ? scheme.primary : Colors.transparent,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(entry.$3, size: 15, color: color),
+                  const SizedBox(width: 6),
+                  Text(
+                    entry.$1,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: isSelected
+                          ? FontWeight.w800
+                          : FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
 // ============================================================================
-//  ГОРИЗОНТАЛЬНЫЙ СПИСОК
+//  СЕКЦИИ
 // ============================================================================
 
-class _HorizontalQuestList extends ConsumerWidget {
-  /// Все ленты — обычные FutureProvider, тип нужен чтобы на ошибке уметь
-  /// дёрнуть ref.invalidate (ProviderListenable для этого не годится).
+class _MarketSectionHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final IconData icon;
+  final double hPad;
+  final VoidCallback? onSeeAll;
+
+  const _MarketSectionHeader({
+    required this.title,
+    required this.icon,
+    required this.hPad,
+    this.subtitle,
+    this.onSeeAll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // Капс-надпись с линией, как в библиотеке: без квадратной плашки,
+    // которая дублировала подпись и спорила с обложками.
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: hPad),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title.toUpperCase(),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Divider(
+                  height: 1,
+                  color: scheme.outlineVariant.withValues(alpha: 0.45),
+                ),
+              ),
+              const SizedBox(width: 10),
+              if (onSeeAll != null)
+                InkWell(
+                  onTap: onSeeAll,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    child: Text(
+                      tr('Все'),
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Icon(icon, size: 15, color: scheme.onSurfaceVariant),
+            ],
+          ),
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                subtitle!,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MarketShelf extends ConsumerWidget {
   final AutoDisposeFutureProvider<List<MarketQuest>> provider;
-  final double height;
-  final double cardWidth;
+  final double hPad;
+  final bool hero;
+  final bool showDemo;
   final String? emptyHint;
 
-  const _HorizontalQuestList({
+  const _MarketShelf({
     required this.provider,
-    required this.height,
-    required this.cardWidth,
+    required this.hPad,
+    this.hero = false,
+    this.showDemo = false,
     this.emptyHint,
   });
 
@@ -692,6 +998,8 @@ class _HorizontalQuestList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(provider);
     final scheme = Theme.of(context).colorScheme;
+    final height = hero ? 190.0 : 230.0;
+    final width = hero ? 300.0 : 160.0;
     return SizedBox(
       height: height,
       child: async.when(
@@ -699,52 +1007,52 @@ class _HorizontalQuestList extends ConsumerWidget {
           baseColor: scheme.surfaceContainerHigh,
           highlightColor: scheme.surfaceContainerHighest,
           child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.symmetric(horizontal: hPad),
             scrollDirection: Axis.horizontal,
             physics: const NeverScrollableScrollPhysics(),
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: false,
-            itemCount: 4,
-            separatorBuilder: (_, __) => const SizedBox(width: 6),
-            itemBuilder: (_, __) => Container(
-              width: cardWidth,
+            itemCount: hero ? 2 : 4,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (_, _) => Container(
+              width: width,
               decoration: BoxDecoration(
                 color: scheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
           ),
         ),
-        error: (_, __) => Padding(
-          // Пустая лента без кнопки неотличима от «в этой подборке ничего нет»,
-          // а причина чаще всего одна — не дошло до бэкенда.
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+        error: (_, _) => Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
           child: MarketInlineHint(
             text: tr('Не удалось загрузить подборку'),
             onRetry: () => ref.invalidate(provider),
           ),
         ),
         data: (quests) {
-          final isDemoSection = provider == demoQuestsProvider;
-          final list = isDemoSection
+          final list = showDemo
               ? quests
               : quests.where((q) => !q.isDemo).toList();
           if (list.isEmpty) {
             if (emptyHint == null) return const SizedBox.shrink();
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: EdgeInsets.symmetric(horizontal: hPad),
               child: MarketInlineHint(text: emptyHint!),
             );
           }
           return ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.symmetric(horizontal: hPad),
             scrollDirection: Axis.horizontal,
             addAutomaticKeepAlives: false,
             addRepaintBoundaries: false,
             itemCount: list.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 6),
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, i) => RepaintBoundary(
-              child: MarketQuestCard(quest: list[i], width: cardWidth),
+              child: SizedBox(
+                width: width,
+                child: hero
+                    ? MarketHeroCard(quest: list[i])
+                    : MarketQuestCard(quest: list[i]),
+              ),
             ),
           );
         },
@@ -754,60 +1062,287 @@ class _HorizontalQuestList extends ConsumerWidget {
 }
 
 // ============================================================================
-//  HERO-КАРУСЕЛЬ
+//  СПИСОК КВЕСТОВ
 // ============================================================================
 
-class _FeaturedCarousel extends ConsumerWidget {
-  final ProviderListenable<AsyncValue<List<MarketQuest>>> provider;
-  const _FeaturedCarousel({required this.provider});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(provider);
-    return SizedBox(
-      height: 240,
-      child: async.when(
-        loading: () => const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: CatalogShimmerCard(width: double.infinity),
-        ),
-        error: (_, __) => const SizedBox.shrink(),
-        data: (quests) {
-          final list = quests.where((q) => !q.isDemo).toList();
-          if (list.isEmpty) return const SizedBox.shrink();
-          return PageView.builder(
-            controller: PageController(viewportFraction: 0.92),
-            itemCount: list.length,
-            physics: const BouncingScrollPhysics(),
-            itemBuilder: (context, i) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: RepaintBoundary(child: MarketHeroCard(quest: list[i])),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  СЕТКА КВЕСТОВ
-// ============================================================================
-
-class _QuestSliverGrid extends StatelessWidget {
+class _MarketQuestList extends StatelessWidget {
   final List<MarketQuest> quests;
-  final double width;
+  final double hPad;
 
-  const _QuestSliverGrid({required this.quests, required this.width});
+  const _MarketQuestList({required this.quests, required this.hPad});
 
   @override
   Widget build(BuildContext context) {
-    return CatalogSliverGrid(
-      itemCount: quests.length,
-      width: width,
-      itemBuilder: (context, i) =>
-          RepaintBoundary(child: MarketQuestCard(quest: quests[i])),
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: hPad),
+      sliver: SliverList.separated(
+        itemCount: quests.length,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (context, i) => _MarketQuestRow(quest: quests[i]),
+      ),
     );
   }
 }
 
+class _MarketQuestRow extends ConsumerWidget {
+  final MarketQuest quest;
+
+  const _MarketQuestRow({required this.quest});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final category = quest.genres.isNotEmpty
+        ? translateCategory(quest.genres.first)
+        : translateCategory(quest.category);
+    return InkWell(
+      onTap: () {
+        ref.read(recentlyViewedQuestsProvider.notifier).push(quest.id);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => QuestMarketDetailsScreen(quest: quest),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 60,
+                height: 84,
+                child: MarketCoverImage(
+                  url: quest.previewImageUrl,
+                  fallbackColor: scheme.surfaceContainerHighest,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          quest.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (quest.isBest)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: MarketBadge(
+                            label: tr('Лучшие'),
+                            background: scheme.primaryContainer,
+                            foreground: scheme.onPrimaryContainer,
+                          ),
+                        ),
+                      if (quest.isDemo)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: MarketBadge(
+                            label: tr('ДЕМО'),
+                            background: scheme.errorContainer,
+                            foreground: scheme.onErrorContainer,
+                          ),
+                        ),
+                      if (quest.isNsfw)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: MarketBadge(
+                            label: '18+',
+                            background: scheme.error,
+                            foreground: scheme.onError,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      if (quest.authorName != null &&
+                          quest.authorName!.isNotEmpty)
+                        Flexible(
+                          child: CosmeticNameText(
+                            name: quest.authorName!,
+                            def: cosmeticById(quest.authorNameStyle),
+                            style: TextStyle(
+                              color: scheme.onSurfaceVariant,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      if (category.isNotEmpty) ...[
+                        if (quest.authorName != null &&
+                            quest.authorName!.isNotEmpty)
+                          Text(
+                            '  ·  ',
+                            style: TextStyle(
+                              color: scheme.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        Flexible(
+                          child: Text(
+                            category,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: scheme.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 3,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _RowMetric(
+                        icon: Icons.star_rounded,
+                        color: scheme.primary,
+                        text: quest.averageRating.toStringAsFixed(1),
+                      ),
+                      _RowMetric(
+                        icon: Icons.download_rounded,
+                        color: scheme.onSurfaceVariant,
+                        text: formatCount(quest.downloadsCount),
+                      ),
+                      _RowMetric(
+                        icon: Icons.visibility_rounded,
+                        color: scheme.onSurfaceVariant,
+                        text: formatCount(quest.viewsCount),
+                        semanticLabel: tr('Просмотры'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RowMetric extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+  final String? semanticLabel;
+
+  const _RowMetric({
+    required this.icon,
+    required this.color,
+    required this.text,
+    this.semanticLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticLabel,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MarketRowsShimmer extends StatelessWidget {
+  final double hPad;
+
+  const _MarketRowsShimmer({required this.hPad});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: hPad),
+      sliver: SliverList.separated(
+        itemCount: 6,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (_, _) => Shimmer.fromColors(
+          baseColor: scheme.surfaceContainerHigh,
+          highlightColor: scheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 60,
+                  height: 84,
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 14,
+                        width: 220,
+                        color: scheme.surfaceContainerHigh,
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 11,
+                        width: 140,
+                        color: scheme.surfaceContainerHigh,
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        height: 11,
+                        width: 100,
+                        color: scheme.surfaceContainerHigh,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -171,8 +171,8 @@ class MarketQuestCard extends ConsumerWidget {
     return SizedBox(
       width: width,
       child: Material(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(28),
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () {
@@ -328,8 +328,8 @@ class MarketHeroCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(32),
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () {
@@ -515,7 +515,9 @@ class MarketErrorBlock extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             offline
-                ? tr('Нет подключения к серверу\n\nВозможны технические работы или пропал интернет.\n\nБиблиотека, создание квестов и уже скачанные истории работают офлайн.')
+                ? tr(
+                    'Нет подключения к серверу\n\nВозможны технические работы или пропал интернет.\n\nБиблиотека, создание квестов и уже скачанные истории работают офлайн.',
+                  )
                 : friendlyError(error ?? tr('Неизвестная ошибка')),
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -621,96 +623,96 @@ class MarketFiltersSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-            child: Row(
-              children: [
-                Icon(Icons.tune_rounded, color: scheme.primary, size: 22),
-                const SizedBox(width: 10),
-                Text(
-                  tr('Фильтры'),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const Spacer(),
-                if (selectedCat != null)
-                  TextButton(
-                    onPressed: () {
-                      ref.read(marketCategoryProvider.notifier).state = null;
-                    },
-                    child: Text(tr('Сбросить')),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.tune_rounded, color: scheme.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    tr('Фильтры'),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
+                  const Spacer(),
+                  if (selectedCat != null)
+                    TextButton(
+                      onPressed: () {
+                        ref.read(marketCategoryProvider.notifier).state = null;
+                      },
+                      child: Text(tr('Сбросить')),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              tr('Подборки'),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _FilterChipItem(
+                  label: tr('Лучшие'),
+                  value: 'best',
+                  icon: Icons.workspace_premium_rounded,
+                ),
+                _FilterChipItem(
+                  label: tr('Для вас'),
+                  value: 'for_you',
+                  icon: Icons.recommend_rounded,
+                ),
+                _FilterChipItem(
+                  label: tr('В тренде'),
+                  value: 'trending',
+                  icon: Icons.trending_up_rounded,
+                ),
+                _FilterChipItem(
+                  label: tr('Выбор редакции'),
+                  value: 'featured',
+                  icon: Icons.auto_awesome_rounded,
+                ),
+                _FilterChipItem(
+                  label: tr('Проверенные'),
+                  value: 'verified',
+                  icon: Icons.verified_rounded,
+                ),
+                _FilterChipItem(
+                  label: tr('Демо'),
+                  value: 'demo',
+                  icon: Icons.science_outlined,
+                ),
               ],
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            tr('Подборки'),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+            const SizedBox(height: 18),
+            Text(
+              tr('Жанры'),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _FilterChipItem(
-                label: tr('Лучшие'),
-                value: 'best',
-                icon: Icons.workspace_premium_rounded,
-              ),
-              _FilterChipItem(
-                label: tr('Для вас'),
-                value: 'for_you',
-                icon: Icons.recommend_rounded,
-              ),
-              _FilterChipItem(
-                label: tr('В тренде'),
-                value: 'trending',
-                icon: Icons.trending_up_rounded,
-              ),
-              _FilterChipItem(
-                label: tr('Выбор редакции'),
-                value: 'featured',
-                icon: Icons.auto_awesome_rounded,
-              ),
-              _FilterChipItem(
-                label: tr('Проверенные'),
-                value: 'verified',
-                icon: Icons.verified_rounded,
-              ),
-              _FilterChipItem(
-                label: tr('Демо'),
-                value: 'demo',
-                icon: Icons.science_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Text(
-            tr('Жанры'),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: kMarketCategories
+                  .map(
+                    (c) => _FilterChipItem(
+                      label: translateCategory(c),
+                      value: c,
+                      icon: categoryIcon(c),
+                    ),
+                  )
+                  .toList(),
             ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: kMarketCategories
-                .map(
-                  (c) => _FilterChipItem(
-                    label: translateCategory(c),
-                    value: c,
-                    icon: categoryIcon(c),
-                  ),
-                )
-                .toList(),
-          ),
           ],
         ),
       ),
@@ -784,7 +786,9 @@ class MarketRecentActivityFeed extends ConsumerWidget {
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
-            trf('Не удалось загрузить действия: {p0}', {'p0': friendlyError(e)}),
+            trf('Не удалось загрузить действия: {p0}', {
+              'p0': friendlyError(e),
+            }),
             style: TextStyle(color: scheme.onErrorContainer, fontSize: 12),
           ),
         ),
