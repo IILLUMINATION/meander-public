@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_nodes_store.dart';
+import 'package:mnd_player/utils/quest_store.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:path/path.dart' as p;
@@ -12,8 +13,43 @@ import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_core/src/gen/api/quest_archive.dart' as rust_archive;
 import 'package:canvas_app/core/l10n/l10n.dart';
 
+/// Формат нод внутри экспортного `.mnd`.
+enum QuestArchiveNodesFormat {
+  /// `nodes/index.json` + `nodes/<id>.json` — новый плеер.
+  perNode,
+
+  /// Единый `nodes.json` / `nodes/nodes.json` — старые плееры и веб.
+  legacy,
+}
+
 class ExportService {
   static final _zipHeader = utf8.encode('MND_ZIP_');
+
+  /// Гарантирует v2-индекс перед экспортом нового формата.
+  static Future<void> _ensureV2Index(String questId) async {
+    if (await QuestNodesStore.hasPerNodeIndex(questId)) return;
+    await QuestNodesStore.ensurePerNode(questId);
+    if (await QuestNodesStore.hasPerNodeIndex(questId)) return;
+
+    // Старые файлы есть, но миграция не сработала — молча экспортировать
+    // пустой индекс нельзя, иначе в архиве не будет нод.
+    if (await FileStorage.exists(QuestPaths.nodesLegacy(questId)) ||
+        await FileStorage.exists(QuestPaths.nodesCanonical(questId))) {
+      throw Exception(
+        'Не удалось перевести ноды в новый формат перед экспортом',
+      );
+    }
+
+    // Пустой квест: ensure ничего не пишет, но для нового формата нужен индекс.
+    final qs = await QuestStore.defaultInstance();
+    await qs.writeJson(QuestPaths.nodesIndex(questId), {
+      QuestNodesStore.formatVersionKey: QuestNodesStore.perNodeFormatVersion,
+      'nodes': <dynamic>[],
+      'groups': <dynamic>[],
+      'comments': <dynamic>[],
+      'edges': <dynamic>[],
+    });
+  }
 
   /// Экспорт квеста в один .txt файл для чтения и разбора
   /// Содержит: конфиг, ноды, все скрипты с заменой UUID на короткие ID
@@ -238,6 +274,7 @@ class ExportService {
     String questTitle, {
     bool includeSaves = false,
     bool isProtected = false,
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
   }) async {
     try {
       final questPath = QuestPaths.questRoot(questId);
@@ -249,6 +286,7 @@ class ExportService {
         questId,
         includeSaves: includeSaves,
         isProtected: isProtected,
+        nodesFormat: nodesFormat,
       );
       final success = await _saveMndFileFromTemp(tempFile, questTitle);
 
@@ -276,6 +314,7 @@ class ExportService {
     String questId, {
     bool includeSaves = false,
     bool isProtected = false,
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
   }) async {
     print(
       '⚙️ [Export] Rust streaming .mnd file to disk... isProtected=$isProtected includeSaves=$includeSaves',
@@ -290,12 +329,15 @@ class ExportService {
     // Делегируем в Rust: стрим 64КБ, Argon2+ChaCha для ENC2, plain для ZIP.
     // Rust сам ставит isReadOnly+signature для защищённых.
     try {
+      final perNode = nodesFormat == QuestArchiveNodesFormat.perNode;
+      if (perNode) await _ensureV2Index(questId);
       await rust_archive.questArchiveExportFull(
         questDir: questDir,
         mndPath: outFile.path,
         password: isProtected ? 'protected' : null,
         includeSaves: includeSaves,
         isProtected: isProtected,
+        perNodeNodes: perNode,
       );
     } catch (e) {
       // Fallback на Dart-стрим если Rust по какой-то причине не справился
@@ -304,6 +346,7 @@ class ExportService {
         questId,
         includeSaves: includeSaves,
         isProtected: isProtected,
+        nodesFormat: nodesFormat,
       );
     }
 
@@ -319,6 +362,7 @@ class ExportService {
     String questId, {
     bool includeSaves = false,
     bool isProtected = false,
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
   }) async {
     print('⚙️ [Export] Dart fallback streaming .mnd file to disk...');
     final questBasePath = QuestPaths.questRoot(questId);
@@ -354,7 +398,21 @@ class ExportService {
           );
         }
       }
-      if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+      if (nodesFormat == QuestArchiveNodesFormat.perNode) {
+        await _ensureV2Index(questId);
+        for (final name in await FileStorage.listFiles(
+          QuestPaths.nodesDir(questId),
+          extension: '.json',
+        )) {
+          if (name == 'nodes.json') continue;
+          await addFile(
+            'nodes/$name',
+            await FileStorage.getFilePath(
+              '${QuestPaths.nodesDir(questId)}/$name',
+            ),
+          );
+        }
+      } else if (await QuestNodesStore.hasPerNodeIndex(questId)) {
         final nodesPath = p.join(
           tempDir.path,
           'v2_nodes_${questId}_$stamp.json',
@@ -470,7 +528,10 @@ class ExportService {
     }
   }
 
-  static Future<Uint8List> createMndFile(String questId) async {
+  static Future<Uint8List> createMndFile(
+    String questId, {
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
+  }) async {
     print('⚙️ [Export] Assembling .mnd file...');
     final archive = Archive();
     final questBasePath = QuestPaths.questRoot(questId);
@@ -488,9 +549,24 @@ class ExportService {
     }
 
     // nodes can live in either path depending on quest origin/version.
-    // Для v2 собираем единый legacy nodes.json из index + тел нод.
     bool hasNodes = false;
-    if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+    if (nodesFormat == QuestArchiveNodesFormat.perNode) {
+      await _ensureV2Index(questId);
+      for (final name in await FileStorage.listFiles(
+        QuestPaths.nodesDir(questId),
+        extension: '.json',
+      )) {
+        if (name == 'nodes.json') continue;
+        final file = File(
+          await FileStorage.getFilePath(
+            '${QuestPaths.nodesDir(questId)}/$name',
+          ),
+        );
+        final bytes = await file.readAsBytes();
+        archive.addFile(ArchiveFile('nodes/$name', bytes.length, bytes));
+        hasNodes = true;
+      }
+    } else if (await QuestNodesStore.hasPerNodeIndex(questId)) {
       final bytes = utf8.encode(
         jsonEncode(await QuestNodesStore.readAll(questId)),
       );

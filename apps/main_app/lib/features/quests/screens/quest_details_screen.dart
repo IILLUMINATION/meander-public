@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:canvas_app/core/services/export_service.dart';
+import 'package:canvas_app/features/quests/widgets/quest_export_format_dialog.dart';
 import 'package:canvas_app/core/services/offline_apk_builder.dart';
 import 'package:canvas_app/core/services/quest_document_exporter.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -107,6 +108,8 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     bool isProtected = false,
   }) async {
     if (_isExporting) return;
+    final nodesFormat = await showQuestExportFormatDialog(context);
+    if (nodesFormat == null || !mounted) return;
     setState(() => _isExporting = true);
 
     try {
@@ -120,6 +123,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
         quest.title,
         includeSaves: includeSaves,
         isProtected: isProtected,
+        nodesFormat: nodesFormat,
       );
       if (!mounted) return;
       if (success) {
@@ -132,7 +136,10 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
@@ -151,7 +158,10 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
       if (success) _showSnack(tr('Квест экспортирован в .txt'), success: true);
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isExportingTxt = false);
     }
@@ -175,7 +185,10 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isExportingPdf = false);
     }
@@ -308,7 +321,9 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
         return AlertDialog(
           title: Text(tr('Удалить квест?')),
           content: Text(
-            tr('Это действие нельзя отменить. Все ресурсы, ноды и сохранения будут удалены с устройства.'),
+            tr(
+              'Это действие нельзя отменить. Все ресурсы, ноды и сохранения будут удалены с устройства.',
+            ),
           ),
           actions: [
             TextButton(
@@ -410,9 +425,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
                   color: Colors.orangeAccent,
                 ),
                 title: Text(tr('Экспорт защищённого квеста')),
-                subtitle: Text(
-                  tr('Только для игры, контент будет зашифрован'),
-                ),
+                subtitle: Text(tr('Только для игры, контент будет зашифрован')),
                 onTap: () {
                   Navigator.pop(ctx);
                   _exportQuest(quest, isProtected: true);
@@ -589,9 +602,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     if (id == null || id.isEmpty) return;
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => MarketQuestLoaderScreen(questId: id),
-      ),
+      MaterialPageRoute(builder: (_) => MarketQuestLoaderScreen(questId: id)),
     );
   }
 
@@ -725,10 +736,7 @@ class _LocalHeroOverlay extends StatelessWidget {
                               color: Colors.white,
                               fontWeight: FontWeight.w800,
                               shadows: const [
-                                Shadow(
-                                  blurRadius: 12,
-                                  color: Colors.black54,
-                                ),
+                                Shadow(blurRadius: 12, color: Colors.black54),
                               ],
                             ),
                       ),
@@ -771,10 +779,7 @@ class _LocalActionPanel extends StatelessWidget {
   final VoidCallback onPlay;
   final VoidCallback? onOpenMarket;
 
-  const _LocalActionPanel({
-    required this.onPlay,
-    required this.onOpenMarket,
-  });
+  const _LocalActionPanel({required this.onPlay, required this.onOpenMarket});
 
   @override
   Widget build(BuildContext context) {
@@ -902,9 +907,9 @@ class _CollapsedTitle extends StatelessWidget {
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
           ),
         );
@@ -1106,7 +1111,9 @@ class _StartNodeCard extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                tr('Стартовая нода не выбрана. Без неё игроки увидят первую попавшуюся ноду.'),
+                tr(
+                  'Стартовая нода не выбрана. Без неё игроки увидят первую попавшуюся ноду.',
+                ),
                 style: TextStyle(
                   color: scheme.onTertiaryContainer,
                   fontSize: 13,
@@ -1168,7 +1175,9 @@ class _BuilderSection extends StatelessWidget {
         _ActionTile(
           icon: Icons.start_rounded,
           title: tr('Стартовая точка'),
-          subtitle: quest.startNodeId != null ? tr('Установлена') : tr('Не выбрана'),
+          subtitle: quest.startNodeId != null
+              ? tr('Установлена')
+              : tr('Не выбрана'),
           tone: quest.startNodeId != null
               ? _TileTone.neutral
               : _TileTone.warning,

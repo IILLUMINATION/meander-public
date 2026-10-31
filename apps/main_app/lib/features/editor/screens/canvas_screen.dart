@@ -644,7 +644,7 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
             return Text(
               dangerous
                   ? '${tr('Это действие нельзя отменить.')}\n\n'
-                        '$selectedCount / ${stats.$1} нод'
+                        '${trf('{p0} / {p1} нод', {'p0': selectedCount, 'p1': stats.$1})}'
                   : tr('Это действие нельзя отменить.'),
               style: TextStyle(color: scheme.onSurfaceVariant),
             );

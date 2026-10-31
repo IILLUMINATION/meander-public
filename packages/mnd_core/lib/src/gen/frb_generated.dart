@@ -340,6 +340,7 @@ abstract class RustLibApi extends BaseApi {
     String? password,
     required bool includeSaves,
     required bool isProtected,
+    required bool perNodeNodes,
   });
 
   Future<String> crateApiQuestArchiveQuestArchiveImport({required String mndPath, required String destDir});
@@ -2070,6 +2071,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     String? password,
     required bool includeSaves,
     required bool isProtected,
+    required bool perNodeNodes,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -2080,11 +2082,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_opt_String(password, serializer);
           sse_encode_bool(includeSaves, serializer);
           sse_encode_bool(isProtected, serializer);
+          sse_encode_bool(perNodeNodes, serializer);
           pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 70, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_unit, decodeErrorData: sse_decode_String),
         constMeta: kCrateApiQuestArchiveQuestArchiveExportFullConstMeta,
-        argValues: [questDir, mndPath, password, includeSaves, isProtected],
+        argValues: [questDir, mndPath, password, includeSaves, isProtected, perNodeNodes],
         apiImpl: this,
       ),
     );
@@ -2092,7 +2095,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiQuestArchiveQuestArchiveExportFullConstMeta => const TaskConstMeta(
     debugName: "quest_archive_export_full",
-    argNames: ["questDir", "mndPath", "password", "includeSaves", "isProtected"],
+    argNames: ["questDir", "mndPath", "password", "includeSaves", "isProtected", "perNodeNodes"],
   );
 
   @override

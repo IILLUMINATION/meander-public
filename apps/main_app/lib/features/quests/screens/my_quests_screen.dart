@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:canvas_app/core/services/async_backup_service.dart';
 import 'package:canvas_app/core/services/async_import_service.dart';
 import 'package:canvas_app/core/services/export_service.dart';
+import 'package:canvas_app/features/quests/widgets/quest_export_format_dialog.dart';
 import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
 import 'package:canvas_app/core/services/quest_document_exporter.dart';
@@ -273,7 +274,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка импорта: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка импорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -281,6 +285,8 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
 
   Future<void> _exportQuest(Quest quest, {bool includeSaves = false}) async {
     if (_isOperationInProgress) return;
+    final nodesFormat = await showQuestExportFormatDialog(context);
+    if (nodesFormat == null || !mounted) return;
     setState(() => _isOperationInProgress = true);
     try {
       // Сохраняем состояние вкладок перед экспортом.
@@ -292,6 +298,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
         quest.id,
         quest.title,
         includeSaves: includeSaves,
+        nodesFormat: nodesFormat,
       );
       if (!mounted) return;
       if (success) {
@@ -301,7 +308,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -335,7 +345,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _showSnack(trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -365,7 +378,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _showSnack(trf('Ошибка создания копии: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка создания копии: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -388,7 +404,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
             builder: (ctx) => AlertDialog(
               title: Text(tr('Обнаружен конфликт')),
               content: Text(
-                trf('Квест «{questTitle}» уже существует. Заменить его версией из бэкапа?', {'questTitle': questTitle}),
+                trf(
+                  'Квест «{questTitle}» уже существует. Заменить его версией из бэкапа?',
+                  {'questTitle': questTitle},
+                ),
               ),
               actions: [
                 TextButton(
@@ -413,7 +432,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка восстановления: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка восстановления: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -607,7 +629,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                trf('Квест «{p0}» будет удалён с устройства. Это действие необратимо.', {'p0': quest.title}),
+                trf(
+                  'Квест «{p0}» будет удалён с устройства. Это действие необратимо.',
+                  {'p0': quest.title},
+                ),
                 style: const TextStyle(fontSize: 14, height: 1.4),
               ),
               const SizedBox(height: 12),
@@ -683,7 +708,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Не удалось удалить: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Не удалось удалить: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     }
   }
 
@@ -1095,10 +1123,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       error: (err, _) => SliverToBoxAdapter(
         child: Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 24),
-          child: _LibraryErrorState(
-            error: err,
-            onRetry: _refreshAll,
-          ),
+          child: _LibraryErrorState(error: err, onRetry: _refreshAll),
         ),
       ),
       data: (quests) {
@@ -1774,8 +1799,12 @@ class _SyncStatusCard extends StatelessWidget {
                       ),
                       Text(
                         configured
-                            ? tr('Включите, чтобы держать квесты в актуальном виде')
-                            : tr('Подключите облако, чтобы не потерять прогресс'),
+                            ? tr(
+                                'Включите, чтобы держать квесты в актуальном виде',
+                              )
+                            : tr(
+                                'Подключите облако, чтобы не потерять прогресс',
+                              ),
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
                           fontSize: 12,
@@ -2143,7 +2172,9 @@ class _QuestListCard extends ConsumerWidget {
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              trf('Открыт {p0}', {'p0': formatRelativeTime(quest.lastOpened!)}),
+                              trf('Открыт {p0}', {
+                                'p0': formatRelativeTime(quest.lastOpened!),
+                              }),
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: scheme.onSurfaceVariant,
@@ -2174,7 +2205,11 @@ class _QuestListCard extends ConsumerWidget {
                                   const SizedBox(width: 4),
                                   Flexible(
                                     child: Text(
-                                      trf('Вы играли: {p0}', {'p0': PlaytimeFormatter.format(playtime)}),
+                                      trf('Вы играли: {p0}', {
+                                        'p0': PlaytimeFormatter.format(
+                                          playtime,
+                                        ),
+                                      }),
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: scheme.onSurfaceVariant,
@@ -2503,7 +2538,9 @@ class _EmptyLibraryState extends StatelessWidget {
 /// видел на первом же экране трейс и ни одной кнопки.
 String libraryLoadErrorText(Object error) {
   if (looksLikeStorageFailure(error)) {
-    return tr('Приложение не может прочитать свою папку с квестами на устройстве. Проверьте свободное место и разрешите Meander хранить файлы.');
+    return tr(
+      'Приложение не может прочитать свою папку с квестами на устройстве. Проверьте свободное место и разрешите Meander хранить файлы.',
+    );
   }
   return friendlyError(error);
 }

@@ -463,7 +463,11 @@ class GitHubSyncService {
           progress: _stepProgress(doneSteps, totalSteps),
         ),
       );
-      final data = await ExportService.createMndFile(quest.id);
+      final data = await ExportService.createMndFile(
+        quest.id,
+        // GitHub-синхронизация должна читаться старыми клиентами.
+        nodesFormat: QuestArchiveNodesFormat.legacy,
+      );
 
       onProgress(
         GitHubSyncProgress(
@@ -1755,7 +1759,10 @@ class GitHubSyncService {
       GitHubSyncProgress(message: tr('Архивация квеста...'), progress: 0.3),
     );
     final fingerprint = await _computeQuestFingerprint(questId);
-    final data = await ExportService.createMndFile(questId);
+    final data = await ExportService.createMndFile(
+      questId,
+      nodesFormat: QuestArchiveNodesFormat.legacy,
+    );
 
     final remoteFilePath = '$questsPrefix/$questId.mnd';
     String? previousSha;

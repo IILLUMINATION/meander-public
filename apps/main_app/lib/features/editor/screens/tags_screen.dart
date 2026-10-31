@@ -1243,7 +1243,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                 stats != null && stats.$1 > 0 && stats.$2 * 2 > stats.$1;
             return Text(
               '${tr('Внимание: Все ноды внутри этой главы будут удалены безвозвратно!\n\nРекомендуется создать резервную копию.')}'
-              '${dangerous ? '\n\n${stats.$2} / ${stats.$1} нод' : ''}',
+              '${dangerous ? '\n\n${trf('{p0} / {p1} нод', {'p0': stats.$2, 'p1': stats.$1})}' : ''}',
               style: TextStyle(color: Colors.white70),
             );
           },

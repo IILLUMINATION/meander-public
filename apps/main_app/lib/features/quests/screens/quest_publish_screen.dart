@@ -573,7 +573,11 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
       final nodesData = await QuestNodesStore.read(widget.quest.id);
       nodeCount = (nodesData['nodes'] as List<dynamic>? ?? []).length;
 
-      final mndData = await ExportService.createMndFile(widget.quest.id);
+      final mndData = await ExportService.createMndFile(
+        widget.quest.id,
+        // Каталог и веб-плеер читают legacy nodes.json.
+        nodesFormat: QuestArchiveNodesFormat.legacy,
+      );
       final tempDir = await getTemporaryDirectory();
       final mndFile = File('${tempDir.path}/${widget.quest.id}.mnd');
       await mndFile.writeAsBytes(mndData);

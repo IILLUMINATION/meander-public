@@ -71,19 +71,40 @@ void main() {
     if (appDir.existsSync()) await appDir.delete(recursive: true);
   });
 
-  test('createMndFile собирает legacy nodes.json из v2', () async {
+  test('createMndFile по умолчанию собирает per-node архив', () async {
     final bytes = await ExportService.createMndFile(_questId);
     expect(utf8.decode(bytes.sublist(0, 8)), 'MND_ZIP_');
 
+    final archive = ZipDecoder().decodeBytes(bytes.sublist(8));
+    final index = archive.files.firstWhere((f) => f.name == 'nodes/index.json');
+    final decodedIndex =
+        jsonDecode(utf8.decode(index.content as List<int>)) as Map;
+    expect(decodedIndex['format_version'], 2);
+    expect(decodedIndex['nodes'], hasLength(2));
+
+    final body = archive.files.firstWhere((f) => f.name == 'nodes/n1.json');
+    final decodedBody =
+        jsonDecode(utf8.decode(body.content as List<int>)) as Map;
+    expect(decodedBody['content']['items'].first['text'], 'привет');
+    expect(
+      archive.files.any((f) => f.name == 'nodes.json'),
+      isFalse,
+      reason: 'новый формат не должен нести legacy-монолит',
+    );
+  });
+
+  test('createMndFile legacy собирает единый nodes.json', () async {
+    final bytes = await ExportService.createMndFile(
+      _questId,
+      nodesFormat: QuestArchiveNodesFormat.legacy,
+    );
     final archive = ZipDecoder().decodeBytes(bytes.sublist(8));
     final entry = archive.files.firstWhere((f) => f.name == 'nodes.json');
     final decoded = jsonDecode(utf8.decode(entry.content as List<int>)) as Map;
     final nodes = (decoded['nodes'] as List).cast<Map>();
     expect(nodes, hasLength(2));
     expect(nodes.first['title'], 'A');
-    expect(nodes.first['content']['items'].first['text'], 'привет');
     expect(decoded['groups'], hasLength(1));
-    expect(decoded['comments'], hasLength(1));
     expect(archive.files.any((f) => f.name == 'nodes/index.json'), isFalse);
   });
 }

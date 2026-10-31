@@ -375,15 +375,21 @@ pub fn quest_archive_export(
     mnd_path: &str,
     password: Option<String>,
 ) -> Result<()> {
-    quest_archive_export_full(quest_dir, mnd_path, password, true, false)
+    quest_archive_export_full(quest_dir, mnd_path, password, true, false, false)
 }
 
+/// Экспорт `.mnd`.
+///
+/// [per_node_nodes] выбирает формат нод внутри архива:
+/// * `false` — legacy: единый `nodes.json` + `nodes/nodes.json` (старые плееры);
+/// * `true` — per-node: `nodes/index.json` + `nodes/<id>.json` (новый плеер).
 pub fn quest_archive_export_full(
     quest_dir: &str,
     mnd_path: &str,
     password: Option<String>,
     include_saves: bool,
     is_protected: bool,
+    per_node_nodes: bool,
 ) -> Result<()> {
     let src = Path::new(quest_dir);
     let dst = Path::new(mnd_path);
@@ -403,7 +409,14 @@ pub fn quest_archive_export_full(
 
     // 1) Собираем zip во временный файл стримом
     let tmp_zip = tempfile_path("mnd_export_zip");
-    create_zip_streaming_full(src, &tmp_zip, include_saves, is_protected, &quest_id_hint)?;
+    create_zip_streaming_full(
+        src,
+        &tmp_zip,
+        include_saves,
+        is_protected,
+        &quest_id_hint,
+        per_node_nodes,
+    )?;
 
     // 2) Если пароль — шифруем в новый формат ENC2, иначе plain ZIP
     if let Some(_pwd) = password {
@@ -510,6 +523,7 @@ fn create_zip_streaming_full(
     include_saves: bool,
     is_protected: bool,
     quest_id_hint: &str,
+    per_node_nodes: bool,
 ) -> Result<()> {
     let file = File::create(zip_path).map_err(|e| ArchiveError(e.to_string()))?;
     let mut zip = zip::ZipWriter::new(BufWriter::new(file));
@@ -533,8 +547,19 @@ fn create_zip_streaming_full(
         }
     }
 
-    // v2: единый legacy nodes.json для старых плееров и веб-версии.
-    let per_node_doc = load_per_node_document(src_dir);
+    let has_v2 = src_dir.join("nodes/index.json").is_file();
+    if per_node_nodes && !has_v2 {
+        return Err(ArchiveError(
+            "per-node формат: в квесте нет nodes/index.json".into(),
+        ));
+    }
+
+    // Legacy-экспорт из v2: единый nodes.json для старых плееров и веб-версии.
+    let per_node_doc = if !per_node_nodes && has_v2 {
+        load_per_node_document(src_dir)
+    } else {
+        None
+    };
     let per_node_bytes = per_node_doc
         .as_ref()
         .and_then(|v| serde_json::to_vec(v).ok());
@@ -554,7 +579,13 @@ fn create_zip_streaming_full(
             continue;
         }
 
-        if per_node_bytes.is_some() {
+        if per_node_nodes && has_v2 {
+            // Новый формат: legacy-файлы не кладём.
+            if rel == "nodes.json" || rel == "nodes/nodes.json" || rel == "nodes.json.v1_backup" {
+                continue;
+            }
+        } else if per_node_bytes.is_some() {
+            // Legacy-сборка из v2: исходные v2-файлы не кладём.
             let v2_file = rel == "nodes.json"
                 || rel == "nodes/nodes.json"
                 || rel == "nodes.json.v1_backup"
@@ -706,6 +737,45 @@ mod tests {
         assert_eq!(doc["comments"].as_array().unwrap().len(), 1);
         assert!(!dst.join("nodes/index.json").exists());
         assert!(!dst.join("nodes/n1.json").exists());
+
+        let _ = fs::remove_dir_all(&src);
+        let _ = fs::remove_dir_all(&dst);
+        let _ = fs::remove_file(&mnd);
+    }
+
+    #[test]
+    fn export_v2_per_node_keeps_index_and_bodies() {
+        let src = temp_dir("src_v2_per_node");
+        fs::create_dir_all(src.join("nodes")).unwrap();
+        fs::write(src.join("config.json"), r#"{"id":"q4","title":"V2"}"#).unwrap();
+        fs::write(
+            src.join("nodes/index.json"),
+            r#"{"format_version":2,"nodes":[{"id":"n1","title":"A"}],"groups":[],"comments":[],"edges":[]}"#,
+        )
+        .unwrap();
+        fs::write(
+            src.join("nodes/n1.json"),
+            r#"{"id":"n1","title":"A","content":{"items":[]}}"#,
+        )
+        .unwrap();
+        fs::write(src.join("nodes.json"), r#"{"nodes":[{"id":"old"}]}"#).unwrap();
+
+        let mnd = std::env::temp_dir().join(format!("test_v2_pn_{}.mnd", std::process::id()));
+        quest_archive_export_full(
+            src.to_str().unwrap(),
+            mnd.to_str().unwrap(),
+            None,
+            true,
+            false,
+            true,
+        )
+        .unwrap();
+        let dst = temp_dir("dst_v2_per_node");
+        quest_archive_import(mnd.to_str().unwrap(), dst.to_str().unwrap()).unwrap();
+
+        assert!(dst.join("nodes/index.json").exists());
+        assert!(dst.join("nodes/n1.json").exists());
+        assert!(!dst.join("nodes.json").exists());
 
         let _ = fs::remove_dir_all(&src);
         let _ = fs::remove_dir_all(&dst);
