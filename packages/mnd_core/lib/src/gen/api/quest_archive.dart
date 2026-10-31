@@ -21,10 +21,12 @@ Future<void> questArchiveExportFull({
   String? password,
   required bool includeSaves,
   required bool isProtected,
+  required bool perNodeNodes,
 }) => RustLib.instance.api.crateApiQuestArchiveQuestArchiveExportFull(
   questDir: questDir,
   mndPath: mndPath,
   password: password,
   includeSaves: includeSaves,
   isProtected: isProtected,
+  perNodeNodes: perNodeNodes,
 );

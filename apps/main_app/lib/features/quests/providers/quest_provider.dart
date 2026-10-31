@@ -5,6 +5,7 @@ import 'package:mnd_core/models/quest_descriptor.dart';
 import 'package:mnd_core/models/saved_node.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
@@ -69,8 +70,9 @@ Quest _buildCorruptedQuest({
   return Quest(
     id: questId,
     title: recoveredTitle ?? questId,
-    description:
-        tr('Конфигурация квеста повреждена. Доступен экспорт для ручного восстановления.'),
+    description: tr(
+      'Конфигурация квеста повреждена. Доступен экспорт для ручного восстановления.',
+    ),
     isCorrupted: true,
     loadError: error?.toString(),
   );
@@ -116,9 +118,7 @@ final questsProvider = FutureProvider<List<Quest>>((ref) async {
         } else if (decoded is Map) {
           config = Map<String, dynamic>.from(decoded);
         } else {
-          throw FormatException(
-            tr('config.json не является JSON-объектом'),
-          );
+          throw FormatException(tr('config.json не является JSON-объектом'));
         }
       } catch (parseError) {
         print(
@@ -213,7 +213,9 @@ final questsProvider = FutureProvider<List<Quest>>((ref) async {
           print('  folder questId=$questId, config id=${config['id']}');
           print('  isReadOnly=${config['isReadOnly']}');
           throw Exception(
-            tr('Квест поврежден или модифицирован сторонним лицом (HMAC Error)'),
+            tr(
+              'Квест поврежден или модифицирован сторонним лицом (HMAC Error)',
+            ),
           );
         }
       }
@@ -339,6 +341,15 @@ final questProvider = FutureProvider.family<Quest?, String>((
     }
 
     await _migrateLastEditedAt(questId, config);
+
+    // Первое открытие старого квеста: переводим ноды на v2 с бэкапом.
+    // Ошибка миграции не должна блокировать открытие — остаёмся на legacy.
+    try {
+      await QuestNodesStore.ensurePerNode(questId);
+    } catch (e) {
+      print('⚠️ [Quest] per-node migration failed: $e');
+    }
+
     final updatedQuest = Quest.fromJson(config).copyWith(
       id: questId,
       lastOpened: now,
@@ -430,7 +441,7 @@ Future<void> saveImportedQuest({
       nodesData.add(nodeJson);
     }
 
-    await (await _qs()).writeJson(QuestPaths.nodesCanonical(questId), {
+    await QuestNodesStore.write(questId, {
       'nodes': nodesData,
       'groups': [],
       'comments': [],

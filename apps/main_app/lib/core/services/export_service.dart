@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
+import 'package:mnd_player/utils/quest_store.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:path/path.dart' as p;
@@ -11,8 +13,43 @@ import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_core/src/gen/api/quest_archive.dart' as rust_archive;
 import 'package:canvas_app/core/l10n/l10n.dart';
 
+/// Формат нод внутри экспортного `.mnd`.
+enum QuestArchiveNodesFormat {
+  /// `nodes/index.json` + `nodes/<id>.json` — новый плеер.
+  perNode,
+
+  /// Единый `nodes.json` / `nodes/nodes.json` — старые плееры и веб.
+  legacy,
+}
+
 class ExportService {
   static final _zipHeader = utf8.encode('MND_ZIP_');
+
+  /// Гарантирует v2-индекс перед экспортом нового формата.
+  static Future<void> _ensureV2Index(String questId) async {
+    if (await QuestNodesStore.hasPerNodeIndex(questId)) return;
+    await QuestNodesStore.ensurePerNode(questId);
+    if (await QuestNodesStore.hasPerNodeIndex(questId)) return;
+
+    // Старые файлы есть, но миграция не сработала — молча экспортировать
+    // пустой индекс нельзя, иначе в архиве не будет нод.
+    if (await FileStorage.exists(QuestPaths.nodesLegacy(questId)) ||
+        await FileStorage.exists(QuestPaths.nodesCanonical(questId))) {
+      throw Exception(
+        tr('Не удалось перевести ноды в новый формат перед экспортом'),
+      );
+    }
+
+    // Пустой квест: ensure ничего не пишет, но для нового формата нужен индекс.
+    final qs = await QuestStore.defaultInstance();
+    await qs.writeJson(QuestPaths.nodesIndex(questId), {
+      QuestNodesStore.formatVersionKey: QuestNodesStore.perNodeFormatVersion,
+      'nodes': <dynamic>[],
+      'groups': <dynamic>[],
+      'comments': <dynamic>[],
+      'edges': <dynamic>[],
+    });
+  }
 
   /// Экспорт квеста в один .txt файл для чтения и разбора
   /// Содержит: конфиг, ноды, все скрипты с заменой UUID на короткие ID
@@ -71,17 +108,24 @@ class ExportService {
     buffer.writeln('РАЗДЕЛ 2: НОДЫ (nodes.json)');
     buffer.writeln('═' * 80);
     bool hasNodes = false;
-    const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
-    for (final nodeRelPath in nodeCandidates) {
-      final filePath = p.join(questBasePath, nodeRelPath);
-      if (await FileStorage.exists(filePath)) {
-        final nodeData = await FileStorage.readJsonFile(filePath);
-        final nodesWithShortIds = _replaceUuidsWithShortIds(nodeData);
-        final encoder = JsonEncoder.withIndent('  ');
-        buffer.writeln(encoder.convert(nodesWithShortIds));
-        hasNodes = true;
-        break;
+    Map<String, dynamic>? nodesData;
+    if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+      nodesData = await QuestNodesStore.readAll(questId);
+    } else {
+      const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
+      for (final nodeRelPath in nodeCandidates) {
+        final filePath = p.join(questBasePath, nodeRelPath);
+        if (await FileStorage.exists(filePath)) {
+          nodesData = await FileStorage.readJsonFile(filePath);
+          break;
+        }
       }
+    }
+    if (nodesData != null) {
+      final nodesWithShortIds = _replaceUuidsWithShortIds(nodesData);
+      final encoder = JsonEncoder.withIndent('  ');
+      buffer.writeln(encoder.convert(nodesWithShortIds));
+      hasNodes = true;
     }
     if (!hasNodes) {
       buffer.writeln('⚠️ nodes.json не найден');
@@ -230,6 +274,7 @@ class ExportService {
     String questTitle, {
     bool includeSaves = false,
     bool isProtected = false,
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
   }) async {
     try {
       final questPath = QuestPaths.questRoot(questId);
@@ -241,6 +286,7 @@ class ExportService {
         questId,
         includeSaves: includeSaves,
         isProtected: isProtected,
+        nodesFormat: nodesFormat,
       );
       final success = await _saveMndFileFromTemp(tempFile, questTitle);
 
@@ -268,8 +314,11 @@ class ExportService {
     String questId, {
     bool includeSaves = false,
     bool isProtected = false,
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
   }) async {
-    print('⚙️ [Export] Rust streaming .mnd file to disk... isProtected=$isProtected includeSaves=$includeSaves');
+    print(
+      '⚙️ [Export] Rust streaming .mnd file to disk... isProtected=$isProtected includeSaves=$includeSaves',
+    );
     final questBasePath = QuestPaths.questRoot(questId);
     final questDir = await FileStorage.getFilePath(questBasePath);
 
@@ -280,17 +329,25 @@ class ExportService {
     // Делегируем в Rust: стрим 64КБ, Argon2+ChaCha для ENC2, plain для ZIP.
     // Rust сам ставит isReadOnly+signature для защищённых.
     try {
+      final perNode = nodesFormat == QuestArchiveNodesFormat.perNode;
+      if (perNode) await _ensureV2Index(questId);
       await rust_archive.questArchiveExportFull(
         questDir: questDir,
         mndPath: outFile.path,
         password: isProtected ? 'protected' : null,
         includeSaves: includeSaves,
         isProtected: isProtected,
+        perNodeNodes: perNode,
       );
     } catch (e) {
       // Fallback на Dart-стрим если Rust по какой-то причине не справился
       print('⚠️ [Export] Rust export failed ($e), fallback to Dart stream');
-      return await _createMndTempFileDart(questId, includeSaves: includeSaves, isProtected: isProtected);
+      return await _createMndTempFileDart(
+        questId,
+        includeSaves: includeSaves,
+        isProtected: isProtected,
+        nodesFormat: nodesFormat,
+      );
     }
 
     print(
@@ -305,6 +362,7 @@ class ExportService {
     String questId, {
     bool includeSaves = false,
     bool isProtected = false,
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
   }) async {
     print('⚙️ [Export] Dart fallback streaming .mnd file to disk...');
     final questBasePath = QuestPaths.questRoot(questId);
@@ -320,6 +378,7 @@ class ExportService {
       Future<void> addFile(String archivePath, String fsPath) async {
         await zipEncoder.addFile(File(fsPath), archivePath);
       }
+
       final configPath = p.join(questBasePath, 'config.json');
       final hasConfig = await FileStorage.exists(configPath);
       if (hasConfig) {
@@ -327,19 +386,55 @@ class ExportService {
           final configData = await FileStorage.readJsonFile(configPath);
           configData['isReadOnly'] = true;
           // подпись теперь делает Rust, тут оставляем совместимость
-          tempConfigForProtect = File(p.join(tempDir.path, 'config_prot_${questId}_$stamp.json'));
+          tempConfigForProtect = File(
+            p.join(tempDir.path, 'config_prot_${questId}_$stamp.json'),
+          );
           await tempConfigForProtect.writeAsString(jsonEncode(configData));
           await addFile('config.json', tempConfigForProtect.path);
         } else {
-          await addFile('config.json', await FileStorage.getFilePath(configPath));
+          await addFile(
+            'config.json',
+            await FileStorage.getFilePath(configPath),
+          );
         }
       }
-      const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
-      for (final nodeRelPath in nodeCandidates) {
-        final filePath = p.join(questBasePath, nodeRelPath);
-        if (await FileStorage.exists(filePath)) {
-          await addFile('nodes.json', await FileStorage.getFilePath(filePath));
-          break;
+      if (nodesFormat == QuestArchiveNodesFormat.perNode) {
+        await _ensureV2Index(questId);
+        for (final name in await FileStorage.listFiles(
+          QuestPaths.nodesDir(questId),
+          extension: '.json',
+        )) {
+          if (name == 'nodes.json') continue;
+          await addFile(
+            'nodes/$name',
+            await FileStorage.getFilePath(
+              '${QuestPaths.nodesDir(questId)}/$name',
+            ),
+          );
+        }
+      } else if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+        final nodesPath = p.join(
+          tempDir.path,
+          'v2_nodes_${questId}_$stamp.json',
+        );
+        final nodesFile = File(nodesPath);
+        await nodesFile.writeAsString(
+          jsonEncode(await QuestNodesStore.readAll(questId)),
+        );
+        await addFile('nodes.json', nodesPath);
+        await addFile('nodes/nodes.json', nodesPath);
+        await nodesFile.delete();
+      } else {
+        const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
+        for (final nodeRelPath in nodeCandidates) {
+          final filePath = p.join(questBasePath, nodeRelPath);
+          if (await FileStorage.exists(filePath)) {
+            await addFile(
+              'nodes.json',
+              await FileStorage.getFilePath(filePath),
+            );
+            break;
+          }
         }
       }
       String? previewFileName;
@@ -347,30 +442,41 @@ class ExportService {
         try {
           final configFile = File(await FileStorage.getFilePath(configPath));
           final decoded = jsonDecode(await configFile.readAsString());
-          if (decoded is Map) previewFileName = decoded['previewFileName']?.toString();
+          if (decoded is Map)
+            previewFileName = decoded['previewFileName']?.toString();
         } catch (_) {}
       }
       if (previewFileName != null && previewFileName.isNotEmpty) {
         final previewPath = p.join(questBasePath, previewFileName);
         if (await FileStorage.exists(previewPath)) {
-          await addFile(previewFileName, await FileStorage.getFilePath(previewPath));
+          await addFile(
+            previewFileName,
+            await FileStorage.getFilePath(previewPath),
+          );
         }
       } else {
         final fallbackPreviewPath = p.join(questBasePath, 'preview.png');
         if (await FileStorage.exists(fallbackPreviewPath)) {
-          await addFile('preview.png', await FileStorage.getFilePath(fallbackPreviewPath));
+          await addFile(
+            'preview.png',
+            await FileStorage.getFilePath(fallbackPreviewPath),
+          );
         }
       }
       const foldersToInclude = ['res', 'scripts', '_internal_scripts'];
       for (final folderName in foldersToInclude) {
-        final dirPath = await FileStorage.getFilePath(p.join(questBasePath, folderName));
+        final dirPath = await FileStorage.getFilePath(
+          p.join(questBasePath, folderName),
+        );
         final dir = Directory(dirPath);
         if (await dir.exists()) {
           await _addDirectoryToEncoder(zipEncoder, dir, folderName, addFile);
         }
       }
       if (includeSaves) {
-        final savesDirPath = await FileStorage.getFilePath(p.join(questBasePath, 'saves'));
+        final savesDirPath = await FileStorage.getFilePath(
+          p.join(questBasePath, 'saves'),
+        );
         final savesDir = Directory(savesDirPath);
         if (await savesDir.exists()) {
           await _addDirectoryToEncoder(zipEncoder, savesDir, 'saves', addFile);
@@ -378,8 +484,12 @@ class ExportService {
       }
       await zipEncoder.close();
     } catch (e) {
-      try { await zipEncoder.close(); } catch (_) {}
-      try { await zipFile.delete(); } catch (_) {}
+      try {
+        await zipEncoder.close();
+      } catch (_) {}
+      try {
+        await zipFile.delete();
+      } catch (_) {}
       rethrow;
     }
     final sink = outFile.openWrite();
@@ -391,9 +501,12 @@ class ExportService {
     }
     try {
       await zipFile.delete();
-      if (tempConfigForProtect != null && await tempConfigForProtect.exists()) await tempConfigForProtect.delete();
+      if (tempConfigForProtect != null && await tempConfigForProtect.exists())
+        await tempConfigForProtect.delete();
     } catch (_) {}
-    print('📦 [Export] .mnd Dart fallback. Size: ${await outFile.length()} bytes -> ${outFile.path}');
+    print(
+      '📦 [Export] .mnd Dart fallback. Size: ${await outFile.length()} bytes -> ${outFile.path}',
+    );
     return outFile;
   }
 
@@ -415,7 +528,10 @@ class ExportService {
     }
   }
 
-  static Future<Uint8List> createMndFile(String questId) async {
+  static Future<Uint8List> createMndFile(
+    String questId, {
+    QuestArchiveNodesFormat nodesFormat = QuestArchiveNodesFormat.perNode,
+  }) async {
     print('⚙️ [Export] Assembling .mnd file...');
     final archive = Archive();
     final questBasePath = QuestPaths.questRoot(questId);
@@ -432,17 +548,42 @@ class ExportService {
       throw Exception(tr('Критический файл config.json не найден.'));
     }
 
-    // nodes can live in either path depending on quest origin/version
-    const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
+    // nodes can live in either path depending on quest origin/version.
     bool hasNodes = false;
-    for (final nodeRelPath in nodeCandidates) {
-      final filePath = p.join(questBasePath, nodeRelPath);
-      if (await FileStorage.exists(filePath)) {
-        final file = File(await FileStorage.getFilePath(filePath));
+    if (nodesFormat == QuestArchiveNodesFormat.perNode) {
+      await _ensureV2Index(questId);
+      for (final name in await FileStorage.listFiles(
+        QuestPaths.nodesDir(questId),
+        extension: '.json',
+      )) {
+        if (name == 'nodes.json') continue;
+        final file = File(
+          await FileStorage.getFilePath(
+            '${QuestPaths.nodesDir(questId)}/$name',
+          ),
+        );
         final bytes = await file.readAsBytes();
-        archive.addFile(ArchiveFile('nodes.json', bytes.length, bytes));
+        archive.addFile(ArchiveFile('nodes/$name', bytes.length, bytes));
         hasNodes = true;
-        break;
+      }
+    } else if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+      final bytes = utf8.encode(
+        jsonEncode(await QuestNodesStore.readAll(questId)),
+      );
+      archive.addFile(ArchiveFile('nodes.json', bytes.length, bytes));
+      archive.addFile(ArchiveFile('nodes/nodes.json', bytes.length, bytes));
+      hasNodes = true;
+    } else {
+      const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
+      for (final nodeRelPath in nodeCandidates) {
+        final filePath = p.join(questBasePath, nodeRelPath);
+        if (await FileStorage.exists(filePath)) {
+          final file = File(await FileStorage.getFilePath(filePath));
+          final bytes = await file.readAsBytes();
+          archive.addFile(ArchiveFile('nodes.json', bytes.length, bytes));
+          hasNodes = true;
+          break;
+        }
       }
     }
     if (!hasNodes) {
@@ -532,7 +673,9 @@ class ExportService {
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         // Десктоп: не грузим весь файл в RAM (было readAsBytes 200МБ).
         // file_picker saveFile требует bytes, поэтому спрашиваем директорию и копируем стримом.
-        final dir = await FilePicker.getDirectoryPath(dialogTitle: tr('Сохранить квест'));
+        final dir = await FilePicker.getDirectoryPath(
+          dialogTitle: tr('Сохранить квест'),
+        );
         if (dir != null) {
           final dest = p.join(dir, fileName);
           final src = tempFile.openRead();
@@ -568,5 +711,4 @@ class ExportService {
       rethrow;
     }
   }
-
 }

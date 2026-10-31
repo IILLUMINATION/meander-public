@@ -1,11 +1,10 @@
-import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:canvas_app/features/editor/screens/node_selection_screen.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/block_models.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_editor_screen.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/script_block_shell.dart';
 import 'package:flutter/material.dart';
-import 'package:mnd_core/utils/quest_paths.dart';
 
 // ============================================================================
 //  GO TO NODE BLOCK — «Перейти к ноде»
@@ -63,8 +62,7 @@ class _GoToNodeBlockWidgetState extends State<GoToNodeBlockWidget> {
 
   Future<void> _updateNodeInfo(String nodeId) async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(widget.questId);
-      final nodesData = await FileStorage.readJsonFile(nodesPath);
+      final nodesData = await QuestNodesStore.read(widget.questId);
       final nodes = (nodesData['nodes'] as List<dynamic>? ?? []);
       final selectedNode = nodes.firstWhere(
         (node) => (node as Map<String, dynamic>)['id'] == nodeId,

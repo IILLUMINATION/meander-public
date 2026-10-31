@@ -2,6 +2,7 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/utils/quest_store.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 
@@ -99,7 +100,9 @@ final tagStatsProvider = FutureProvider.autoDispose.family<TagStats, TagInfo>((
   tagInfo,
 ) async {
   try {
-    final allNodes = await ref.watch(allQuestNodesProvider(tagInfo.questId).future);
+    final allNodes = await ref.watch(
+      allQuestNodesProvider(tagInfo.questId).future,
+    );
     final tagNodeIds = allNodes
         .where((node) => node.chapterId == tagInfo.tagId)
         .map((n) => n.id)
@@ -188,14 +191,13 @@ Future<bool> deleteTag(String questId, String tagId) async {
   return _qsync('nodes_$questId', () async {
     return _qsync('config_$questId', () async {
       try {
-        final nodesPath = QuestPaths.nodesLegacy(questId);
         List<dynamic> allNodesJson = [];
         List<dynamic> allGroupsJson = [];
         List<dynamic> allCommentsJson = [];
         Set<String> nodesToDeleteIds = {};
 
-        if (await (await _qs()).exists(nodesPath)) {
-          final nodesData = await _readMap(nodesPath);
+        {
+          final nodesData = await QuestNodesStore.read(questId);
           allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? []).toList();
           allGroupsJson = (nodesData['groups'] as List<dynamic>? ?? [])
               .toList();
@@ -220,7 +222,7 @@ Future<bool> deleteTag(String questId, String tagId) async {
                 (comment as Map<String, dynamic>)['chapterId'] == tagId,
           );
 
-          await (await _qs()).writeJson(nodesPath, {
+          await QuestNodesStore.write(questId, {
             'nodes': allNodesJson,
             'groups': allGroupsJson,
             'comments': allCommentsJson,
@@ -371,9 +373,8 @@ Future<bool> duplicateTag(String questId, String originalTagId) async {
         final copiedNodeMaps = <Map<String, dynamic>>[];
 
         // 4. Дублируем ноды
-        final nodesPath = QuestPaths.nodesLegacy(questId);
-        if (await (await _qs()).exists(nodesPath)) {
-          final nodesData = await _readMap(nodesPath);
+        {
+          final nodesData = await QuestNodesStore.read(questId);
           final nodesList = (nodesData['nodes'] as List<dynamic>? ?? [])
               .toList();
 
@@ -428,7 +429,7 @@ Future<bool> duplicateTag(String questId, String originalTagId) async {
             commentsList.add(newCommentMap);
           }
 
-          await (await _qs()).writeJson(nodesPath, {
+          await QuestNodesStore.write(questId, {
             'nodes': nodesList,
             'groups': groupsList,
             'comments': commentsList,
@@ -480,12 +481,7 @@ Future<bool> duplicateTag(String questId, String originalTagId) async {
 Future<int> cleanupNodesWithoutChapter(String questId) async {
   return _qsync('nodes_$questId', () async {
     try {
-      final nodesPath = QuestPaths.nodesLegacy(questId);
-      if (!await (await _qs()).exists(nodesPath)) {
-        return 0;
-      }
-
-      final nodesData = await _readMap(nodesPath);
+      final nodesData = await QuestNodesStore.read(questId);
       final nodesList = (nodesData['nodes'] as List<dynamic>? ?? []).toList();
 
       // Находим ноды без chapterId или с пустым chapterId
@@ -508,10 +504,7 @@ Future<int> cleanupNodesWithoutChapter(String questId) async {
 
       // Перезаписываем файл целиком, поэтому сохраняем все секции, а не только
       // nodes: группы и комментарии живут в том же nodes.json.
-      await (await _qs()).writeJson(nodesPath, {
-        ...nodesData,
-        'nodes': validNodes,
-      });
+      await QuestNodesStore.write(questId, {...nodesData, 'nodes': validNodes});
 
       // Также нужно удалить связи (connections) с удалёнными нодами
       final configPath = QuestPaths.config(questId);

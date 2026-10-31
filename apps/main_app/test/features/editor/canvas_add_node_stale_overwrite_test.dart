@@ -111,9 +111,9 @@ void main() {
       await _writeNodes(items: [_oldItem, _newItem]);
       container.invalidate(allQuestNodesProvider(_questId));
       expect(
-        (canvas.state.nodes.single.content?['items'] as List),
-        hasLength(1),
-        reason: 'канвас намеренно отстаёт от диска — это условие бага',
+        (canvas.state.nodes.single.content?['items'] as List? ?? const []),
+        isEmpty,
+        reason: 'канвас строится из index без тел нод',
       );
 
       await canvas.addNode(const Size(900, 700));

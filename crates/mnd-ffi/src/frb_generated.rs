@@ -2738,6 +2738,7 @@ fn wire__crate__api__quest_archive__quest_archive_export_full_impl(
             let api_password = <Option<String>>::sse_decode(&mut deserializer);
             let api_include_saves = <bool>::sse_decode(&mut deserializer);
             let api_is_protected = <bool>::sse_decode(&mut deserializer);
+            let api_per_node_nodes = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
@@ -2747,6 +2748,7 @@ fn wire__crate__api__quest_archive__quest_archive_export_full_impl(
                         api_password,
                         api_include_saves,
                         api_is_protected,
+                        api_per_node_nodes,
                     )?;
                     Ok(output_ok)
                 })())
