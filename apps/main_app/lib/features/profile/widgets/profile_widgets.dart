@@ -35,43 +35,51 @@ class ProfileStatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Плоская цифра вместо плитки с заливкой: в шапке профиля четыре плитки
+    // образовывали «клавиатуру» из одинаковых прямоугольников, и глаз не
+    // находил в ней главного.
     return Expanded(
-      child: Material(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: scheme.primary, size: 22),
-                const SizedBox(height: 6),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 14, color: scheme.onSurfaceVariant),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -154,8 +162,11 @@ class ProfileQuestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.35)),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => Navigator.push(
@@ -350,8 +361,11 @@ class ProfileAchievementCard extends StatelessWidget {
     final accent = _achievementCategoryColor(ach.category, scheme);
 
     return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.35)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -425,7 +439,9 @@ class ProfileAchievementCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    trf('Получено {p0}', {'p0': formatDayMonthYear(userAchievement.achievedAt)}),
+                    trf('Получено {p0}', {
+                      'p0': formatDayMonthYear(userAchievement.achievedAt),
+                    }),
                     style: TextStyle(
                       color: scheme.onSurfaceVariant.withOpacity(0.7),
                       fontSize: 11,
@@ -455,8 +471,11 @@ class ProfileReviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.35)),
+      ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -754,18 +773,23 @@ class ProfileNotificationTile extends ConsumerWidget {
 
     return Material(
       color: isRead
-          ? scheme.surfaceContainerHigh
-          : scheme.primaryContainer.withOpacity(0.35),
-      borderRadius: BorderRadius.circular(20),
+          ? Colors.transparent
+          : scheme.primaryContainer.withValues(alpha: 0.25),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.35)),
+      ),
       child: InkWell(
         onTap:
             onTap ??
             () {
-              if (notification.postId != null && notification.postId!.isNotEmpty) {
+              if (notification.postId != null &&
+                  notification.postId!.isNotEmpty) {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => PostLinkLoaderScreen(postId: notification.postId!),
+                    builder: (_) =>
+                        PostLinkLoaderScreen(postId: notification.postId!),
                   ),
                 );
               } else if (notification.questId != null &&
@@ -773,7 +797,8 @@ class ProfileNotificationTile extends ConsumerWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => MarketQuestLoaderScreen(questId: notification.questId!),
+                    builder: (_) =>
+                        MarketQuestLoaderScreen(questId: notification.questId!),
                   ),
                 );
               } else if (notification.actorId != null &&

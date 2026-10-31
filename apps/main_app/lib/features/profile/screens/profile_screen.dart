@@ -74,8 +74,7 @@ void _openPlayHistory(
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) =>
-          PlayHistoryScreen(userId: userId, ownerName: ownerName),
+      builder: (_) => PlayHistoryScreen(userId: userId, ownerName: ownerName),
     ),
   );
 }
@@ -83,10 +82,7 @@ void _openPlayHistory(
 /// Награды за активность. Тот же вход, что у истории игр: только у хозяина
 /// профиля есть смысл смотреть свой прогресс.
 void _openRewards(BuildContext context) {
-  Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => RewardsScreen()),
-  );
+  Navigator.push(context, MaterialPageRoute(builder: (_) => RewardsScreen()));
 }
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -181,10 +177,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 
   void _openAdminPanel() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => AdminScreen()),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => AdminScreen()));
   }
 
   void _syncTabLength() {
@@ -256,8 +249,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       // раньше её тап не делал буквально ничего.
       final hasAccount = await ensureAccount(
         context,
-        why:
-            tr('Подписки держатся на аккаунте — без него подписываться некому. Войдите на вкладке «Вход».'),
+        why: tr(
+          'Подписки держатся на аккаунте — без него подписываться некому. Войдите на вкладке «Вход».',
+        ),
       );
       // Сервер узнаёт автора по токену, поэтому если токен всё же есть
       // (локальный user_id затерялся), подписку не режем.
@@ -273,9 +267,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       ref.invalidate(userProfileProvider(widget.userId));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isFollowLoading = false);
@@ -320,7 +316,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(trf('Ошибка выхода: {p0}', {'p0': friendlyError(e)}))),
+          SnackBar(
+            content: Text(trf('Ошибка выхода: {p0}', {'p0': friendlyError(e)})),
+          ),
         );
       }
     }
@@ -377,9 +375,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         ref.invalidate(userProfileProvider(widget.userId));
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+            ),
+          );
         }
       }
     }
@@ -421,9 +421,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         ref.invalidate(userProfileProvider(widget.userId));
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+            ),
+          );
         }
       }
     }
@@ -433,7 +435,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CosmeticsScreen(userId: widget.userId, initialSlot: slot),
+        builder: (_) =>
+            CosmeticsScreen(userId: widget.userId, initialSlot: slot),
       ),
     );
   }
@@ -514,7 +517,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                                   content: Text(
                                     serverErrorMessage(
                                       e,
-                                      fallback: tr('Не удалось активировать код'),
+                                      fallback: tr(
+                                        'Не удалось активировать код',
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -580,166 +585,189 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
         return Scaffold(
           body: profileAsync.when(
-        loading: () => const _ProfileShimmer(),
-        error: (err, _) => _ErrorView(error: err, onRetry: _refresh),
-        data: (profile) {
-          if (_tabController.length != (isCurrentUser ? 6 : 5)) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _syncTabLength();
-            });
-          }
-          final isAdmin = isCurrentUser && profile.role == 'admin';
-          final backgroundDef = cosmeticById(profile.cosmetics.background);
+            loading: () => const _ProfileShimmer(),
+            error: (err, _) => _ErrorView(error: err, onRetry: _refresh),
+            data: (profile) {
+              if (_tabController.length != (isCurrentUser ? 6 : 5)) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _syncTabLength();
+                });
+              }
+              final isAdmin = isCurrentUser && profile.role == 'admin';
+              final backgroundDef = cosmeticById(profile.cosmetics.background);
 
-          final content = SafeArea(
-            top: true,
-            bottom: false,
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _onScrollNotification,
-                child: CustomScrollView(
-                  controller: _scrollController,
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: _ProfileHeader(
-                        profile: profile,
-                        isCurrentUser: isCurrentUser,
-                        isFollowLoading: _isFollowLoading,
-                        onToggleFollow: _toggleFollow,
-                        onEditName: () => _editName(profile.fullName),
-                        onEditBio: () => _editBio(profile.bio),
-                        onRedeem: _showRedeemSheet,
-                        onPublications: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => MyPublicationsScreen(),
+              final content = SafeArea(
+                top: true,
+                bottom: false,
+                child: RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _onScrollNotification,
+                    child: CustomScrollView(
+                      controller: _scrollController,
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: _ProfileHeader(
+                            profile: profile,
+                            isCurrentUser: isCurrentUser,
+                            isFollowLoading: _isFollowLoading,
+                            onToggleFollow: _toggleFollow,
+                            onEditName: () => _editName(profile.fullName),
+                            onEditBio: () => _editBio(profile.bio),
+                            onRedeem: _showRedeemSheet,
+                            onPublications: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => MyPublicationsScreen(),
+                              ),
+                            ),
+                            onShare: _shareProfile,
+                            onCopyId: _copyProfileId,
+                            onReport: () => showAppDialog(
+                              context: context,
+                              builder: (_) => ReportDialog(
+                                reportedType: 'user',
+                                reportedId: widget.userId,
+                                reportedTitle: profile.fullName,
+                              ),
+                            ),
+                            onLogout: _handleLogout,
+                            onOpenAdmin: isAdmin ? _openAdminPanel : null,
+                            onEditBanner: () =>
+                                _openCosmetics(slot: CosmeticSlot.banner),
+                            onEditSocials: () => showSocialLinksEditor(
+                              context: context,
+                              ref: ref,
+                              userId: widget.userId,
+                              current: profile.socialLinks,
+                            ),
+                            onEditAvatar: () =>
+                                pickAndUploadAvatar(context, widget.userId),
+                            compact: showSidebar,
                           ),
                         ),
-                        onShare: _shareProfile,
-                        onCopyId: _copyProfileId,
-                        onReport: () => showAppDialog(
-                          context: context,
-                          builder: (_) => ReportDialog(
-                            reportedType: 'user',
-                            reportedId: widget.userId,
-                            reportedTitle: profile.fullName,
-                          ),
-                        ),
-                        onLogout: _handleLogout,
-                        onOpenAdmin: isAdmin ? _openAdminPanel : null,
-                        onEditBanner: () => _openCosmetics(slot: CosmeticSlot.banner),
-                        onEditSocials: () => showSocialLinksEditor(
-                          context: context,
-                          ref: ref,
-                          userId: widget.userId,
-                          current: profile.socialLinks,
-                        ),
-                        onEditAvatar: () =>
-                            pickAndUploadAvatar(context, widget.userId),
-                        compact: showSidebar,
-                      ),
-                    ),
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _TabBarDelegate(
-                        TabBar(
-                          controller: _tabController,
-                          isScrollable: true,
-                          tabAlignment: TabAlignment.start,
-                          dividerColor: Colors.transparent,
-                          indicatorSize: TabBarIndicatorSize.label,
-                          labelColor: scheme.primary,
-                          unselectedLabelColor: scheme.onSurfaceVariant,
-                          labelStyle: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.5,
-                          ),
-                          unselectedLabelStyle: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13.5,
-                          ),
-                          tabs: [
-                            Tab(text: tr('Игры')),
-                            Tab(text: tr('Стена')),
-                            if (isCurrentUser)
-                              Tab(
-                                child: Consumer(
-                                  builder: (_, ref, __) {
-                                    final unread = ref
-                                        .watch(unreadNotificationsCountProvider)
-                                        .maybeWhen(
-                                          data: (c) => c,
-                                          orElse: () => 0,
-                                        );
-                                    return Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(tr('Уведомления')),
-                                        if (unread > 0) ...[
-                                          const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: scheme.error,
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: Text(
-                                              unread > 99 ? '99+' : '$unread',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    );
-                                  },
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _TabBarDelegate(
+                            TabBar(
+                              controller: _tabController,
+                              isScrollable: true,
+                              tabAlignment: TabAlignment.start,
+                              dividerColor: Colors.transparent,
+                              indicator: UnderlineTabIndicator(
+                                borderSide: BorderSide(
+                                  width: 2,
+                                  color: scheme.primary,
                                 ),
                               ),
-                            Tab(text: tr('Отзывы')),
-                            Tab(text: tr('Ачивки')),
-                            Tab(text: tr('Ассеты')),
-                          ],
+                              indicatorSize: TabBarIndicatorSize.label,
+                              labelPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              labelColor: scheme.primary,
+                              unselectedLabelColor: scheme.onSurfaceVariant,
+                              labelStyle: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13.5,
+                              ),
+                              unselectedLabelStyle: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13.5,
+                              ),
+                              tabs: [
+                                Tab(text: tr('Игры')),
+                                Tab(text: tr('Стена')),
+                                if (isCurrentUser)
+                                  Tab(
+                                    child: Consumer(
+                                      builder: (_, ref, __) {
+                                        final unread = ref
+                                            .watch(
+                                              unreadNotificationsCountProvider,
+                                            )
+                                            .maybeWhen(
+                                              data: (c) => c,
+                                              orElse: () => 0,
+                                            );
+                                        return Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(tr('Уведомления')),
+                                            if (unread > 0) ...[
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: scheme.error,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  unread > 99
+                                                      ? '99+'
+                                                      : '$unread',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                Tab(text: tr('Отзывы')),
+                                Tab(text: tr('Ачивки')),
+                                Tab(text: tr('Ассеты')),
+                              ],
+                            ),
+                            // `background` — роль, которую кастомная тема задаёт
+                            // отдельно от `surface`; на закреплённой полоске табов
+                            // она давала чужой цвет страницы.
+                            background: backgroundDef == null
+                                ? scheme.surface
+                                : scheme.surface.withValues(alpha: 0.92),
+                          ),
                         ),
-                        // `background` — роль, которую кастомная тема задаёт
-                        // отдельно от `surface`; на закреплённой полоске табов
-                        // она давала чужой цвет страницы.
-                        background: backgroundDef == null
-                            ? scheme.surface
-                            : scheme.surface.withValues(alpha: 0.92),
-                      ),
+                        // Контент активной вкладки как sliver'ы того же скролла.
+                        ..._buildTabSlivers(profile, isCurrentUser),
+                        // Нижний отступ под навбар.
+                        const SliverToBoxAdapter(child: SizedBox(height: 96)),
+                      ],
                     ),
-                    // Контент активной вкладки как sliver'ы того же скролла.
-                    ..._buildTabSlivers(profile, isCurrentUser),
-                    // Нижний отступ под навбар.
-                    const SliverToBoxAdapter(child: SizedBox(height: 96)),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          );
+              );
 
-          final body = showSidebar
-              ? _ProfileDesktopLayout(profile, isCurrentUser, isAdmin, content)
-              : content;
-          if (backgroundDef == null) return body;
-          return Stack(
-            children: [
-              Positioned.fill(child: CosmeticBackground(def: backgroundDef)),
-              body,
-            ],
-          );
-        },
-      ),
+              final body = showSidebar
+                  ? _ProfileDesktopLayout(
+                      profile,
+                      isCurrentUser,
+                      isAdmin,
+                      content,
+                    )
+                  : content;
+              if (backgroundDef == null) return body;
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: CosmeticBackground(def: backgroundDef),
+                  ),
+                  body,
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
-  });
   }
 
   /// Десктоп: центрированная колонка контента + боковая панель.
@@ -790,10 +818,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _DesktopStatsCard(
-            profile: profile,
-            isCurrentUser: isCurrentUser,
-          ),
+          _DesktopStatsCard(profile: profile, isCurrentUser: isCurrentUser),
           const SizedBox(height: 14),
           _DesktopActionsCard(
             profile: profile,
@@ -1083,8 +1108,7 @@ class _PublicationsTabSliver {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               sliver: SliverGrid(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount:
-                      constraints.crossAxisExtent >= 640 ? 3 : 2,
+                  crossAxisCount: constraints.crossAxisExtent >= 640 ? 3 : 2,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 14,
                   childAspectRatio: 0.7,
@@ -1211,7 +1235,11 @@ class _ReviewsTabSliver {
 }
 
 class _UserAssetsTabSliver {
-  static List<Widget> build(BuildContext context, WidgetRef ref, String userId) {
+  static List<Widget> build(
+    BuildContext context,
+    WidgetRef ref,
+    String userId,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     final async = ref.watch(authorAssetsProvider(userId));
     return async.when(
@@ -1249,72 +1277,145 @@ class _UserAssetsTabSliver {
                 mainAxisSpacing: 12,
                 childAspectRatio: 0.85,
               ),
-              delegate: SliverChildBuilderDelegate(
-                (_, i) {
-                  final a = assets[i];
-                  return Material(
-                    color: scheme.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(16),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: Text(a.title),
-                            content: SingleChildScrollView(
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              delegate: SliverChildBuilderDelegate((_, i) {
+                final a = assets[i];
+                return Material(
+                  color: scheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(16),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: Text(a.title),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 if (a.coverUrl != null)
-                                  ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(a.coverUrl!, errorBuilder: (_, __, ___) => const Icon(Icons.image))),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      a.coverUrl!,
+                                      errorBuilder: (_, __, ___) =>
+                                          const Icon(Icons.image),
+                                    ),
+                                  ),
                                 const SizedBox(height: 8),
-                                Text(trf('Тип: {p0}', {'p0': assetKindLabel(a.kind)})),
-                                Text(trf('Лицензия: {p0}', {'p0': licenseLabel(a.license)})),
-                                if (a.description != null && a.description!.trim().isNotEmpty) ...[const SizedBox(height: 8), Text(a.description!)],
-                              ]),
+                                Text(
+                                  trf('Тип: {p0}', {
+                                    'p0': assetKindLabel(a.kind),
+                                  }),
+                                ),
+                                Text(
+                                  trf('Лицензия: {p0}', {
+                                    'p0': licenseLabel(a.license),
+                                  }),
+                                ),
+                                if (a.description != null &&
+                                    a.description!.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(a.description!),
+                                ],
+                              ],
                             ),
-                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('Закрыть')))],
                           ),
-                        );
-                      },
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: Text(tr('Закрыть')),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Expanded(
-                          child: Builder(builder: (_) {
-                            final preview = a.coverUrl ?? ((a.kind == 'background' || a.kind == 'image') ? a.downloadUrl : null);
-                            if (preview != null) return Image.network(preview, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.widgets_rounded));
-                            IconData icon;
-                            switch (a.kind) {
-                              case 'button_preset':
-                                icon = Icons.smart_button_rounded;
-                                break;
-                              case 'background':
-                                icon = Icons.wallpaper_rounded;
-                                break;
-                              case 'sfx':
-                                icon = Icons.music_note_rounded;
-                                break;
-                              case 'font':
-                                icon = Icons.text_fields_rounded;
-                                break;
-                              default:
-                                icon = Icons.widgets_rounded;
-                            }
-                            return Container(color: scheme.secondaryContainer, child: Center(child: Icon(icon, size: 28)));
-                          }),
+                          child: Builder(
+                            builder: (_) {
+                              final preview =
+                                  a.coverUrl ??
+                                  ((a.kind == 'background' || a.kind == 'image')
+                                      ? a.downloadUrl
+                                      : null);
+                              if (preview != null)
+                                return Image.network(
+                                  preview,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      const Icon(Icons.widgets_rounded),
+                                );
+                              IconData icon;
+                              switch (a.kind) {
+                                case 'button_preset':
+                                  icon = Icons.smart_button_rounded;
+                                  break;
+                                case 'background':
+                                  icon = Icons.wallpaper_rounded;
+                                  break;
+                                case 'sfx':
+                                  icon = Icons.music_note_rounded;
+                                  break;
+                                case 'font':
+                                  icon = Icons.text_fields_rounded;
+                                  break;
+                                default:
+                                  icon = Icons.widgets_rounded;
+                              }
+                              return Container(
+                                color: scheme.secondaryContainer,
+                                child: Center(child: Icon(icon, size: 28)),
+                              );
+                            },
+                          ),
                         ),
                         Padding(
                           padding: const EdgeInsets.all(8),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                            Text(assetKindLabel(a.kind), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11)),
-                            Text(trf('Лиц: {p0}', {'p0': licenseLabel(a.license)}), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant.withOpacity(0.7))),
-                          ]),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                a.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                assetKindLabel(a.kind),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              Text(
+                                trf('Лиц: {p0}', {
+                                  'p0': licenseLabel(a.license),
+                                }),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: scheme.onSurfaceVariant.withOpacity(
+                                    0.7,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ]),
+                      ],
                     ),
-                  );
-                },
-                childCount: assets.length,
-              ),
+                  ),
+                );
+              }, childCount: assets.length),
             ),
           ),
         ];
@@ -1381,7 +1482,9 @@ class _NotificationsTabSliver {
                 icon: showArchived
                     ? Icons.inventory_2_outlined
                     : Icons.notifications_none_rounded,
-                message: showArchived ? tr('Архив пуст') : tr('Нет новых уведомлений'),
+                message: showArchived
+                    ? tr('Архив пуст')
+                    : tr('Нет новых уведомлений'),
                 hint: showArchived
                     ? tr('Здесь будут хранится прочитанные уведомления')
                     : tr('Будут отображаться лайки, отзывы, подписки'),
@@ -1408,22 +1511,31 @@ class _NotificationsTabSliver {
                     child: ProfileNotificationTile(
                       notification: n,
                       onTap: () async {
-                        if (n.type.startsWith('wall_post_') && n.payload != null && n.payload!['postId'] != null) {
+                        if (n.type.startsWith('wall_post_') &&
+                            n.payload != null &&
+                            n.payload!['postId'] != null) {
                           try {
                             final postId = n.payload!['postId'] as String;
-                            final post = await ref.read(wallNotifierProvider.notifier).getPost(postId);
+                            final post = await ref
+                                .read(wallNotifierProvider.notifier)
+                                .getPost(postId);
                             if (context.mounted) {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => PostCommentsScreen(post: post),
+                                  builder: (_) =>
+                                      PostCommentsScreen(post: post),
                                 ),
                               );
                             }
                           } catch (e) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(tr('Пост не найден или удалён'))),
+                                SnackBar(
+                                  content: Text(
+                                    tr('Пост не найден или удалён'),
+                                  ),
+                                ),
                               );
                             }
                           }
@@ -1445,8 +1557,10 @@ class _NotificationsTabSliver {
                         // Ограничение и снятый топик живут в сообществе: без
                         // адреса форума уведомление осталось бы текстом, который
                         // некуда тапнуть.
-                        if (n.type == 'forum_ban' || n.type == 'forum_topic_removed') {
-                          final slug = n.payload?['forum_slug']?.toString() ?? '';
+                        if (n.type == 'forum_ban' ||
+                            n.type == 'forum_topic_removed') {
+                          final slug =
+                              n.payload?['forum_slug']?.toString() ?? '';
                           if (slug.isNotEmpty) {
                             Navigator.push(
                               context,
@@ -1544,8 +1658,7 @@ class _ProfileHeader extends ConsumerWidget {
     // фон до появления оформления, предмет живёт только там.
     final equipped = profile.cosmetics;
     final bannerDef =
-        cosmeticById(equipped.banner) ??
-        cosmeticById(profile.bannerStyle?.id);
+        cosmeticById(equipped.banner) ?? cosmeticById(profile.bannerStyle?.id);
     final frameDef = cosmeticById(equipped.avatarFrame);
     final nameDef = cosmeticById(equipped.nameStyle);
     final effectDef = cosmeticById(equipped.effect);
@@ -1559,10 +1672,10 @@ class _ProfileHeader extends ConsumerWidget {
           // Hero-обложка с аватаром (выбранный фон или косметика из каталога)
           CosmeticBanner(
             def: bannerDef,
-            height: compact ? 208 : 160,
+            height: compact ? 184 : 140,
             // Столько же, на сколько аватар свисает вниз: иначе по камере на
             // аватаре физически нельзя попасть (см. CosmeticBanner.hitReserve).
-            hitReserve: compact ? 44 : 38,
+            hitReserve: compact ? 46 : 40,
             overlayEffect: effectDef,
             fallbackGradient: profileBannerDecoration(
               context,
@@ -1664,7 +1777,7 @@ class _ProfileHeader extends ConsumerWidget {
                     children: [
                       CosmeticAvatar(
                         frame: frameDef,
-                        radius: (compact ? 48 : 42) + 3,
+                        radius: (compact ? 44 : 40) + 3,
                         avatarUrl: profile.avatarUrl,
                       ),
                       // Свой аватар ставит только хозяин профиля — кнопка прямо
@@ -1703,7 +1816,10 @@ class _ProfileHeader extends ConsumerWidget {
                 Tooltip(
                   message: tr('Дней подряд в приложении'),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.orange.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(12),
@@ -1744,24 +1860,39 @@ class _ProfileHeader extends ConsumerWidget {
             runSpacing: 4,
             children: [
               Text(
-                trf('С нами с {p0}', {'p0': formatDayMonthYear(profile.createdAt)}),
+                trf('С нами с {p0}', {
+                  'p0': formatDayMonthYear(profile.createdAt),
+                }),
                 style: TextStyle(
                   color: scheme.onSurfaceVariant,
                   fontSize: 12.5,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              Text('•', style: TextStyle(color: scheme.outlineVariant, fontSize: 10)),
+              Text(
+                '•',
+                style: TextStyle(color: scheme.outlineVariant, fontSize: 10),
+              ),
               Text(
                 formatLastSeen(profile.lastSeenAt),
                 style: TextStyle(
-                  color: profile.lastSeenAt != null && DateTime.now().difference(profile.lastSeenAt!).inMinutes < 5
-                    ? const Color(0xFF00C853)
-                    : scheme.onSurfaceVariant,
+                  color:
+                      profile.lastSeenAt != null &&
+                          DateTime.now()
+                                  .difference(profile.lastSeenAt!)
+                                  .inMinutes <
+                              5
+                      ? const Color(0xFF00C853)
+                      : scheme.onSurfaceVariant,
                   fontSize: 12.5,
-                  fontWeight: profile.lastSeenAt != null && DateTime.now().difference(profile.lastSeenAt!).inMinutes < 5
-                    ? FontWeight.w700
-                    : FontWeight.w500,
+                  fontWeight:
+                      profile.lastSeenAt != null &&
+                          DateTime.now()
+                                  .difference(profile.lastSeenAt!)
+                                  .inMinutes <
+                              5
+                      ? FontWeight.w700
+                      : FontWeight.w500,
                 ),
               ),
             ],
@@ -1769,22 +1900,31 @@ class _ProfileHeader extends ConsumerWidget {
           const SizedBox(height: 12),
 
           // Bio
+          // Bio — абзац, а не карточка: текст читается сразу, рамка вокруг него
+          // повторяла границу блока и добавляла шум. Слева — акцентная линия у
+          // своего профиля, она же подсказка «можно править».
           if (profile.bio != null && profile.bio!.isNotEmpty)
             GestureDetector(
               onTap: isCurrentUser ? onEditBio : null,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.only(left: 12),
                 decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(16),
+                  border: Border(
+                    left: BorderSide(
+                      width: 2,
+                      color: isCurrentUser
+                          ? scheme.primary.withValues(alpha: 0.6)
+                          : scheme.outlineVariant,
+                    ),
+                  ),
                 ),
                 child: MeanderEntityText(
                   data: profile.bio!,
                   style: TextStyle(
                     color: scheme.onSurface,
                     fontSize: 13.5,
-                    height: 1.4,
+                    height: 1.45,
                   ),
                 ),
               ),
@@ -1834,7 +1974,9 @@ class _ProfileHeader extends ConsumerWidget {
                     child: isFollowing.when(
                       data: (following) => following
                           ? FilledButton.tonalIcon(
-                              onPressed: isFollowLoading ? null : onToggleFollow,
+                              onPressed: isFollowLoading
+                                  ? null
+                                  : onToggleFollow,
                               icon: isFollowLoading
                                   ? SizedBox(
                                       width: 16,
@@ -1848,7 +1990,9 @@ class _ProfileHeader extends ConsumerWidget {
                               label: Text(tr('Вы подписаны')),
                             )
                           : FilledButton.icon(
-                              onPressed: isFollowLoading ? null : onToggleFollow,
+                              onPressed: isFollowLoading
+                                  ? null
+                                  : onToggleFollow,
                               icon: isFollowLoading
                                   ? SizedBox(
                                       width: 16,
@@ -1915,40 +2059,45 @@ class _ProfileHeader extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _openRewards(context),
-                  icon: const Icon(Icons.card_giftcard_rounded, size: 18),
-                  label: Text(tr('Награды')),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onEditBanner,
-                  icon: const Icon(Icons.auto_awesome_motion_rounded, size: 18),
-                  label: Text(tr('Оформление профиля')),
-                ),
-              ),
-              if (onOpenAdmin != null) ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: onOpenAdmin,
-                    icon: const Icon(Icons.shield_rounded, size: 18),
-                    label: Text(tr('Админ-панель')),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: scheme.errorContainer,
-                      foregroundColor: scheme.onErrorContainer,
-                    ),
+              // Второстепенные действия — строка компактных кнопок, а не
+              // три полноширинные плашки друг под другом: они занимали
+              // пол-экрана и весили больше, чем контент под ними.
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _openRewards(context),
+                    icon: const Icon(Icons.card_giftcard_rounded, size: 18),
+                    label: Text(tr('Награды')),
                   ),
-                ),
-              ],
+                  OutlinedButton.icon(
+                    onPressed: onEditBanner,
+                    icon: const Icon(
+                      Icons.auto_awesome_motion_rounded,
+                      size: 18,
+                    ),
+                    label: Text(tr('Оформление профиля')),
+                  ),
+                  if (onOpenAdmin != null)
+                    FilledButton.icon(
+                      onPressed: onOpenAdmin,
+                      icon: const Icon(Icons.shield_rounded, size: 18),
+                      label: Text(tr('Админ-панель')),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: scheme.errorContainer,
+                        foregroundColor: scheme.onErrorContainer,
+                      ),
+                    ),
+                ],
+              ),
             ],
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
+            Divider(
+              height: 1,
+              color: scheme.outlineVariant.withValues(alpha: 0.45),
+            ),
+            const SizedBox(height: 2),
 
             // Stats
             Row(
@@ -1978,7 +2127,7 @@ class _ProfileHeader extends ConsumerWidget {
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 8),
             Consumer(
               builder: (context, childRef, _) {
@@ -2026,7 +2175,9 @@ class _ProfileHeader extends ConsumerWidget {
                       children: [
                         ProfileStatTile(
                           icon: Icons.timer_outlined,
-                          value: PlaytimeFormatter.format(profile.totalPlaytimeSeconds),
+                          value: PlaytimeFormatter.format(
+                            profile.totalPlaytimeSeconds,
+                          ),
                           label: tr('Время в Meander'),
                         ),
                         const SizedBox(width: 8),
@@ -2063,7 +2214,6 @@ class _ProfileHeader extends ConsumerWidget {
                 );
               },
             ),
-
           ],
         ],
       ),
@@ -2208,8 +2358,9 @@ class _BannerCircleMenuButton extends ConsumerWidget {
               if (!context.mounted) return;
               final hasAccount = await ensureAccount(
                 context,
-                why:
-                    tr('Список «не уведомлять об авторе» держится на аккаунте. Войдите на вкладке «Вход».'),
+                why: tr(
+                  'Список «не уведомлять об авторе» держится на аккаунте. Войдите на вкладке «Вход».',
+                ),
               );
               if (!hasAccount) return;
               final saved = await ref
@@ -2336,26 +2487,33 @@ class _SideSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Секция панели — заголовок-надпись и линия, без карточки: три карточки
+    // подряд в рельсе превращали профиль в стопку одинаковых прямоугольников.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
           children: [
             Text(
-              title,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              title.toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.1,
               ),
             ),
-            const SizedBox(height: 12),
-            child,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Divider(
+                height: 1,
+                color: scheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
           ],
         ),
-      ),
+        const SizedBox(height: 10),
+        child,
+      ],
     );
   }
 }
@@ -2366,10 +2524,7 @@ class _DesktopStatsCard extends ConsumerWidget {
   final UserProfile profile;
   final bool isCurrentUser;
 
-  const _DesktopStatsCard({
-    required this.profile,
-    required this.isCurrentUser,
-  });
+  const _DesktopStatsCard({required this.profile, required this.isCurrentUser});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2534,10 +2689,10 @@ class _LibraryEntryTile extends StatelessWidget {
     final questTime = PlaytimeFormatter.format(questSeconds);
     final appTime = PlaytimeFormatter.format(appSeconds);
     if (label == null) {
-      return trf(
-        'Во что и сколько играл · {p0} в квестах · {p1} в Meander',
-        {'p0': questTime, 'p1': appTime},
-      );
+      return trf('Во что и сколько играл · {p0} в квестах · {p1} в Meander', {
+        'p0': questTime,
+        'p1': appTime,
+      });
     }
     return trf(
       'Во что и сколько играл этого человека · {p0} в квестах · {p1} в Meander',
@@ -2549,51 +2704,63 @@ class _LibraryEntryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Icon(
-                Icons.sports_esports_rounded,
-                size: 22,
-                color: scheme.primary,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label == null ? tr('Игровая библиотека') : trf('Библиотека · {label}', {'label': label}),
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _subtitle(),
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: scheme.outlineVariant.withValues(alpha: 0.35),
                 ),
               ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: scheme.onSurfaceVariant,
-                size: 22,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.sports_esports_rounded,
+                    size: 20,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label == null
+                              ? tr('Игровая библиотека')
+                              : trf('Библиотека · {label}', {'label': label}),
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _subtitle(),
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: scheme.onSurfaceVariant,
+                    size: 20,
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -2628,9 +2795,9 @@ class _DesktopActionsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final isBlocked = ref.watch(dmBlocksProvider).any(
-      (p) => p.id == profile.id,
-    );
+    final isBlocked = ref
+        .watch(dmBlocksProvider)
+        .any((p) => p.id == profile.id);
     final children = <Widget>[
       if (!isCurrentUser) ...[
         if (followButton != null) followButton!,
@@ -2733,39 +2900,44 @@ class _SideStatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: scheme.primary, size: 22),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: scheme.onSurface,
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 13, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: -0.3,
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
             ),
-            const SizedBox(height: 1),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
