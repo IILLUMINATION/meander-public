@@ -163,37 +163,29 @@ class SocialLinksRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (links.isEmpty) return const SizedBox.shrink();
+    // Компактные круглые иконки вместо цветных пилюль с подписями:
+    // четыре соцсети занимали две строки и весили больше, чем имя и био.
     return Wrap(
-      spacing: 6,
-      runSpacing: 6,
+      spacing: 8,
+      runSpacing: 8,
       children: links.map((link) {
         final platform = socialPlatformById(link.platform);
-        return Material(
-          color: platform.color.withOpacity(0.14),
-          shape: const StadiumBorder(),
-          child: InkWell(
-            customBorder: const StadiumBorder(),
-            onTap: () async {
-              final uri = Uri.tryParse(link.url);
-              if (uri == null) return;
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(platform.icon, color: platform.color, size: 16),
-                  const SizedBox(width: 6),
-                  Text(
-                    platform.label,
-                    style: TextStyle(
-                      color: platform.color,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+        return Tooltip(
+          message: platform.label,
+          child: Material(
+            color: platform.color.withValues(alpha: 0.12),
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () async {
+                final uri = Uri.tryParse(link.url);
+                if (uri == null) return;
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: Icon(platform.icon, color: platform.color, size: 18),
               ),
             ),
           ),
@@ -214,11 +206,8 @@ Future<void> showSocialLinksEditor({
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (ctx) => _SocialLinksEditorSheet(
-      ref: ref,
-      userId: userId,
-      current: current,
-    ),
+    builder: (ctx) =>
+        _SocialLinksEditorSheet(ref: ref, userId: userId, current: current),
   );
 }
 
@@ -266,9 +255,9 @@ class _SocialLinksEditorSheetState extends State<_SocialLinksEditorSheet> {
                 const SizedBox(width: 10),
                 Text(
                   tr('Соцсети'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
@@ -295,15 +284,13 @@ class _SocialLinksEditorSheetState extends State<_SocialLinksEditorSheet> {
                             url: _items[i].url,
                             onPlatformChange: (newId) {
                               setState(() {
-                                _items[i] =
-                                    _items[i].copyWith(platform: newId);
+                                _items[i] = _items[i].copyWith(platform: newId);
                               });
                             },
                             onUrlChange: (newUrl) {
                               _items[i] = _items[i].copyWith(url: newUrl);
                             },
-                            onDelete: () =>
-                                setState(() => _items.removeAt(i)),
+                            onDelete: () => setState(() => _items.removeAt(i)),
                           ),
                         ),
                     ],
@@ -350,15 +337,18 @@ class _SocialLinksEditorSheetState extends State<_SocialLinksEditorSheet> {
                                       .toList(),
                                 },
                               );
-                          widget.ref
-                              .invalidate(userProfileProvider(widget.userId));
+                          widget.ref.invalidate(
+                            userProfileProvider(widget.userId),
+                          );
                           if (context.mounted) Navigator.pop(context);
                         } catch (e) {
                           if (context.mounted) {
                             setState(() => _isSaving = false);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+                                content: Text(
+                                  trf('Ошибка: {p0}', {'p0': friendlyError(e)}),
+                                ),
                               ),
                             );
                           }

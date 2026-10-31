@@ -18,11 +18,11 @@ final Map<String, String> enB4Profile = {
   ' скачал(а) ваш квест': ' downloaded your quest',
   'Архив пуст': 'Archive is empty',
   'Бан в сообществе': 'Banned in the community',
-  'Будут отображаться лайки, отзывы, подписки': 'Likes, reviews and follows will show up here',
+  'Будут отображаться лайки, отзывы, подписки':
+      'Likes, reviews and follows will show up here',
   'Весенний выпуск': 'Spring release',
-  'Добавить соцсети': 'Add social links',
-  'Здесь будут хранится прочитанные уведомления': 'Read notifications will be stored here',
-  'Изменить соцсети': 'Edit social links',
+  'Здесь будут хранится прочитанные уведомления':
+      'Read notifications will be stored here',
   'Квест отклонён модератором': 'Quest rejected by a moderator',
   'Квест прошёл модерацию': 'Quest passed moderation',
   'Ко Дню святого Валентина': 'Valentine\'s Day',

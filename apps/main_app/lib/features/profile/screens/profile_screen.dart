@@ -1899,73 +1899,25 @@ class _ProfileHeader extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
 
-          // Bio
-          // Bio — абзац, а не карточка: текст читается сразу, рамка вокруг него
-          // повторяла границу блока и добавляла шум. Слева — акцентная линия у
-          // своего профиля, она же подсказка «можно править».
+          // Bio — читаемый абзац с акцентной линией; длинный текст
+          // сворачивается, чтобы профиль не превращался в стену текста.
           if (profile.bio != null && profile.bio!.isNotEmpty)
-            GestureDetector(
-              onTap: isCurrentUser ? onEditBio : null,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.only(left: 12),
-                decoration: BoxDecoration(
-                  border: Border(
-                    left: BorderSide(
-                      width: 2,
-                      color: isCurrentUser
-                          ? scheme.primary.withValues(alpha: 0.6)
-                          : scheme.outlineVariant,
-                    ),
-                  ),
-                ),
-                child: MeanderEntityText(
-                  data: profile.bio!,
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 13.5,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-            )
-          else if (isCurrentUser)
-            OutlinedButton.icon(
-              onPressed: onEditBio,
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: Text(tr('Добавить описание')),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: scheme.outlineVariant),
-                foregroundColor: scheme.onSurface,
-              ),
+            _ProfileBio(
+              text: profile.bio!,
+              isOwn: isCurrentUser,
+              onEdit: onEditBio,
             ),
           const SizedBox(height: 12),
 
-          // Соцсети
-          if (profile.socialLinks.isNotEmpty || isCurrentUser) ...[
-            Row(
-              children: [
-                Expanded(child: SocialLinksRow(links: profile.socialLinks)),
-                if (isCurrentUser)
-                  IconButton(
-                    icon: Icon(
-                      profile.socialLinks.isEmpty
-                          ? Icons.add_link_rounded
-                          : Icons.edit_rounded,
-                      size: 18,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    tooltip: profile.socialLinks.isEmpty
-                        ? tr('Добавить соцсети')
-                        : tr('Изменить соцсети'),
-                    onPressed: onEditSocials,
-                  ),
-              ],
-            ),
+          // Соцсети — компактные круглые иконки. Редактирование живёт
+          // в «Редактировать профиль», а не отдельной кнопкой в шапке.
+          if (profile.socialLinks.isNotEmpty) ...[
+            SocialLinksRow(links: profile.socialLinks),
             const SizedBox(height: 12),
           ],
 
-          // Кнопки действий
+          // Действия: только главное. Всё остальное — в «Ещё», чтобы
+          // шапка не превращалась в панель управления.
           if (!compact) ...[
             if (!isCurrentUser)
               Row(
@@ -2024,8 +1976,6 @@ class _ProfileHeader extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  // Аккаунту команды пишут только админы из рассылки, поэтому
-                  // в его профиле кнопка была бы обещанием, которое не сдержится.
                   if (profile.id != kSystemUserId) ...[
                     const SizedBox(width: 8),
                     Expanded(
@@ -2038,60 +1988,37 @@ class _ProfileHeader extends ConsumerWidget {
                   ],
                 ],
               )
-            else ...[
+            else
               Row(
                 children: [
                   Expanded(
                     child: FilledButton.tonalIcon(
-                      onPressed: onPublications,
-                      icon: const Icon(Icons.list_alt_rounded, size: 18),
-                      label: Text(tr('Публикации')),
+                      onPressed: () => _showProfileEditorSheet(
+                        context: context,
+                        onEditName: onEditName,
+                        onEditBio: onEditBio,
+                        onEditSocials: onEditSocials,
+                        onEditAvatar: onEditAvatar,
+                        onEditBanner: onEditBanner,
+                      ),
+                      icon: const Icon(Icons.manage_accounts_rounded, size: 18),
+                      label: Text(tr('Редактировать профиль')),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onRedeem,
-                      icon: const Icon(Icons.redeem_rounded, size: 18),
-                      label: Text(tr('Промокод')),
+                  IconButton.filledTonal(
+                    tooltip: tr('Ещё'),
+                    onPressed: () => _showProfileMoreSheet(
+                      context: context,
+                      onPublications: onPublications,
+                      onRedeem: onRedeem,
+                      onOpenAdmin: onOpenAdmin,
+                      onPlayHistory: () => _openPlayHistory(context),
                     ),
+                    icon: const Icon(Icons.more_horiz_rounded, size: 20),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              // Второстепенные действия — строка компактных кнопок, а не
-              // три полноширинные плашки друг под другом: они занимали
-              // пол-экрана и весили больше, чем контент под ними.
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _openRewards(context),
-                    icon: const Icon(Icons.card_giftcard_rounded, size: 18),
-                    label: Text(tr('Награды')),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onEditBanner,
-                    icon: const Icon(
-                      Icons.auto_awesome_motion_rounded,
-                      size: 18,
-                    ),
-                    label: Text(tr('Оформление профиля')),
-                  ),
-                  if (onOpenAdmin != null)
-                    FilledButton.icon(
-                      onPressed: onOpenAdmin,
-                      icon: const Icon(Icons.shield_rounded, size: 18),
-                      label: Text(tr('Админ-панель')),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: scheme.errorContainer,
-                        foregroundColor: scheme.onErrorContainer,
-                      ),
-                    ),
-                ],
-              ),
-            ],
             const SizedBox(height: 10),
             Divider(
               height: 1,
@@ -2127,98 +2054,230 @@ class _ProfileHeader extends ConsumerWidget {
                 ),
               ],
             ),
-
-            const SizedBox(height: 8),
-            Consumer(
-              builder: (context, childRef, _) {
-                if (isCurrentUser) {
-                  final questTime = PlaytimeFormatter.serverFirst(
-                    profile.totalQuestsPlaytimeSeconds,
-                    childRef.watch(localQuestPlaytimeProvider).valueOrNull ?? 0,
-                  );
-                  final appTime = PlaytimeFormatter.serverFirst(
-                    profile.totalPlaytimeSeconds,
-                    childRef.watch(localAppPlaytimeProvider).valueOrNull ?? 0,
-                  );
-                  return Column(
-                    children: [
-                      Row(
-                        children: [
-                          ProfileStatTile(
-                            icon: Icons.timer_outlined,
-                            value: PlaytimeFormatter.format(appTime),
-                            label: tr('Время в Meander'),
-                          ),
-                          const SizedBox(width: 8),
-                          ProfileStatTile(
-                            icon: Icons.explore_outlined,
-                            value: PlaytimeFormatter.format(questTime),
-                            label: tr('Время в квестах'),
-                            onTap: () => _openPlayHistory(context),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      _LibraryEntryTile(
-                        appSeconds: appTime,
-                        questSeconds: questTime,
-                        onTap: () => _openPlayHistory(context),
-                      ),
-                    ],
-                  );
-                }
-                // For other users, use backend values
-                final otherTime = profile.totalQuestsPlaytimeSeconds;
-                return Column(
-                  children: [
-                    Row(
-                      children: [
-                        ProfileStatTile(
-                          icon: Icons.timer_outlined,
-                          value: PlaytimeFormatter.format(
-                            profile.totalPlaytimeSeconds,
-                          ),
-                          label: tr('Время в Meander'),
-                        ),
-                        const SizedBox(width: 8),
-                        ProfileStatTile(
-                          icon: Icons.explore_outlined,
-                          value: PlaytimeFormatter.format(otherTime),
-                          label: tr('Время в квестах'),
-                          // Чужая библиотека открыта так же, как своя: тап по
-                          // времени ведёт на тот же экран, только про другого
-                          // человека.
-                          onTap: () => _openPlayHistory(
-                            context,
-                            userId: profile.id,
-                            ownerName: profile.fullName,
-                          ),
-                        ),
-                      ],
-                    ),
-                    // Пустую чужую библиотеку не рекламируем.
-                    if (otherTime > 0) ...[
-                      const SizedBox(height: 8),
-                      _LibraryEntryTile(
-                        appSeconds: profile.totalPlaytimeSeconds,
-                        questSeconds: otherTime,
-                        label: profile.fullName,
-                        onTap: () => _openPlayHistory(
-                          context,
-                          userId: profile.id,
-                          ownerName: profile.fullName,
-                        ),
-                      ),
-                    ],
-                  ],
-                );
-              },
-            ),
           ],
         ],
       ),
     );
   }
+}
+
+/// Bio с акцентной линией. Длинный текст сворачивается: профиль не должен
+/// превращаться в стену текста, но и обрезать мысль без выхода нельзя.
+class _ProfileBio extends StatefulWidget {
+  final String text;
+  final bool isOwn;
+  final VoidCallback onEdit;
+
+  const _ProfileBio({
+    required this.text,
+    required this.isOwn,
+    required this.onEdit,
+  });
+
+  @override
+  State<_ProfileBio> createState() => _ProfileBioState();
+}
+
+class _ProfileBioState extends State<_ProfileBio> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final canCollapse = widget.text.length > 180;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(
+            width: 2,
+            color: widget.isOwn
+                ? scheme.primary.withValues(alpha: 0.6)
+                : scheme.outlineVariant,
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: widget.isOwn ? widget.onEdit : null,
+            child: MeanderEntityText(
+              data: widget.text,
+              maxLines: _expanded ? null : 3,
+              overflow: _expanded
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 13.5,
+                height: 1.45,
+              ),
+            ),
+          ),
+          if (canCollapse)
+            TextButton(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                alignment: Alignment.centerLeft,
+              ),
+              child: Text(
+                _expanded ? tr('Свернуть') : tr('Читать далее'),
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showProfileEditorSheet({
+  required BuildContext context,
+  required VoidCallback onEditName,
+  required VoidCallback onEditBio,
+  required VoidCallback onEditSocials,
+  required VoidCallback onEditAvatar,
+  required VoidCallback onEditBanner,
+}) {
+  return showAdaptiveSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final scheme = Theme.of(sheetContext).colorScheme;
+      void run(VoidCallback action) {
+        Navigator.pop(sheetContext);
+        action();
+      }
+
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.manage_accounts_rounded, color: scheme.primary),
+                    const SizedBox(width: 10),
+                    Text(
+                      tr('Редактировать профиль'),
+                      style: Theme.of(sheetContext).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: Text(tr('Изменить имя')),
+                onTap: () => run(onEditName),
+              ),
+              ListTile(
+                leading: const Icon(Icons.notes_rounded),
+                title: Text(tr('Описание')),
+                onTap: () => run(onEditBio),
+              ),
+              ListTile(
+                leading: const Icon(Icons.link_rounded),
+                title: Text(tr('Соцсети')),
+                onTap: () => run(onEditSocials),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text(tr('Сменить аватар')),
+                onTap: () => run(onEditAvatar),
+              ),
+              ListTile(
+                leading: const Icon(Icons.palette_outlined),
+                title: Text(tr('Оформление профиля')),
+                onTap: () => run(onEditBanner),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showProfileMoreSheet({
+  required BuildContext context,
+  required VoidCallback onPublications,
+  required VoidCallback onRedeem,
+  required VoidCallback? onOpenAdmin,
+  required VoidCallback onPlayHistory,
+}) {
+  return showAdaptiveSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final scheme = Theme.of(sheetContext).colorScheme;
+      void run(VoidCallback action) {
+        Navigator.pop(sheetContext);
+        action();
+      }
+
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text(
+                  tr('Ещё'),
+                  style: Theme.of(
+                    sheetContext,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.list_alt_rounded),
+                title: Text(tr('Публикации')),
+                onTap: () => run(onPublications),
+              ),
+              ListTile(
+                leading: const Icon(Icons.card_giftcard_rounded),
+                title: Text(tr('Награды')),
+                onTap: () => run(() => _openRewards(context)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.redeem_rounded),
+                title: Text(tr('Промокод')),
+                onTap: () => run(onRedeem),
+              ),
+              ListTile(
+                leading: const Icon(Icons.sports_esports_rounded),
+                title: Text(tr('Игровая библиотека')),
+                onTap: () => run(onPlayHistory),
+              ),
+              if (onOpenAdmin != null)
+                ListTile(
+                  leading: Icon(Icons.shield_outlined, color: scheme.error),
+                  title: Text(
+                    tr('Админ-панель'),
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  onTap: () => run(onOpenAdmin),
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 // --- Кнопки поверх обложки ---
@@ -2665,107 +2724,6 @@ Widget _questsPlaytimeFor(
       fontWeight: FontWeight.w800,
     ),
   );
-}
-
-/// Явный вход в игровую библиотеку. Тап по плитке с временем найти легко,
-/// но это неочевидно: до этого экрана вообще нельзя было дойти, не зная, что
-/// он открывается именно по часам.
-class _LibraryEntryTile extends StatelessWidget {
-  const _LibraryEntryTile({
-    required this.appSeconds,
-    required this.questSeconds,
-    required this.onTap,
-    this.label,
-  });
-
-  final int appSeconds;
-  final int questSeconds;
-  final VoidCallback onTap;
-
-  /// Чей это список, если смотрим не свой.
-  final String? label;
-
-  String _subtitle() {
-    final questTime = PlaytimeFormatter.format(questSeconds);
-    final appTime = PlaytimeFormatter.format(appSeconds);
-    if (label == null) {
-      return trf('Во что и сколько играл · {p0} в квестах · {p1} в Meander', {
-        'p0': questTime,
-        'p1': appTime,
-      });
-    }
-    return trf(
-      'Во что и сколько играл этого человека · {p0} в квестах · {p1} в Meander',
-      {'p0': questTime, 'p1': appTime},
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: scheme.outlineVariant.withValues(alpha: 0.35),
-                ),
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.sports_esports_rounded,
-                    size: 20,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          label == null
-                              ? tr('Игровая библиотека')
-                              : trf('Библиотека · {label}', {'label': label}),
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _subtitle(),
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: scheme.onSurfaceVariant,
-                    size: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// Карточка «Действия»: те же кнопки, что в шапке на телефоне.

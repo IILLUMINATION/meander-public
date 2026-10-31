@@ -98,10 +98,6 @@ final Map<String, String> enB8Social = {
   'играл только что': 'played just now',
   // features/profile/screens/profile_screen.dart
   'Включить уведомления': 'Turn notifications on',
-  'Во что и сколько играл · {p0} в квестах · {p1} в Meander':
-      'Play history · {p0} in quests · {p1} in Meander',
-  'Во что и сколько играл этого человека · {p0} в квестах · {p1} в Meander':
-      'This person\'s play history · {p0} in quests · {p1} in Meander',
   'Нет подключения к интернету': 'No internet connection',
   'Отключить уведомления': 'Turn notifications off',
   'Сервер временно недоступен': 'The server is temporarily unavailable',
