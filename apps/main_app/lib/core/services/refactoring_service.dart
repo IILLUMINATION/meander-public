@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 
 class RefactorRenameEvent {
@@ -163,26 +164,24 @@ class RefactoringService {
     }
 
     // 3. Ноды (включая вложенный контент)
-    final nodesPath = QuestPaths.nodesLegacy(questId);
-    if (await FileStorage.exists(nodesPath)) {
-      final nodesData = await FileStorage.readJsonFile(nodesPath);
-      bool nodesChanged = false;
+    final nodesData = await QuestNodesStore.read(questId);
+    bool nodesChanged = false;
 
-      final nodes = nodesData['nodes'];
-      if (nodes is List) {
-        for (final node in nodes) {
-          if (node is! Map<String, dynamic>) continue;
-          if (_processNodeContent(node, oldName, newName)) {
-            nodesChanged = true;
-          }
+    final nodes = nodesData['nodes'];
+    if (nodes is List) {
+      for (final node in nodes) {
+        if (node is! Map<String, dynamic>) continue;
+        if (_processNodeContent(node, oldName, newName)) {
+          nodesChanged = true;
         }
       }
+    }
 
-      if (nodesChanged) {
-        ops.add(QuestOp.writeJson(nodesPath, nodesData));
-        modifiedFiles++;
-        print('[Refactor] Updated nodes: $nodesPath');
-      }
+    if (nodesChanged) {
+      // Ноды пишем через единый store после транзакции: он обновит и legacy,
+      // и v2-индекс/тела, если квест уже переведён на per-node формат.
+      modifiedFiles++;
+      print('[Refactor] Updated nodes');
     }
 
     // План 020-C4.4: все изменённые файлы коммитятся ОДНОЙ транзакцией
@@ -191,6 +190,9 @@ class RefactoringService {
     if (ops.isNotEmpty) {
       final store = await QuestStore.defaultInstance();
       await store.transact(ops);
+    }
+    if (nodesChanged) {
+      await QuestNodesStore.write(questId, nodesData);
     }
 
     if (modifiedFiles > 0) {

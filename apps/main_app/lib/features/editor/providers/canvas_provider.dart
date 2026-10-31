@@ -7,6 +7,7 @@ import 'package:canvas_app/models/content_item_model.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/services/quest_content_change_bus.dart';
 import 'package:canvas_app/features/editor/providers/tag_provider.dart'; // <--- ДОБАВЛЕН ЭТОТ ИМПОРТ
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
@@ -21,14 +22,13 @@ import 'package:mnd_core/src/gen/api/canvas.dart' as rust_canvas;
 Future<QuestStore> _qs() => QuestStore.defaultInstance();
 Future<Map<String, dynamic>> _readMap(String rel) async =>
     await (await _qs()).readJson(rel) ?? <String, dynamic>{};
-Future<T> _qsync<T>(String key, Future<T> Function() action) =>
-    QuestStore.synchronized<T>(key, action);
-
 // ——— геометрия связей кэш (чтобы paint не считал lane/bezier каждый кадр)
 // Лейн (смещение параллельных связей) запекается прямо в start/end, наружу
 // отдаём только геометрии — отдельная карта lanes никому не нужна.
 Map<String, ConnectionGeometry> _computeCanvasGeometries(
-    List<Connection> connections, List<Node> nodes) {
+  List<Connection> connections,
+  List<Node> nodes,
+) {
   final grouped = <String, List<Connection>>{};
   for (final c in connections) {
     final key = '${c.fromNode.id}->${c.toNode.id}';
@@ -36,13 +36,19 @@ Map<String, ConnectionGeometry> _computeCanvasGeometries(
   }
   final lanes = <String, double>{};
   for (final entry in grouped.entries) {
-    final g = [...entry.value]..sort((a, b) {
-        int order(ConnectionKind k) => k == ConnectionKind.content ? 0 : k == ConnectionKind.script ? 1 : 2;
+    final g = [...entry.value]
+      ..sort((a, b) {
+        int order(ConnectionKind k) => k == ConnectionKind.content
+            ? 0
+            : k == ConnectionKind.script
+            ? 1
+            : 2;
         return order(a.kind).compareTo(order(b.kind));
       });
     final center = (g.length - 1) / 2;
     for (var i = 0; i < g.length; i++) {
-      lanes['${g[i].fromNode.id}->${g[i].toNode.id}|${g[i].id}|${g[i].kind.name}'] = i - center;
+      lanes['${g[i].fromNode.id}->${g[i].toNode.id}|${g[i].id}|${g[i].kind.name}'] =
+          i - center;
     }
   }
   final geoms = <String, ConnectionGeometry>{};
@@ -55,7 +61,8 @@ Map<String, ConnectionGeometry> _computeCanvasGeometries(
     var end = to.getClosestAnchor(from.position);
     var fromCenter = from.position;
     var toCenter = to.position;
-    final lane = lanes['${c.fromNode.id}->${c.toNode.id}|${c.id}|${c.kind.name}'] ?? 0;
+    final lane =
+        lanes['${c.fromNode.id}->${c.toNode.id}|${c.id}|${c.kind.name}'] ?? 0;
     if (lane != 0) {
       final d = end - start;
       final len = d.distance;
@@ -84,11 +91,22 @@ Map<String, ConnectionGeometry> _computeCanvasGeometries(
     } else {
       c2 = Offset(end.dx, end.dy - (dy > 0 ? off : -off));
     }
-    final minX = [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a < b ? a : b) - 24;
-    final maxX = [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a > b ? a : b) + 24;
-    final minY = [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a < b ? a : b) - 24;
-    final maxY = [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a > b ? a : b) + 24;
-    geoms[c.id] = ConnectionGeometry(start: start, end: end, cp1: c1, cp2: c2, bounds: Rect.fromLTRB(minX, minY, maxX, maxY), lane: lane);
+    final minX =
+        [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a < b ? a : b) - 24;
+    final maxX =
+        [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a > b ? a : b) + 24;
+    final minY =
+        [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a < b ? a : b) - 24;
+    final maxY =
+        [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a > b ? a : b) + 24;
+    geoms[c.id] = ConnectionGeometry(
+      start: start,
+      end: end,
+      cp1: c1,
+      cp2: c2,
+      bounds: Rect.fromLTRB(minX, minY, maxX, maxY),
+      lane: lane,
+    );
   }
   return geoms;
 }
@@ -169,7 +187,8 @@ class CanvasState {
       spatialHash.rebuild(newNodes);
     }
     final newConns = connections ?? this.connections;
-    final needGeom = (nodes != null || connections != null) && connectionGeometries == null;
+    final needGeom =
+        (nodes != null || connections != null) && connectionGeometries == null;
     Map<String, ConnectionGeometry>? geom = connectionGeometries;
     if (needGeom) {
       geom = _computeCanvasGeometries(newConns, newNodes);
@@ -186,7 +205,8 @@ class CanvasState {
         for (final n in newNodes) {
           if (n.label.toLowerCase().contains(q)) {
             newMatching.add(n.id);
-          } else if (n.content != null && n.content.toString().toLowerCase().contains(q)) {
+          } else if (n.content != null &&
+              n.content.toString().toLowerCase().contains(q)) {
             newMatching.add(n.id);
           }
         }
@@ -233,6 +253,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   Timer? _cameraCommitTimer;
   Timer? _hoverDebounce;
   int _syncRevision = 0;
+  void Function()? _contentChangeUnsub;
   static const double gridSize = 20.0;
 
   /// Camera decoupled from Riverpod — gestures update these notifiers
@@ -242,15 +263,22 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
 
   CanvasNotifier(this._ref, this._questId, this._tagId)
     : super(CanvasState(spatialHash: SpatialHash())) {
+    _contentChangeUnsub = QuestContentChangeBus.instance.listen(_questId, () {
+      if (!mounted) return;
+      _ref.invalidate(canvasIndexProvider(_questId));
+    });
     _loadInitialData();
     _subscribeToNodeUpdates();
   }
+
+  int get selectedNodeCount => state.selectedNodeIds.length;
 
   @override
   void dispose() {
     _autoSaveDebounce?.cancel();
     _cameraCommitTimer?.cancel();
     _hoverDebounce?.cancel();
+    _contentChangeUnsub?.call();
     cameraOffset.dispose();
     cameraScale.dispose();
     super.dispose();
@@ -272,7 +300,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   Future<void> _syncNodesFromProvider(List<SavedNode> savedNodes) async {
     final currentRevision = ++_syncRevision;
     final sw = Stopwatch()..start();
-    // We also re-read connections from config as they might have changed too
+
+    final index = await _ref.read(canvasIndexProvider(_questId).future);
     final config = await FileStorage.readJsonFile(QuestPaths.config(_questId));
     final startNodeId = config['startNodeId'] as String?;
     final connectionsJson = (config['connections'] as List<dynamic>? ?? [])
@@ -302,122 +331,73 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         )
         .toList();
 
-    final nodeMap = {for (var n in nodes) n.id: n};
+    final nodeMap = {for (final n in nodes) n.id: n};
     final connections = <Connection>[];
     final existingPairs = <String>{};
 
-    // Rust fast path: bulk content+timer+script (без Dart циклов на каждую ноду)
-    // Fallback на Dart если Rust недоступен (Web или старый .so)
-    try {
-      final nodesJson = jsonEncode(savedNodes.map((n) => n.toJson()).toList());
-      final configJson = jsonEncode(config);
-      // Скрипты пока пусто — Rust обработает content/timer, script позже через bulk
-      const scriptsJson = '{}';
-      final rustConnsJson = await rust_canvas.canvasBuildConnections(
-        nodesJson: nodesJson,
-        configJson: configJson,
-        scriptsJson: scriptsJson,
-      );
-      final rustConns = (jsonDecode(rustConnsJson) as List).cast<Map<String, dynamic>>();
-      for (final c in rustConns) {
-        final fromId = c['fromId'] as String? ?? '';
-        final toId = c['toId'] as String? ?? '';
-        final fromNode = nodeMap[fromId];
-        final toNode = nodeMap[toId];
-        if (fromNode == null || toNode == null) continue;
-        final kindStr = c['kind'] as String? ?? 'content';
-        final kind = kindStr == 'timer'
-            ? ConnectionKind.timer
-            : kindStr == 'script'
-                ? ConnectionKind.script
-                : ConnectionKind.content;
-        final isVirtual = c['isVirtual'] as bool? ?? (kind != ConnectionKind.content);
-        existingPairs.add('$fromId->$toId');
-        connections.add(Connection(
-          id: c['id'] as String? ?? const Uuid().v4(),
+    void addConnection({
+      required String? fromId,
+      required String? toId,
+      required String kind,
+      String? id,
+    }) {
+      if (fromId == null || toId == null) return;
+      final fromNode = nodeMap[fromId];
+      final toNode = nodeMap[toId];
+      if (fromNode == null || toNode == null) return;
+      final pair = '$fromId->$toId';
+      if (!existingPairs.add(pair)) return;
+      final kindEnum = kind == 'timer'
+          ? ConnectionKind.timer
+          : kind == 'script'
+          ? ConnectionKind.script
+          : ConnectionKind.content;
+      connections.add(
+        Connection(
+          id: id ?? const Uuid().v4(),
           fromNode: fromNode,
           toNode: toNode,
-          color: kind == ConnectionKind.timer
+          color: kindEnum == ConnectionKind.timer
               ? CanvasTheme.connectionTimer.withOpacity(0.7)
-              : kind == ConnectionKind.script
-                  ? CanvasTheme.connectionScript.withOpacity(0.85)
-                  : CanvasTheme.connectionContent,
-          isVirtual: isVirtual,
-          kind: kind,
-        ));
-      }
-      // Добавляем явные config.connections которые Rust не покрыл (если есть кастом id)
-      for (final connJson in connectionsJson) {
-        final fromId = connJson['fromId'] as String?;
-        final toId = connJson['toId'] as String?;
-        if (fromId == null || toId == null) continue;
-        final pair = '$fromId->$toId';
-        if (existingPairs.contains(pair)) continue;
-        final fromNode = nodeMap[fromId];
-        final toNode = nodeMap[toId];
-        if (fromNode == null || toNode == null) continue;
-        existingPairs.add(pair);
-        connections.add(Connection(
-          id: connJson['id'] as String? ?? const Uuid().v4(),
-          fromNode: fromNode,
-          toNode: toNode,
-          color: CanvasTheme.connectionContent,
-          kind: ConnectionKind.content,
-        ));
-      }
-    } catch (e) {
-      // Fallback: старый Dart путь для content/timer
-      for (final connJson in connectionsJson) {
-        final fromNode = nodeMap[connJson['fromId'] as String?];
-        final toNode = nodeMap[connJson['toId'] as String?];
-        if (fromNode != null && toNode != null) {
-          existingPairs.add('${fromNode.id}->${toNode.id}');
-          connections.add(Connection(
-            id: connJson['id'] as String? ?? const Uuid().v4(),
-            fromNode: fromNode,
-            toNode: toNode,
-            color: CanvasTheme.connectionContent,
-            kind: ConnectionKind.content,
-          ));
-        }
-      }
-      final missingPairs = <(String fromId, String toId)>[];
-      for (final fromNode in nodes) {
-        final targets = _collectContentTargetNodeIds(fromNode.content);
-        for (final toId in targets) {
-          final toNode = nodeMap[toId];
-          if (toNode == null) continue;
-          final pair = '${fromNode.id}->${toNode.id}';
-          if (existingPairs.contains(pair)) continue;
-          existingPairs.add(pair);
-          missingPairs.add((fromNode.id, toNode.id));
-          connections.add(Connection(
-            id: 'restored_${fromNode.id}_${toNode.id}',
-            fromNode: fromNode,
-            toNode: toNode,
-            color: CanvasTheme.connectionContent,
-            kind: ConnectionKind.content,
-          ));
-        }
-      }
-      if (missingPairs.isNotEmpty) {
-        unawaited(_mergeMissingConnections(missingPairs));
-      }
-      for (final node in nodes) {
-        if (node.defaultActionNodeId != null) {
-          final target = nodeMap[node.defaultActionNodeId];
-          if (target != null) {
-            connections.add(Connection(
-              id: 'timer_${node.id}_${target.id}',
-              fromNode: node,
-              toNode: target,
-              color: CanvasTheme.connectionTimer.withOpacity(0.7),
-              isVirtual: true,
-              kind: ConnectionKind.timer,
-            ));
-          }
-        }
-      }
+              : kindEnum == ConnectionKind.script
+              ? CanvasTheme.connectionScript.withOpacity(0.85)
+              : CanvasTheme.connectionContent,
+          isVirtual: kindEnum != ConnectionKind.content,
+          kind: kindEnum,
+        ),
+      );
+    }
+
+    // index.json уже содержит рёбра content/timer, посчитанные при
+    // миграции/сохранении ноды. Тела нод для отрисовки не нужны.
+    for (final raw in (index['edges'] as List<dynamic>? ?? [])) {
+      if (raw is! Map) continue;
+      addConnection(
+        fromId: raw['from']?.toString(),
+        toId: raw['to']?.toString(),
+        kind: raw['kind']?.toString() ?? 'content',
+      );
+    }
+
+    for (final connJson in connectionsJson) {
+      addConnection(
+        fromId: connJson['fromId']?.toString(),
+        toId: connJson['toId']?.toString(),
+        kind: 'content',
+        id: connJson['id']?.toString(),
+      );
+    }
+
+    // Страховка для старых индексов без timer-рёбер.
+    for (final node in nodes) {
+      final target = node.defaultActionNodeId;
+      if (target == null) continue;
+      addConnection(
+        fromId: node.id,
+        toId: target,
+        kind: 'timer',
+        id: 'timer_${node.id}_$target',
+      );
     }
 
     if (mounted) {
@@ -425,20 +405,23 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     }
     sw.stop();
     print(
-      '[Perf][Canvas] Base sync for quest=$_questId tag=$_tagId: '
+      '[Perf][Canvas] Index sync for quest=$_questId tag=$_tagId: '
       '${nodes.length} nodes, ${connections.length} connections '
       'in ${sw.elapsedMilliseconds}ms',
     );
 
-    // Script graph scan can be expensive. Load it in background so canvas opens fast.
-    unawaited(
-      _loadScriptConnectionsInBackground(
-        revision: currentRevision,
-        nodes: nodes,
-        nodeMap: nodeMap,
-        baseConnections: connections,
-      ),
-    );
+    // Скриптовые рёбра требуют тел нод; грузим их только фоном и только
+    // если у нод вообще есть ссылки на скрипты.
+    if (nodes.any((n) => (n.scriptAssetId ?? '').isNotEmpty)) {
+      unawaited(
+        _loadScriptConnectionsInBackground(
+          revision: currentRevision,
+          nodes: nodes,
+          nodeMap: nodeMap,
+          baseConnections: connections,
+        ),
+      );
+    }
   }
 
   Future<void> _loadScriptConnectionsInBackground({
@@ -470,32 +453,6 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         '(after ${sw.elapsedMilliseconds}ms)\n$stack',
       );
     }
-  }
-
-  Set<String> _collectContentTargetNodeIds(Map<String, dynamic>? content) {
-    final targets = <String>{};
-    final items = content?['items'];
-    if (items is! List) return targets;
-
-    void walk(dynamic rawItem) {
-      if (rawItem is! Map) return;
-      final item = Map<String, dynamic>.from(rawItem.cast<String, dynamic>());
-      final target = item['targetNodeId']?.toString().trim();
-      if (target != null && target.isNotEmpty && !target.startsWith('=')) {
-        targets.add(target);
-      }
-      final children = item['children'];
-      if (children is List) {
-        for (final child in children) {
-          walk(child);
-        }
-      }
-    }
-
-    for (final item in items) {
-      walk(item);
-    }
-    return targets;
   }
 
   Future<List<Connection>> _collectScriptConnections({
@@ -778,44 +735,6 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     return true;
   }
 
-  Future<void> _mergeMissingConnections(
-    List<(String fromId, String toId)> pairs,
-  ) async {
-    await _qsync('config_$_questId', () async {
-      try {
-        final configPath = QuestPaths.config(_questId);
-        final config = await _readMap(configPath);
-        final connectionsJson = (config['connections'] as List<dynamic>? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
-        final existing = connectionsJson
-            .map((c) => '${c['fromId']}->${c['toId']}')
-            .toSet();
-
-        var changed = false;
-        for (final pair in pairs) {
-          final key = '${pair.$1}->${pair.$2}';
-          if (existing.contains(key)) continue;
-          existing.add(key);
-          changed = true;
-          connectionsJson.add({
-            'id': const Uuid().v4(),
-            'fromId': pair.$1,
-            'toId': pair.$2,
-          });
-        }
-
-        if (!changed) return;
-        await (await _qs()).writeJson(configPath, {
-          ...config,
-          'connections': connectionsJson,
-        });
-      } catch (_) {}
-    });
-  }
-
-  // ---------------------------
-
   Future<void> _loadInitialData() async {
     if (mounted) state = state.copyWith(isLoading: true);
     await _loadCanvasData();
@@ -955,11 +874,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     state = state.copyWith(selectedNodeIds: selectedIds);
   }
 
-  void addGroup({
-    String? label,
-    Color color = Colors.blue,
-    Offset? position,
-  }) {
+  void addGroup({String? label, Color color = Colors.blue, Offset? position}) {
     Rect groupRect;
     if (state.selectedNodeIds.isNotEmpty) {
       double minX = double.infinity, minY = double.infinity;
@@ -1132,11 +1047,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       await saveTagCameraState(
         _questId,
         _tagId,
-        CameraState(
-          offsetX: camOff.dx,
-          offsetY: camOff.dy,
-          scale: camSc,
-        ),
+        CameraState(offsetX: camOff.dx, offsetY: camOff.dy, scale: camSc),
       );
 
       // IMPORTANT: keep latest persisted node content/title to avoid overwriting
@@ -1242,29 +1153,43 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   Future<void> tidyUpLayout() async {
     if (state.nodes.isEmpty) return;
     try {
-      final nodesJson = jsonEncode(state.nodes
-          .map((n) => {
+      final nodesJson = jsonEncode(
+        state.nodes
+            .map(
+              (n) => {
                 'id': n.id,
                 'x': n.position.dx,
                 'y': n.position.dy,
                 'w': n.size.width,
                 'h': n.size.height,
-              })
-          .toList());
-      final connsJson = jsonEncode(state.connections
-          .where((c) => !c.isVirtual)
-          .map((c) => {'fromId': c.fromNode.id, 'toId': c.toNode.id})
-          .toList());
+              },
+            )
+            .toList(),
+      );
+      final connsJson = jsonEncode(
+        state.connections
+            .where((c) => !c.isVirtual)
+            .map((c) => {'fromId': c.fromNode.id, 'toId': c.toNode.id})
+            .toList(),
+      );
       final resJson = await rust_canvas.canvasTidyLayout(
         nodesJson: nodesJson,
         connectionsJson: connsJson,
       );
       final res = (jsonDecode(resJson) as List).cast<Map<String, dynamic>>();
       final posMap = {
-        for (final e in res) e['id'] as String: Offset((e['x'] as num).toDouble(), (e['y'] as num).toDouble())
+        for (final e in res)
+          e['id'] as String: Offset(
+            (e['x'] as num).toDouble(),
+            (e['y'] as num).toDouble(),
+          ),
       };
       final newNodes = state.nodes
-          .map((n) => posMap.containsKey(n.id) ? n.copyWith(position: posMap[n.id]!) : n)
+          .map(
+            (n) => posMap.containsKey(n.id)
+                ? n.copyWith(position: posMap[n.id]!)
+                : n,
+          )
           .toList();
       state = state.copyWith(
         nodes: newNodes,
@@ -1435,7 +1360,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
           position = Offset(center.dx, center.dy - dy / 2);
           title = tr('Начало');
           text = tr(
-              'Ты стоишь на перепутье. Слева — тёмный лес, справа — мост через реку. Куда пойдёшь?');
+            'Ты стоишь на перепутье. Слева — тёмный лес, справа — мост через реку. Куда пойдёшь?',
+          );
           color = const Color(0xFF2D5A3D);
           break;
         case 1:
@@ -1633,8 +1559,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       final persistedSource = await _persistedNodesById();
       final savedNode =
           persistedSource[updatedFromNode.id]?.copyWith(
-                content: updatedFromNode.content ?? {},
-              ) ??
+            content: updatedFromNode.content ?? {},
+          ) ??
           _nodeFromCanvas(updatedFromNode);
 
       await saveNodes(_questId, [savedNode]);
@@ -1692,7 +1618,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     _scheduleCameraCommit();
   }
 
-  Offset screenToWorld(Offset p) => (p - cameraOffset.value) / cameraScale.value;
+  Offset screenToWorld(Offset p) =>
+      (p - cameraOffset.value) / cameraScale.value;
 
   void _scheduleCameraCommit() {
     _cameraCommitTimer?.cancel();
@@ -1743,7 +1670,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     final oldScale = cameraScale.value;
     final clampedScale = newScale.clamp(0.1, 5.0);
     final scaleDelta = clampedScale / oldScale;
-    final newOffset = focalPoint - (focalPoint - cameraOffset.value) * scaleDelta;
+    final newOffset =
+        focalPoint - (focalPoint - cameraOffset.value) * scaleDelta;
     cameraOffset.value = newOffset;
     cameraScale.value = clampedScale;
     _scheduleCameraCommit();

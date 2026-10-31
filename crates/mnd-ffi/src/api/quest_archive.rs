@@ -18,6 +18,7 @@ pub fn quest_archive_export_full(
     password: Option<String>,
     include_saves: bool,
     is_protected: bool,
+    per_node_nodes: bool,
 ) -> Result<(), String> {
     quest_archive::quest_archive_export_full(
         &quest_dir,
@@ -25,6 +26,7 @@ pub fn quest_archive_export_full(
         password,
         include_saves,
         is_protected,
+        per_node_nodes,
     )
     .map_err(|e| e.to_string())
 }

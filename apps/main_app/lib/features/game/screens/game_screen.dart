@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/screens/game_screen.dart' as player;
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 
 /// Игровой экран main_app — тонкая обёртка над единым [player.GameScreen].
 ///
@@ -65,7 +66,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       final st = StackTrace.current.toString().split('\n').take(10).join(' | ');
       // ignore: avoid_print
       print(
-          '🎮 [GameScreen][main_app] initState session=$_sessionKey docId=${document?.id.persistenceKey} routeCounter=$_routeSessionCounter hash=${hashCode} stack=$st');
+        '🎮 [GameScreen][main_app] initState session=$_sessionKey docId=${document?.id.persistenceKey} routeCounter=$_routeSessionCounter hash=${hashCode} stack=$st',
+      );
     }
   }
 
@@ -75,7 +77,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       final st = StackTrace.current.toString().split('\n').take(14).join('\n');
       // ignore: avoid_print
       print(
-          '🎮 [GameScreen][main_app] dispose session=$_sessionKey hash=${hashCode}\nStack:\n$st');
+        '🎮 [GameScreen][main_app] dispose session=$_sessionKey hash=${hashCode}\nStack:\n$st',
+      );
     }
     super.dispose();
   }
@@ -252,10 +255,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   Future<Set<String>> _collectDependenciesFromNodes() async {
-    final nodesPath = QuestPaths.nodesLegacy(widget.questId);
-    if (!await FileStorage.exists(nodesPath)) return {};
     try {
-      final nodesData = await FileStorage.readJsonFile(nodesPath);
+      final nodesData = await QuestNodesStore.read(widget.questId);
       final nodes = nodesData['nodes'] as List<dynamic>? ?? const [];
       final deps = <String>{};
       for (final raw in nodes) {

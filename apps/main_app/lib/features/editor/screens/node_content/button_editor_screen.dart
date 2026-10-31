@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:canvas_app/models/content_item_model.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
@@ -109,9 +110,7 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
     final id = _targetNodeId;
     if (id == null || id.isEmpty || id.startsWith('=')) return;
     try {
-      final path = QuestPaths.nodesLegacy(widget.questId);
-      if (!await FileStorage.exists(path)) return;
-      final data = await FileStorage.readJsonFile(path);
+      final data = await QuestNodesStore.read(widget.questId);
       final nodes = data['nodes'] as List<dynamic>? ?? const [];
       final found = nodes.firstWhereOrNull(
         (n) => n is Map && n['id']?.toString() == id,
@@ -259,11 +258,13 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
             : await resources.createScript();
         _resourceNames[created.fileName] = created.name;
         if (mounted) {
-          unawaited(scripts.openEditor(
-            context,
-            created.questRelativePath,
-            mode: EditorOpenMode.routeOnly,
-          ));
+          unawaited(
+            scripts.openEditor(
+              context,
+              created.questRelativePath,
+              mode: EditorOpenMode.routeOnly,
+            ),
+          );
         }
         return created.questRelativePath;
       } catch (_) {
@@ -306,8 +307,8 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
       String? questDefaultName;
       if (await qs.exists(_configPath)) {
         final config = await qs.readJson(_configPath) ?? {};
-        questDefaultName =
-            (config['defaultButtonPresetName'] as String?)?.trim();
+        questDefaultName = (config['defaultButtonPresetName'] as String?)
+            ?.trim();
         final rawConfigPresets =
             config['buttonStylePresets'] as List<dynamic>? ?? const [];
         for (final raw in rawConfigPresets) {
@@ -450,10 +451,10 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
       resources: ResourceService.forQuest(widget.questId),
     );
     await scripts.openEditor(
-        context,
-        _scriptPath!,
-        mode: EditorOpenMode.routeOnly,
-      );
+      context,
+      _scriptPath!,
+      mode: EditorOpenMode.routeOnly,
+    );
   }
 
   Future<void> _editTargetFormula() async {
@@ -732,30 +733,38 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                           textTheme,
                           value: null,
                           title: tr('Как в настройках квеста'),
-                          subtitle:
-                              tr('Использовать общий параметр переноса текста на кнопках.'),
+                          subtitle: tr(
+                            'Использовать общий параметр переноса текста на кнопках.',
+                          ),
                         ),
                         _buildWrapOption(
                           scheme,
                           textTheme,
                           value: true,
                           title: tr('Переносить'),
-                          subtitle:
-                              tr('Локально разрешить перенос текста на несколько строк.'),
+                          subtitle: tr(
+                            'Локально разрешить перенос текста на несколько строк.',
+                          ),
                         ),
                         _buildWrapOption(
                           scheme,
                           textTheme,
                           value: false,
                           title: tr('Не переносить'),
-                          subtitle: tr('Локально показывать кнопку в одну строку.'),
+                          subtitle: tr(
+                            'Локально показывать кнопку в одну строку.',
+                          ),
                         ),
                       ],
                     ),
                   ),
 
                   const SizedBox(height: 20),
-                  _buildSectionLabel(tr('Стилизация кнопки'), scheme, textTheme),
+                  _buildSectionLabel(
+                    tr('Стилизация кнопки'),
+                    scheme,
+                    textTheme,
+                  ),
                   _buildCard(
                     scheme: scheme,
                     child: Column(
@@ -799,13 +808,17 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                               child: Text(
                                 _questDefaultStyle?.presetName == null
                                     ? tr('Без кастомного стиля')
-                                    : trf('Как в квесте: {p0}', {'p0': _questDefaultStyle!.presetName}),
+                                    : trf('Как в квесте: {p0}', {
+                                        'p0': _questDefaultStyle!.presetName,
+                                      }),
                               ),
                             ),
                             ..._customButtonPresets.map(
                               (preset) => DropdownMenuItem(
                                 value: 'custom:${preset.name}',
-                                child: Text(trf('Пресет: {p0}', {'p0': preset.name})),
+                                child: Text(
+                                  trf('Пресет: {p0}', {'p0': preset.name}),
+                                ),
                               ),
                             ),
                           ],
@@ -835,14 +848,18 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
                         const SizedBox(height: 8),
                         if (_styleChoice == 'custom')
                           Text(
-                            tr('Индивидуальный стиль: изменение параметров не влияет на пресеты.'),
+                            tr(
+                              'Индивидуальный стиль: изменение параметров не влияет на пресеты.',
+                            ),
                             style: textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),
                           )
                         else
                           Text(
-                            tr('Параметры выбранного пресета можно изменить, не трогая сам пресет.'),
+                            tr(
+                              'Параметры выбранного пресета можно изменить, не трогая сам пресет.',
+                            ),
                             style: textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),

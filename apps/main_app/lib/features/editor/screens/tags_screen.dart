@@ -364,7 +364,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
         content: Text(
           affectedTags.isEmpty
               ? tr('Папка пуста.')
-              : trf('В папке {p0} глав. Что сделать с ними?', {'p0': affectedTags.length}),
+              : trf('В папке {p0} глав. Что сделать с ними?', {
+                  'p0': affectedTags.length,
+                }),
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -520,7 +522,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               title: Text(
-                existingTag == null ? tr('Новая глава') : tr('Редактировать главу'),
+                existingTag == null
+                    ? tr('Новая глава')
+                    : tr('Редактировать главу'),
                 style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
               ),
               content: SingleChildScrollView(
@@ -834,7 +838,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(trf('Глава перемещена в "{p0}"', {'p0': _folderLabel(normalized)})),
+        content: Text(
+          trf('Глава перемещена в "{p0}"', {'p0': _folderLabel(normalized)}),
+        ),
         backgroundColor: const Color(0xFF00C853),
       ),
     );
@@ -936,10 +942,14 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            trf('Шаблон главы сохранён (нод: {p0}, связей: {p1})', {'p0': chapterNodes.length, 'p1': connections.where((c) {
-              final ids = chapterNodes.map((n) => n.id).toSet();
-              return ids.contains(c['fromId']?.toString()) && ids.contains(c['toId']?.toString());
-            }).length}),
+            trf('Шаблон главы сохранён (нод: {p0}, связей: {p1})', {
+              'p0': chapterNodes.length,
+              'p1': connections.where((c) {
+                final ids = chapterNodes.map((n) => n.id).toSet();
+                return ids.contains(c['fromId']?.toString()) &&
+                    ids.contains(c['toId']?.toString());
+              }).length,
+            }),
           ),
           backgroundColor: Colors.green,
         ),
@@ -948,7 +958,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(trf('Ошибка сохранения шаблона: {p0}', {'p0': friendlyError(e)})),
+          content: Text(
+            trf('Ошибка сохранения шаблона: {p0}', {'p0': friendlyError(e)}),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -978,7 +990,10 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
             style: TextStyle(color: Colors.white),
           ),
           content: Text(
-            trf('Этот шаблон ссылается на плагины: {p0}. Если они не установлены в текущем квесте, глава может работать некорректно. Продолжить вставку?', {'p0': pluginIds.join(", ")}),
+            trf(
+              'Этот шаблон ссылается на плагины: {p0}. Если они не установлены в текущем квесте, глава может работать некорректно. Продолжить вставку?',
+              {'p0': pluginIds.join(", ")},
+            ),
             style: const TextStyle(color: Colors.white70),
           ),
           actions: [
@@ -1081,8 +1096,21 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
 
       final report = installed.assetsReport;
       final msg = report.copied > 0
-          ? trf('Глава «{p0}» вставлена (нод: {p1}, связей: {p2}, ресурсов: {p3}, пропущено: {p4})', {'p0': newTag.name, 'p1': applied.nodes.length, 'p2': applied.connections.length, 'p3': report.copied, 'p4': report.skippedExisting})
-          : trf('Глава «{p0}» вставлена (нод: {p1}, связей: {p2})', {'p0': newTag.name, 'p1': applied.nodes.length, 'p2': applied.connections.length});
+          ? trf(
+              'Глава «{p0}» вставлена (нод: {p1}, связей: {p2}, ресурсов: {p3}, пропущено: {p4})',
+              {
+                'p0': newTag.name,
+                'p1': applied.nodes.length,
+                'p2': applied.connections.length,
+                'p3': report.copied,
+                'p4': report.skippedExisting,
+              },
+            )
+          : trf('Глава «{p0}» вставлена (нод: {p1}, связей: {p2})', {
+              'p0': newTag.name,
+              'p1': applied.nodes.length,
+              'p2': applied.connections.length,
+            });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), backgroundColor: Colors.blue),
       );
@@ -1090,7 +1118,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(trf('Ошибка вставки главы: {p0}', {'p0': friendlyError(e)})),
+          content: Text(
+            trf('Ошибка вставки главы: {p0}', {'p0': friendlyError(e)}),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -1196,6 +1226,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
     // Контейнер берётся до первого await: авто-бэкап и стирание папки главы —
     // долгие операции, и экран за это время можно закрыть.
     final container = ProviderScope.containerOf(context, listen: false);
+    final statsFuture = nodeDeletionStats(widget.questId, chapterId: tag.id);
     final confirm = await showAppDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1204,9 +1235,18 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
           tr('Удалить главу?'),
           style: TextStyle(color: Colors.white),
         ),
-        content: Text(
-          tr('Внимание: Все ноды внутри этой главы будут удалены безвозвратно!\n\nРекомендуется создать резервную копию.'),
-          style: TextStyle(color: Colors.white70),
+        content: FutureBuilder<(int, int)>(
+          future: statsFuture,
+          builder: (context, snapshot) {
+            final stats = snapshot.data;
+            final dangerous =
+                stats != null && stats.$1 > 0 && stats.$2 * 2 > stats.$1;
+            return Text(
+              '${tr('Внимание: Все ноды внутри этой главы будут удалены безвозвратно!\n\nРекомендуется создать резервную копию.')}'
+              '${dangerous ? '\n\n${trf('{p0} / {p1} нод', {'p0': stats.$2, 'p1': stats.$1})}' : ''}',
+              style: TextStyle(color: Colors.white70),
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -1644,8 +1684,11 @@ class _TagCard extends StatelessWidget {
     return EditorListCard(
       icon: Icons.bookmark_rounded,
       title: tag.name,
-      subtitle:
-          trf('Папка: {p0}', {'p0': tag.folderPath == '/' ? tr('Без папки') : tag.folderPath.substring(1)}),
+      subtitle: trf('Папка: {p0}', {
+        'p0': tag.folderPath == '/'
+            ? tr('Без папки')
+            : tag.folderPath.substring(1),
+      }),
       onTap: onTap,
       onMore: onMore,
       badges: [

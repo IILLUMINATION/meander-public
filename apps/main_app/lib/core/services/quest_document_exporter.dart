@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:path/path.dart' as p;
@@ -76,10 +77,14 @@ class QuestDocumentExporter {
     final config = await FileStorage.readJsonFile('$base/config.json');
 
     Map<String, dynamic>? nodesData;
-    for (final rel in const ['nodes.json', 'nodes/nodes.json']) {
-      if (await FileStorage.exists('$base/$rel')) {
-        nodesData = await FileStorage.readJsonFile('$base/$rel');
-        break;
+    if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+      nodesData = await QuestNodesStore.readAll(questId);
+    } else {
+      for (final rel in const ['nodes.json', 'nodes/nodes.json']) {
+        if (await FileStorage.exists('$base/$rel')) {
+          nodesData = await FileStorage.readJsonFile('$base/$rel');
+          break;
+        }
       }
     }
     nodesData ??= {'nodes': []};

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:canvas_app/core/services/async_backup_service.dart';
 import 'package:canvas_app/core/services/async_import_service.dart';
 import 'package:canvas_app/core/services/export_service.dart';
+import 'package:canvas_app/features/quests/widgets/quest_export_format_dialog.dart';
 import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
 import 'package:canvas_app/core/services/quest_document_exporter.dart';
@@ -284,6 +285,8 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
 
   Future<void> _exportQuest(Quest quest, {bool includeSaves = false}) async {
     if (_isOperationInProgress) return;
+    final nodesFormat = await showQuestExportFormatDialog(context);
+    if (nodesFormat == null || !mounted) return;
     setState(() => _isOperationInProgress = true);
     try {
       // Сохраняем состояние вкладок перед экспортом.
@@ -295,6 +298,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
         quest.id,
         quest.title,
         includeSaves: includeSaves,
+        nodesFormat: nodesFormat,
       );
       if (!mounted) return;
       if (success) {

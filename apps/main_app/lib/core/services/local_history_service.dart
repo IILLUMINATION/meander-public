@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:mnd_core/utils/quest_paths.dart';
@@ -24,13 +24,8 @@ class LocalHistoryService {
   // --- DIAGNOSTIC: Read node count from disk ---
   static Future<int> _debugCountNodesOnDisk(String questId) async {
     try {
-      final file = File(
-        await FileStorage.getFilePath(QuestPaths.nodesLegacy(questId)),
-      );
-      if (!await file.exists()) return 0;
-      final content = await file.readAsString();
-      final json = jsonDecode(content);
-      return (json['nodes'] as List).length;
+      final json = await QuestNodesStore.read(questId);
+      return (json['nodes'] as List? ?? const []).length;
     } catch (e) {
       print('⚠️ [History Debug] Error reading nodes.json: $e');
       return -1;

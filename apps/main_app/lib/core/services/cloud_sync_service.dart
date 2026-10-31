@@ -840,7 +840,11 @@ class CloudSyncService {
 
         // Собираем .mnd потоково во временный файл (не держим архив в RAM —
         // критично для слабых устройств и больших квестов).
-        final mndFile = await ExportService.createMndTempFile(q.id);
+        final mndFile = await ExportService.createMndTempFile(
+          q.id,
+          // Облако/каталог ещё читают legacy-монолит.
+          nodesFormat: QuestArchiveNodesFormat.legacy,
+        );
         try {
           final size = await mndFile.length();
           if (size > quota.maxQuestBytes) {

@@ -4,6 +4,7 @@ import 'package:canvas_app/core/services/refactoring_service.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/template_asset_installer.dart';
 import 'package:canvas_app/core/utils/content_item_utils.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:mnd_player/utils/trigger_reference.dart';
 import 'package:canvas_app/models/content_item_model.dart';
@@ -369,9 +370,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
 
     final detached = TemplateApplier.detachNode(
       node.copyWith(
-        content: {
-          'items': _contentItems.map((item) => item.toJson()).toList(),
-        },
+        content: {'items': _contentItems.map((item) => item.toJson()).toList()},
       ),
     );
     final items = detached.content['items'] as List<dynamic>? ?? const [];
@@ -550,6 +549,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
         desiredTargets,
       );
       ref.invalidate(allQuestNodesProvider(widget.questId));
+      ref.invalidate(canvasIndexProvider(widget.questId));
 
       try {
         // План 020-C4.2: атомарные записи через QuestStore.
@@ -591,7 +591,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)})),
+            content: Text(
+              trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)}),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -616,8 +618,30 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       // Параллельно грузим кэш имён и ноды — раньше было последовательно.
       // Инвалидируем чтобы не показать протухший список после создания ноды.
       ref.invalidate(allQuestNodesProvider(widget.questId));
+      ref.invalidate(canvasIndexProvider(widget.questId));
       final svc = ref.read(resourceServiceProvider(widget.questId));
-      final results = await Future.wait([
+
+      Future<(SavedNode?, List<SavedNode>)> loadEditorNode() async {
+        if (await QuestNodesStore.hasPerNodeIndex(widget.questId)) {
+          final body = await QuestNodesStore.readNode(
+            widget.questId,
+            widget.nodeId,
+          );
+          final index = await QuestNodesStore.readIndex(widget.questId);
+          final summaries = [
+            for (final raw in (index['nodes'] as List<dynamic>? ?? []))
+              if (raw is Map)
+                SavedNode.fromJson(Map<String, dynamic>.from(raw)),
+          ];
+          return (body == null ? null : SavedNode.fromJson(body), summaries);
+        }
+        final all = await ref.read(
+          allQuestNodesProvider(widget.questId).future,
+        );
+        return (all.firstWhereOrNull((n) => n.id == widget.nodeId), all);
+      }
+
+      final results = await Future.wait<dynamic>([
         svc
             .loadNameCache()
             .then((_) {
@@ -626,10 +650,11 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
                 ..addAll(svc.nameCache);
             })
             .catchError((_) {}),
-        ref.read(allQuestNodesProvider(widget.questId).future),
+        loadEditorNode(),
       ]);
-      final allNodes = results[1] as List<SavedNode>;
-      final found = allNodes.firstWhereOrNull((n) => n.id == widget.nodeId);
+      final loaded = results[1] as (SavedNode?, List<SavedNode>);
+      final found = loaded.$1;
+      final allNodes = loaded.$2;
 
       if (found == null) {
         if (mounted) Navigator.pop(context);
@@ -643,8 +668,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       var node = found;
       if (node.isTemplateInstance) {
         try {
-          final resolver = await ref
-              .read(templateInstanceResolverProvider(widget.questId).future);
+          final resolver = await ref.read(
+            templateInstanceResolverProvider(widget.questId).future,
+          );
           node = resolver.resolveNode(node);
         } catch (e) {
           // Резолвер не поднялся: остаёмся на локальном содержимом, а первая
@@ -1105,7 +1131,10 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          trf('Шаблон «{p0}» сохранён. Этот элемент теперь мастер — правки будут применяться ко всем связанным.', {'p0': result.name}),
+          trf(
+            'Шаблон «{p0}» сохранён. Этот элемент теперь мастер — правки будут применяться ко всем связанным.',
+            {'p0': result.name},
+          ),
         ),
         backgroundColor: Colors.amber.shade700,
         duration: const Duration(seconds: 4),
@@ -1164,10 +1193,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       } else {
         // sourceQuestId: старый глобальный шаблон мог сохраниться без
         // файлов — при первой же правке подтягиваем их из квеста.
-        await actions.saveAsGlobal(
-          updated,
-          sourceQuestId: widget.questId,
-        );
+        await actions.saveAsGlobal(updated, sourceQuestId: widget.questId);
       }
     }
 
@@ -1196,8 +1222,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
           'backgroundVideoLoop': _videoLoop,
         if (_selectedBackgroundVideoId != null)
           'backgroundVideoMuted': _videoMuted,
-        if (_selectedBackgroundVideoId != null)
-          'backgroundVideoFit': _videoFit,
+        if (_selectedBackgroundVideoId != null) 'backgroundVideoFit': _videoFit,
         if (_backgroundBlur != null) 'backgroundBlur': _backgroundBlur,
         if (_selectedAudioId != null) 'backgroundAudioId': _selectedAudioId,
         if (_selectedAudioId != null) 'backgroundAudioVolume': _audioVolume,
@@ -1221,10 +1246,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       if (questTemplateIds.contains(templateId)) {
         await actions.saveToQuest(widget.questId, updated);
       } else {
-        await actions.saveAsGlobal(
-          updated,
-          sourceQuestId: widget.questId,
-        );
+        await actions.saveAsGlobal(updated, sourceQuestId: widget.questId);
       }
     }
   }
@@ -1258,7 +1280,11 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(trf('Не удалось закрепить шаблон в квесте: {p0}', {'p0': friendlyError(e)})),
+            content: Text(
+              trf('Не удалось закрепить шаблон в квесте: {p0}', {
+                'p0': friendlyError(e),
+              }),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -1285,7 +1311,11 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(trf('Шаблон вставлен как связанный: {p0}', {'p0': masterInQuest.name})),
+          content: Text(
+            trf('Шаблон вставлен как связанный: {p0}', {
+              'p0': masterInQuest.name,
+            }),
+          ),
           backgroundColor: Colors.cyan,
         ),
       );
@@ -1300,7 +1330,10 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
         builder: (_) => AlertDialog(
           title: Text(tr('Шаблон использует плагины')),
           content: Text(
-            trf('Этот шаблон ссылается на плагины: {p0}. Если они не установлены в текущем квесте, контент может работать некорректно. Продолжить вставку?', {'p0': pluginIds.join(", ")}),
+            trf(
+              'Этот шаблон ссылается на плагины: {p0}. Если они не установлены в текущем квесте, контент может работать некорректно. Продолжить вставку?',
+              {'p0': pluginIds.join(", ")},
+            ),
           ),
           actions: [
             TextButton(
@@ -1345,10 +1378,10 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     if (!mounted) return;
     final report = installed.assetsReport;
     final msg = report.copied > 0
-        ? trf(
-            'Шаблон вставлен (ресурсов: {p0}, пропущено: {p1})',
-            {'p0': report.copied, 'p1': report.skippedExisting},
-          )
+        ? trf('Шаблон вставлен (ресурсов: {p0}, пропущено: {p1})', {
+            'p0': report.copied,
+            'p1': report.skippedExisting,
+          })
         : tr('Шаблон вставлен');
     ScaffoldMessenger.of(
       context,
@@ -1410,7 +1443,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
-                tr('Этот элемент — источник правды для всех связанных вхождений. Редактируйте как обычно — изменения применятся ко всем linked-копиям после сохранения ноды.'),
+                tr(
+                  'Этот элемент — источник правды для всех связанных вхождений. Редактируйте как обычно — изменения применятся ко всем linked-копиям после сохранения ноды.',
+                ),
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
               ),
             ),
@@ -1430,7 +1465,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
               leading: Icon(Icons.link_off, color: scheme.tertiary),
               title: Text(tr('Снять роль мастера')),
               subtitle: Text(
-                tr('Элемент станет обычным. Шаблон останется в репозитории, но изменения этого элемента перестанут на него влиять.'),
+                tr(
+                  'Элемент станет обычным. Шаблон останется в репозитории, но изменения этого элемента перестанут на него влиять.',
+                ),
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
               ),
               onTap: () {
@@ -1451,7 +1488,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
               leading: Icon(Icons.delete_outline, color: scheme.error),
               title: Text(tr('Удалить элемент (и шаблон)')),
               subtitle: Text(
-                tr('Все linked-инстансы этого шаблона по квесту станут битыми ссылками. Действие необратимо.'),
+                tr(
+                  'Все linked-инстансы этого шаблона по квесту станут битыми ссылками. Действие необратимо.',
+                ),
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
               ),
               onTap: () async {
@@ -1478,7 +1517,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       builder: (ctx) => AlertDialog(
         title: Text(tr('Удалить шаблон полностью?')),
         content: Text(
-          tr('Все связанные вхождения этого шаблона по квесту превратятся в битые ссылки и перестанут отображать контент. Продолжить?'),
+          tr(
+            'Все связанные вхождения этого шаблона по квесту превратятся в битые ссылки и перестанут отображать контент. Продолжить?',
+          ),
         ),
         actions: [
           TextButton(
@@ -1540,7 +1581,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            tr('Шаблон удалён из репозитория. Связанные вхождения стали битыми.'),
+            tr(
+              'Шаблон удалён из репозитория. Связанные вхождения стали битыми.',
+            ),
           ),
           backgroundColor: Colors.redAccent,
         ),
@@ -1590,8 +1633,13 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
               ),
               subtitle: Text(
                 isBroken
-                    ? tr('Содержимое больше не подгружается из мастера. Можно отвязать (станет пустым snapshot) или удалить.')
-                    : trf('Изменения мастера автоматически отражаются здесь. Версия v{p0}.', {'p0': master.contentVersion}),
+                    ? tr(
+                        'Содержимое больше не подгружается из мастера. Можно отвязать (станет пустым snapshot) или удалить.',
+                      )
+                    : trf(
+                        'Изменения мастера автоматически отражаются здесь. Версия v{p0}.',
+                        {'p0': master.contentVersion},
+                      ),
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
               ),
             ),
@@ -1612,7 +1660,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
               leading: Icon(Icons.link_off, color: scheme.tertiary),
               title: Text(tr('Отвязать (превратить в копию)')),
               subtitle: Text(
-                tr('После отвязки изменения мастера на этот элемент не повлияют.'),
+                tr(
+                  'После отвязки изменения мастера на этот элемент не повлияют.',
+                ),
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
               ),
               onTap: () {
@@ -1648,7 +1698,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     if (resolver == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(tr('Резолвер шаблонов ещё не загружен, попробуйте позже')),
+          content: Text(
+            tr('Резолвер шаблонов ещё не загружен, попробуйте позже'),
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -2194,14 +2246,17 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
                                                     if (_selectedAudioId !=
                                                         null)
                                                       tr('Аудио'),
-                                                    if (_timerEnabled) tr('Таймер'),
+                                                    if (_timerEnabled)
+                                                      tr('Таймер'),
                                                     if (_nodeItemSpacing !=
                                                             null ||
                                                         _nodeImageRoundedCorners !=
                                                             null)
                                                       tr('Оформление'),
                                                   ].join(' · ').isEmpty
-                                                  ? tr('Фон, аудио, таймер, отступ')
+                                                  ? tr(
+                                                      'Фон, аудио, таймер, отступ',
+                                                    )
                                                   : [
                                                       if (_selectedBackgroundId !=
                                                               null ||

@@ -368,6 +368,168 @@ fn from_disk_missing_config_is_none() {
 }
 
 #[test]
+fn from_disk_reads_canonical_nodes_when_legacy_missing() {
+    use std::fs;
+
+    let root = std::env::temp_dir().join(format!("mnd_engine_canonical_{}", uuid_v4()));
+    fs::create_dir_all(root.join("quests/q1/nodes")).unwrap();
+    fs::write(
+        root.join("quests/q1/config.json"),
+        serde_json::json!({
+            "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes/nodes.json"),
+        serde_json::json!({
+            "nodes": [{"id": "n1", "title": "Canonical", "content": {"items": []}}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut engine = GameEngine::from_disk("q1", &root).expect("движок создан");
+    let view = engine.start_new(None).unwrap();
+    assert_eq!(view.node_id, "n1");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn from_disk_reads_per_node_index_and_bodies() {
+    use std::fs;
+
+    let root = std::env::temp_dir().join(format!("mnd_engine_v2_{}", uuid_v4()));
+    fs::create_dir_all(root.join("quests/q1/nodes")).unwrap();
+    fs::write(
+        root.join("quests/q1/config.json"),
+        serde_json::json!({
+            "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes/index.json"),
+        serde_json::json!({
+            "format_version": 2,
+            "nodes": [
+                {"id": "n1", "title": "Index title", "chapterId": "c1", "x": 1.0, "y": 2.0},
+                {"id": "n2", "title": "Second", "chapterId": "c1", "x": 3.0, "y": 4.0}
+            ],
+            "edges": [],
+            "groups": [],
+            "comments": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes/n1.json"),
+        serde_json::json!({
+            "id": "n1", "title": "Body title", "chapterId": "c1", "x": 1.0, "y": 2.0,
+            "content": {"items": [{"type": "text", "id": "t1", "text": "v2 body"}]}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes/n2.json"),
+        serde_json::json!({
+            "id": "n2", "title": "Second", "chapterId": "c1", "x": 3.0, "y": 4.0,
+            "content": {"items": []}
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut engine = GameEngine::from_disk("q1", &root).expect("движок создан");
+    let view = engine.start_new(None).unwrap();
+    assert_eq!(view.node_id, "n1");
+    assert_eq!(view.title, "Body title");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn from_disk_v2_missing_body_falls_back_to_legacy() {
+    use std::fs;
+
+    let root = std::env::temp_dir().join(format!("mnd_engine_v2_fallback_{}", uuid_v4()));
+    fs::create_dir_all(root.join("quests/q1/nodes")).unwrap();
+    fs::write(
+        root.join("quests/q1/config.json"),
+        serde_json::json!({
+            "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes/index.json"),
+        serde_json::json!({
+            "format_version": 2,
+            "nodes": [{"id": "n1", "title": "Summary", "chapterId": "c1"}],
+            "edges": [], "groups": [], "comments": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes.json"),
+        serde_json::json!({
+            "nodes": [{"id": "n1", "title": "Legacy", "content": {"items": []}}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut engine = GameEngine::from_disk("q1", &root).expect("движок создан");
+    let view = engine.start_new(None).unwrap();
+    assert_eq!(view.title, "Legacy");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn from_disk_empty_canonical_falls_back_to_legacy() {
+    use std::fs;
+
+    let root = std::env::temp_dir().join(format!("mnd_engine_empty_canonical_{}", uuid_v4()));
+    fs::create_dir_all(root.join("quests/q1/nodes")).unwrap();
+    fs::write(
+        root.join("quests/q1/config.json"),
+        serde_json::json!({
+            "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // canonical есть, но пустой — как после сбоя редактора.
+    fs::write(
+        root.join("quests/q1/nodes/nodes.json"),
+        serde_json::json!({"nodes": []}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("quests/q1/nodes.json"),
+        serde_json::json!({
+            "nodes": [{"id": "n1", "title": "Legacy", "content": {"items": []}}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut engine = GameEngine::from_disk("q1", &root).expect("движок создан");
+    let view = engine.start_new(None).unwrap();
+    assert_eq!(view.node_id, "n1");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn from_disk_call_lua_reads_lua_file_and_inline() {
     use std::fs;
 
