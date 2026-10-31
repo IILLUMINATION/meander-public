@@ -18,6 +18,7 @@ import 'package:canvas_app/features/library/screens/my_library_screen.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_session.dart';
 import 'package:canvas_app/features/quests/providers/cloud_sync_provider.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
+import 'package:canvas_app/features/quests/widgets/continue_shelf.dart';
 import 'package:canvas_app/features/quests/providers/quest_sync_provider.dart';
 import 'package:canvas_app/features/quests/screens/create_quest_screen.dart';
 import 'package:canvas_app/features/quests/screens/edit_quest_screen.dart';
@@ -38,7 +39,6 @@ import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 // ============================================================================
 
 const double _kCompactBreakpoint = 600;
-const double _kMediumBreakpoint = 900;
 
 enum LibrarySort { az, za, createdDate, openedDate }
 
@@ -273,7 +273,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка импорта: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка импорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -301,7 +304,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -335,7 +341,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _showSnack(trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка экспорта в PDF: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -365,7 +374,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _showSnack(trf('Ошибка создания копии: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка создания копии: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -388,7 +400,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
             builder: (ctx) => AlertDialog(
               title: Text(tr('Обнаружен конфликт')),
               content: Text(
-                trf('Квест «{questTitle}» уже существует. Заменить его версией из бэкапа?', {'questTitle': questTitle}),
+                trf(
+                  'Квест «{questTitle}» уже существует. Заменить его версией из бэкапа?',
+                  {'questTitle': questTitle},
+                ),
               ),
               actions: [
                 TextButton(
@@ -413,7 +428,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Ошибка восстановления: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Ошибка восстановления: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isOperationInProgress = false);
     }
@@ -607,7 +625,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                trf('Квест «{p0}» будет удалён с устройства. Это действие необратимо.', {'p0': quest.title}),
+                trf(
+                  'Квест «{p0}» будет удалён с устройства. Это действие необратимо.',
+                  {'p0': quest.title},
+                ),
                 style: const TextStyle(fontSize: 14, height: 1.4),
               ),
               const SizedBox(height: 12),
@@ -683,7 +704,10 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showSnack(trf('Не удалось удалить: {p0}', {'p0': friendlyError(e)}), error: true);
+      _showSnack(
+        trf('Не удалось удалить: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
     }
   }
 
@@ -840,6 +864,20 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
     final questsAsync = ref.watch(questsProvider);
     final syncState = ref.watch(questSyncProvider);
     final libraryStats = _LibraryStats.fromAsync(questsAsync);
+    // «Продолжить»: свежие сессии, которые ещё не потеряли смысл открывать.
+    final recentQuests = questsAsync.maybeWhen(
+      data: (list) {
+        final recent =
+            list.where((q) => q.lastOpened != null && !q.isCorrupted).toList()
+              ..sort(
+                (a, b) => (b.lastOpened ?? DateTime(1970)).compareTo(
+                  a.lastOpened ?? DateTime(1970),
+                ),
+              );
+        return recent.take(6).toList();
+      },
+      orElse: () => const <Quest>[],
+    );
 
     if (!_didInitialAutoSync &&
         syncState.settings.enabled &&
@@ -868,8 +906,11 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
             builder: (context, constraints) {
               final width = constraints.maxWidth;
               final isCompact = width < _kCompactBreakpoint;
-              final isMedium = width >= _kMediumBreakpoint;
-              final hPad = isCompact ? 16.0 : 24.0;
+              // Читаемая колонка: на широком окне полка не растягивается,
+              // иначе строки превращаются в километровые полосы.
+              final hPad = width > 820
+                  ? (width - 760) / 2
+                  : (isCompact ? 16.0 : 24.0);
 
               return RefreshIndicator(
                 onRefresh: _refreshAll,
@@ -902,6 +943,16 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
                         ),
                       ),
                     ),
+                    if (recentQuests.isNotEmpty && !_isFiltering)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: ContinueShelf(
+                            quests: recentQuests,
+                            onOpen: _openQuest,
+                          ),
+                        ),
+                      ),
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 12),
@@ -958,11 +1009,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
                       ),
                     ),
                     const SliverToBoxAdapter(child: SizedBox(height: 12)),
-                    _buildQuestsSliver(
-                      questsAsync,
-                      isMedium: isMedium,
-                      hPad: hPad,
-                    ),
+                    _buildQuestsSliver(questsAsync, hPad: hPad),
                     const SliverPadding(padding: EdgeInsets.only(bottom: 96)),
                   ],
                 ),
@@ -1076,7 +1123,6 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
 
   Widget _buildQuestsSliver(
     AsyncValue<List<Quest>> async, {
-    required bool isMedium,
     required double hPad,
   }) {
     return async.when(
@@ -1095,10 +1141,7 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
       error: (err, _) => SliverToBoxAdapter(
         child: Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 24),
-          child: _LibraryErrorState(
-            error: err,
-            onRetry: _refreshAll,
-          ),
+          child: _LibraryErrorState(error: err, onRetry: _refreshAll),
         ),
       ),
       data: (quests) {
@@ -1141,29 +1184,6 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
             return _newQuestCardKey;
           }
           return null;
-        }
-
-        if (isMedium) {
-          return SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: hPad),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 420,
-                mainAxisExtent: 110,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final quest = filtered[index];
-                return _QuestListCard(
-                  key: keyForQuest(quest),
-                  quest: quest,
-                  onTap: () => _openQuest(quest),
-                  onMoreTap: () => _showQuestOptions(quest),
-                );
-              }, childCount: filtered.length),
-            ),
-          );
         }
 
         return SliverPadding(
@@ -1289,115 +1309,58 @@ class _LibraryHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // Высота — по содержимому, но не меньше привычных 160. Раньше рамка была
-    // строго 160 px, и на телефоне шириной 360 px подзаголовок переносился на
-    // вторую строку: кнопки упираться было некуда, RenderFlex переполнялся
-    // ровно на первом экране, который видит новичок.
-    return Container(
-      constraints: const BoxConstraints(minHeight: 160),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            scheme.primaryContainer,
-            Color.alphaBlend(
-              scheme.secondaryContainer.withOpacity(0.6),
-              scheme.primaryContainer,
-            ),
-          ],
+    // Плоская шапка вместо цветной карточки-баннера: имя полки, счётчики и
+    // три действия в одну строку. Баннер занимал 160 px на первом экране и
+    // повторял то, что и так видно ниже.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr('Моя библиотека'),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.6,
+                  color: scheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _buildSubtitle(),
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
-        children: [
-          Positioned(
-            right: -22,
-            bottom: -30,
-            child: Icon(
-              Icons.auto_stories_rounded,
-              size: 180,
-              color: scheme.onPrimaryContainer.withOpacity(0.10),
-            ),
-          ),
-
-          // Заголовок и счётчики
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tr('Моя библиотека'),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _buildSubtitle(),
-                  style: TextStyle(
-                    color: scheme.onPrimaryContainer.withOpacity(0.78),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                // Не Spacer, а фиксированный зазор: колонка теперь минимальной
-                // высоты и не знает, сколько рамка доберёт до 160 px.
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    // Пилюли занимают весь остаток строки: внутри Expanded они
-                    // сжимаются на узком экране, но не делят свободное место
-                    // со Spacer — иначе неиспанная доля уезжала в конец, и
-                    // «3 точки» стояли не у правого края.
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: _HeroActionButton(
-                              icon: isSyncing
-                                  ? Icons.sync
-                                  : (syncEnabled
-                                        ? Icons.cloud_done_rounded
-                                        : Icons.cloud_off_rounded),
-                              label: tr('Синк'),
-                              onTap: onSync,
-                              onLongPress: onSyncLongPress,
-                              busy: isSyncing,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: _HeroActionButton(
-                              icon: Icons.file_upload_outlined,
-                              label: tr('Импорт'),
-                              onTap: onImport,
-                              busy: isOperationInProgress,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Симметричный правый зазор: у «Синк» слева есть врезка
-                    // от края рамки, а круглая кнопка прилипала к скруглению.
-                    Padding(
-                      padding: const EdgeInsets.only(left: 10),
-                      child: _HeroMenuButton(
-                        onBackup: onBackup,
-                        onRestore: onRestore,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        const SizedBox(width: 8),
+        _HeroActionButton(
+          icon: isSyncing
+              ? Icons.sync
+              : (syncEnabled
+                    ? Icons.cloud_done_rounded
+                    : Icons.cloud_off_rounded),
+          label: tr('Синк'),
+          onTap: onSync,
+          onLongPress: onSyncLongPress,
+          busy: isSyncing,
+        ),
+        const SizedBox(width: 6),
+        _HeroActionButton(
+          icon: Icons.file_upload_outlined,
+          label: tr('Импорт'),
+          onTap: onImport,
+          busy: isOperationInProgress,
+        ),
+        const SizedBox(width: 6),
+        _HeroMenuButton(onBackup: onBackup, onRestore: onRestore),
+      ],
     );
   }
 
@@ -1434,43 +1397,38 @@ class _HeroActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final enabled = onTap != null;
-    return Material(
-      color: scheme.onPrimaryContainer.withOpacity(enabled ? 0.12 : 0.06),
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        onLongPress: enabled ? onLongPress : null,
-        // ПК: долгий тап недоступен, меню — по правой кнопке.
-        onSecondaryTap: enabled ? onLongPress : null,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              busy
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: scheme.surfaceContainerHigh,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: enabled ? onTap : null,
+          onLongPress: enabled ? onLongPress : null,
+          // ПК: долгий тап недоступен, меню — по правой кнопке.
+          onSecondaryTap: enabled ? onLongPress : null,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: busy
                   ? SizedBox(
-                      width: 16,
-                      height: 16,
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: scheme.onPrimaryContainer,
+                        color: scheme.onSurfaceVariant,
                       ),
                     )
-                  : Icon(icon, size: 18, color: scheme.onPrimaryContainer),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: scheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
+                  : Icon(
+                      icon,
+                      size: 20,
+                      color: enabled
+                          ? scheme.onSurfaceVariant
+                          : scheme.onSurfaceVariant.withValues(alpha: 0.35),
+                    ),
+            ),
           ),
         ),
       ),
@@ -1487,11 +1445,11 @@ class _HeroMenuButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.onPrimaryContainer.withOpacity(0.12),
+      color: scheme.surfaceContainerHigh,
       shape: const CircleBorder(),
       child: PopupMenuButton<String>(
         tooltip: tr('Резервные копии'),
-        icon: Icon(Icons.more_horiz_rounded, color: scheme.onPrimaryContainer),
+        icon: Icon(Icons.more_horiz_rounded, color: scheme.onSurfaceVariant),
         onSelected: (v) {
           if (v == 'backup') onBackup?.call();
           if (v == 'restore') onRestore?.call();
@@ -1619,7 +1577,7 @@ class _LibrarySearchFieldState extends State<_LibrarySearchField> {
 //  ЧИПЫ ФИЛЬТРОВ ТИПА
 // ============================================================================
 
-class _LibraryFilterChipsRow extends StatefulWidget {
+class _LibraryFilterChipsRow extends StatelessWidget {
   final LibraryTypeFilter active;
   final ValueChanged<LibraryTypeFilter> onSelected;
   final _LibraryStats stats;
@@ -1631,80 +1589,87 @@ class _LibraryFilterChipsRow extends StatefulWidget {
   });
 
   @override
-  State<_LibraryFilterChipsRow> createState() => _LibraryFilterChipsRowState();
-}
-
-class _LibraryFilterChipsRowState extends State<_LibraryFilterChipsRow> {
-  // Галочка-подтверждение живёт мигом: появилась при тапе и через секунду
-  // сменилась обратно иконкой категории, как у фильтров Хаба.
-  LibraryTypeFilter? _flash;
-  Timer? _flashTimer;
-
-  @override
-  void dispose() {
-    _flashTimer?.cancel();
-    super.dispose();
-  }
-
-  void _select(LibraryTypeFilter f) {
-    widget.onSelected(f);
-    _flashTimer?.cancel();
-    setState(() => _flash = f);
-    _flashTimer = Timer(const Duration(milliseconds: 900), () {
-      if (mounted) setState(() => _flash = null);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final w = widget;
+    final scheme = Theme.of(context).colorScheme;
     final entries = <(LibraryTypeFilter, String, IconData, int)>[
-      (LibraryTypeFilter.all, tr('Все'), Icons.apps_rounded, w.stats.total),
+      (LibraryTypeFilter.all, tr('Все'), Icons.apps_rounded, stats.total),
       (
         LibraryTypeFilter.recent,
         tr('Недавние'),
         Icons.schedule_rounded,
-        w.stats.recent,
+        stats.recent,
       ),
       (
         LibraryTypeFilter.marketDownloaded,
         tr('Маркет'),
         Icons.shop_rounded,
-        w.stats.market,
+        stats.market,
       ),
       (
         LibraryTypeFilter.local,
         tr('Локальные'),
         Icons.devices_other_rounded,
-        w.stats.local,
+        stats.local,
       ),
-      if (w.stats.corrupted > 0)
+      if (stats.corrupted > 0)
         (
           LibraryTypeFilter.corrupted,
           tr('Повреждённые'),
           Icons.error_outline_rounded,
-          w.stats.corrupted,
+          stats.corrupted,
         ),
     ];
 
+    // Табы-подчёркивания вместо «пилюль»: строка остаётся спокойной, а
+    // активная грань читается по подчёркиванию, а не по заливке.
     return SizedBox(
-      height: 48,
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: entries.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 20),
         itemBuilder: (context, i) {
-          final e = entries[i];
-          final isSelected = w.active == e.$1;
-          return FilterChip(
-            label: Text('${e.$2} · ${e.$4}'),
-            avatar: _flash == e.$1
-                ? const Icon(Icons.check_rounded, size: 18)
-                : Icon(e.$3, size: 18),
-            selected: isSelected,
-            showCheckmark: false,
-            onSelected: (_) => _select(e.$1),
+          final entry = entries[i];
+          final selected = active == entry.$1;
+          final color = selected ? scheme.primary : scheme.onSurfaceVariant;
+          return InkWell(
+            onTap: () => onSelected(entry.$1),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: const EdgeInsets.only(top: 10, bottom: 7),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    width: 2,
+                    color: selected ? scheme.primary : Colors.transparent,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(entry.$3, size: 15, color: color),
+                  const SizedBox(width: 6),
+                  Text(
+                    entry.$2,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '${entry.$4}',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           );
         },
       ),
@@ -1774,8 +1739,12 @@ class _SyncStatusCard extends StatelessWidget {
                       ),
                       Text(
                         configured
-                            ? tr('Включите, чтобы держать квесты в актуальном виде')
-                            : tr('Подключите облако, чтобы не потерять прогресс'),
+                            ? tr(
+                                'Включите, чтобы держать квесты в актуальном виде',
+                              )
+                            : tr(
+                                'Подключите облако, чтобы не потерять прогресс',
+                              ),
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
                           fontSize: 12,
@@ -1913,6 +1882,8 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Заголовок-разделитель полки: капс-надпись, линия, счётчик-иконка.
+    // Квадратная плашка с иконкой дублировала подпись и спорила с обложками.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -1920,30 +1891,28 @@ class _SectionHeader extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(10),
+              Text(
+                title.toUpperCase(),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
                 ),
-                child: Icon(icon, color: scheme.onPrimaryContainer, size: 18),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: scheme.onSurface,
-                  ),
+                child: Divider(
+                  height: 1,
+                  color: scheme.outlineVariant.withValues(alpha: 0.45),
                 ),
               ),
+              const SizedBox(width: 10),
+              Icon(icon, size: 15, color: scheme.onSurfaceVariant),
             ],
           ),
           if (subtitle != null)
             Padding(
-              padding: const EdgeInsets.only(left: 42, top: 2),
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
                 subtitle!,
                 style: Theme.of(
@@ -2041,36 +2010,36 @@ class _QuestListCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final isCorrupted = quest.isCorrupted;
-    final cardColor = isCorrupted
-        ? scheme.errorContainer.withOpacity(0.25)
-        : scheme.surfaceContainerHigh;
-    final borderColor = isCorrupted ? scheme.error : scheme.outlineVariant;
 
+    // Полка, а не карточки: строка с обложкой-корешком и волосяной линией
+    // снизу. Карточка с рамкой и заливкой повторяла друг друга в списке и
+    // съедала высоту рамками.
     return Material(
-      color: cardColor,
-      borderRadius: BorderRadius.circular(20),
+      color: isCorrupted
+          ? scheme.errorContainer.withValues(alpha: 0.22)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isCorrupted
-                  ? borderColor.withOpacity(0.5)
-                  : borderColor.withOpacity(0.5),
+            border: Border(
+              bottom: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.35),
+              ),
             ),
           ),
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(8),
                 child: _LocalQuestPreviewImage(
                   quest: quest,
-                  width: 76,
-                  height: 76,
+                  width: 60,
+                  height: 84,
                 ),
               ),
               const SizedBox(width: 14),
@@ -2143,7 +2112,9 @@ class _QuestListCard extends ConsumerWidget {
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              trf('Открыт {p0}', {'p0': formatRelativeTime(quest.lastOpened!)}),
+                              trf('Открыт {p0}', {
+                                'p0': formatRelativeTime(quest.lastOpened!),
+                              }),
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: scheme.onSurfaceVariant,
@@ -2174,7 +2145,11 @@ class _QuestListCard extends ConsumerWidget {
                                   const SizedBox(width: 4),
                                   Flexible(
                                     child: Text(
-                                      trf('Вы играли: {p0}', {'p0': PlaytimeFormatter.format(playtime)}),
+                                      trf('Вы играли: {p0}', {
+                                        'p0': PlaytimeFormatter.format(
+                                          playtime,
+                                        ),
+                                      }),
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: scheme.onSurfaceVariant,
@@ -2503,7 +2478,9 @@ class _EmptyLibraryState extends StatelessWidget {
 /// видел на первом же экране трейс и ни одной кнопки.
 String libraryLoadErrorText(Object error) {
   if (looksLikeStorageFailure(error)) {
-    return tr('Приложение не может прочитать свою папку с квестами на устройстве. Проверьте свободное место и разрешите Meander хранить файлы.');
+    return tr(
+      'Приложение не может прочитать свою папку с квестами на устройстве. Проверьте свободное место и разрешите Meander хранить файлы.',
+    );
   }
   return friendlyError(error);
 }
