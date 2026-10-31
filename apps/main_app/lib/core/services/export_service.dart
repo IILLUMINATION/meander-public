@@ -36,7 +36,7 @@ class ExportService {
     if (await FileStorage.exists(QuestPaths.nodesLegacy(questId)) ||
         await FileStorage.exists(QuestPaths.nodesCanonical(questId))) {
       throw Exception(
-        'Не удалось перевести ноды в новый формат перед экспортом',
+        tr('Не удалось перевести ноды в новый формат перед экспортом'),
       );
     }
 

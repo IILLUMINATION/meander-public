@@ -27,4 +27,6 @@ final Map<String, String> enB2Export = {
   'Единый nodes.json. Совместим со старыми плеерами и веб-версией.':
       'Single nodes.json. Compatible with old players and the web build.',
   '{p0} / {p1} нод': '{p0} / {p1} nodes',
+  'Не удалось перевести ноды в новый формат перед экспортом':
+      'Could not convert nodes to the new format before export',
 };
