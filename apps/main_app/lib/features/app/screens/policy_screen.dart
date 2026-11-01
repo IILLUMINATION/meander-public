@@ -2,7 +2,6 @@ import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 import 'package:canvas_app/features/app/screens/onboarding_screen.dart'; // Убедись, что импорт правильный (или класс ниже)
 import 'package:canvas_app/features/app/screens/eula_screen.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -93,6 +92,12 @@ class _PolicyScreenState extends State<PolicyScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => EulaScreen()));
   }
 
+  ButtonStyle get _legalButtonStyle => TextButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 4),
+    minimumSize: const Size(0, 28),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  );
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -140,7 +145,7 @@ class _PolicyScreenState extends State<PolicyScreen> {
                 const SizedBox(height: 16),
                 Text(
                   tr(
-                    'Перед началом игры, пожалуйста, ознакомьтесь и примите нашу политику конфиденциальности. Мы заботимся о безопасности ваших данных.',
+                    'Перед началом игры, пожалуйста, ознакомьтесь и примите Условия использования (EULA) и Политику конфиденциальности. Мы заботимся о безопасности ваших данных.',
                   ),
                   style: GoogleFonts.inter(
                     fontSize: 16,
@@ -150,46 +155,52 @@ class _PolicyScreenState extends State<PolicyScreen> {
                 ),
                 const Spacer(),
 
-                // Ссылка
-                Center(
-                  child: RichText(
-                    textAlign: TextAlign.center,
-                    text: TextSpan(
+                // Согласие с обоими документами.
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      tr('Нажимая "Принять и продолжить", вы соглашаетесь с '),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         color: scheme.onSurfaceVariant,
                       ),
-                      children: [
-                        TextSpan(
-                          text: tr(
-                            'Нажимая "Принять и продолжить", вы соглашаетесь с ',
-                          ),
-                        ),
-                        TextSpan(
-                          text: tr('Политикой конфиденциальности'),
-                          style: TextStyle(
-                            color: scheme.primary,
-                            decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          recognizer: TapGestureRecognizer()
-                            ..onTap = _openPolicy,
-                        ),
-                      ],
                     ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _openEula,
-                  child: Text(
-                    tr('Условия использования (EULA)'),
-                    style: TextStyle(
-                      color: scheme.primary,
-                      decoration: TextDecoration.underline,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                    TextButton(
+                      onPressed: _openPolicy,
+                      style: _legalButtonStyle,
+                      child: Text(
+                        tr('Политикой конфиденциальности'),
+                        style: TextStyle(
+                          color: scheme.primary,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
-                  ),
+                    Text(
+                      tr('и'),
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _openEula,
+                      style: _legalButtonStyle,
+                      child: Text(
+                        tr('Условиями использования (EULA)'),
+                        style: TextStyle(
+                          color: scheme.primary,
+                          decoration: TextDecoration.underline,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
 

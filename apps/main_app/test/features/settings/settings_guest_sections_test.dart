@@ -55,7 +55,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PolicyScreen), findsOneWidget);
-    expect(find.textContaining('Условия использования (EULA)'), findsOneWidget);
+    expect(find.text('Условиями использования (EULA)'), findsOneWidget);
   });
 
   testWidgets('аккаунту по-прежнему видно профиль', (tester) async {

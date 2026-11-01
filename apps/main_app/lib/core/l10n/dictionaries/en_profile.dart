@@ -162,8 +162,8 @@ final Map<String, String> enProfile = {
   'Вы сохраняете права на свой контент, но разрешаете Meander хранить, отображать и распространять его в рамках работы приложения. Вы подтверждаете, что имеете права на загружаемые материалы.':
       'You retain rights to your content but grant Meander permission to store, display and distribute it as part of operating the app. You confirm that you have the rights to the materials you upload.',
   '5. Модерация и жалобы': '5. Moderation and reports',
-  'Мы можем удалять контент, ограничивать доступ и блокировать аккаунты за нарушения. Пользователи могут жаловаться на контент и блокировать других авторов. Жалобы рассматриваются модерацией.':
-      'We may remove content, restrict access and block accounts for violations. Users can report content and block other authors. Reports are reviewed by moderation.',
+  'Жалобы рассматриваются модерацией в течение 24 часов. При подтверждении нарушения неприемлемый контент удаляется, а опубликовавший его пользователь блокируется и теряет доступ. Пользователи также могут блокировать других авторов самостоятельно.':
+      'Reports are reviewed within 24 hours. If a violation is confirmed, the offending content is removed and the user who provided it is ejected. Users can also block other authors themselves.',
   '6. Прекращение доступа': '6. Termination',
   'Мы можем приостановить или прекратить доступ к аккаунту при нарушении этих условий или по требованию закона.':
       'We may suspend or terminate access to an account for violating these terms or when required by law.',
@@ -173,4 +173,6 @@ final Map<String, String> enProfile = {
   '8. Контакты': '8. Contact',
   'Вопросы по условиям и модерации: @meanderRu.':
       'Questions about these terms and moderation: @meanderRu.',
+  'Условиями использования (EULA)': 'Terms of Use (EULA)',
+  'и': 'and',
 };
