@@ -2015,10 +2015,13 @@ class _ReportCard extends StatelessWidget {
       ref.invalidate(adminStatsProvider);
 
       if (context.mounted) {
+        final type = report['reported_type']?.toString() ?? '';
         final msg = action == 'dismiss'
             ? tr('Жалоба отклонена')
             : blockUser
-            ? tr('Контент удалён, пользователь заблокирован')
+            ? type == 'user'
+                  ? tr('Пользователь заблокирован')
+                  : tr('Контент удалён, пользователь заблокирован')
             : tr('Контент удалён');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
@@ -2043,19 +2046,26 @@ class _ReportCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final type = report['reported_type']?.toString() ?? '';
     final typeLabel = _typeLabel(type).toLowerCase();
+    final isUser = type == 'user';
     final confirm = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
           withBan
-              ? tr('Удалить и заблокировать?')
+              ? isUser
+                    ? tr('Заблокировать пользователя?')
+                    : tr('Удалить и заблокировать?')
               : trf('Удалить {type}?', {'type': typeLabel}),
         ),
         content: Text(
           withBan
-              ? tr(
-                  'Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.',
-                )
+              ? isUser
+                    ? tr(
+                        'Пользователь будет заблокирован. Это действие нельзя отменить.',
+                      )
+                    : tr(
+                        'Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.',
+                      )
               : type == 'message'
               ? tr(
                   'Сообщение будет скрыто из переписки без возможности восстановления.',
@@ -2073,7 +2083,13 @@ class _ReportCard extends StatelessWidget {
               backgroundColor: scheme.errorContainer,
               foregroundColor: scheme.onErrorContainer,
             ),
-            child: Text(withBan ? tr('Удалить + бан') : tr('Удалить')),
+            child: Text(
+              withBan
+                  ? isUser
+                        ? tr('Заблокировать')
+                        : tr('Удалить + бан')
+                  : tr('Удалить'),
+            ),
           ),
         ],
       ),
@@ -2166,6 +2182,9 @@ class _ReportCard extends StatelessWidget {
 
     // Можем ли мы заблокировать автора? Только если знаем, чей контент.
     final bool canBan = targetUserId != null;
+    // У жалобы на пользователя нет контента: «удалить» там означало бы
+    // просто закрыть жалобу без действия, поэтому оставляем только бан.
+    final bool canDeleteContent = type != 'user';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2432,24 +2451,33 @@ class _ReportCard extends StatelessWidget {
                       icon: const Icon(Icons.check_rounded, size: 18),
                       label: Text(tr('Отклонить жалобу')),
                     ),
-                    FilledButton.tonalIcon(
-                      onPressed: () => _confirmDelete(context, withBan: false),
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      label: Text(
-                        trf('Удалить {type}', {
-                          'type': typeLabel.toLowerCase(),
-                        }),
+                    if (canDeleteContent)
+                      FilledButton.tonalIcon(
+                        onPressed: () =>
+                            _confirmDelete(context, withBan: false),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                        ),
+                        label: Text(
+                          trf('Удалить {type}', {
+                            'type': typeLabel.toLowerCase(),
+                          }),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: scheme.errorContainer,
+                          foregroundColor: scheme.onErrorContainer,
+                        ),
                       ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: scheme.errorContainer,
-                        foregroundColor: scheme.onErrorContainer,
-                      ),
-                    ),
                     if (canBan)
                       FilledButton.icon(
                         onPressed: () => _confirmDelete(context, withBan: true),
                         icon: const Icon(Icons.block_rounded, size: 18),
-                        label: Text(tr('Удалить и заблокировать')),
+                        label: Text(
+                          type == 'user'
+                              ? tr('Заблокировать пользователя')
+                              : tr('Удалить и заблокировать'),
+                        ),
                         style: FilledButton.styleFrom(
                           backgroundColor: scheme.error,
                           foregroundColor: scheme.onError,
