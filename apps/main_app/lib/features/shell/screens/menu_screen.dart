@@ -8,6 +8,7 @@ import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/core/utils/apple_nonce.dart';
 import 'package:canvas_app/core/utils/pkce.dart';
+import 'package:canvas_app/features/app/screens/eula_screen.dart';
 import 'package:canvas_app/features/profile/providers/fcm_token_provider.dart';
 import 'package:canvas_app/features/profile/providers/profile_provider.dart';
 import 'package:canvas_app/features/market/screens/market_screen.dart';
@@ -346,6 +347,47 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   }
 }
 
+class _SignInAgreement extends StatelessWidget {
+  final VoidCallback onOpenEula;
+
+  const _SignInAgreement({required this.onOpenEula});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(
+          tr('Регистрируясь или входя, вы принимаете'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: scheme.onSurfaceVariant,
+            fontSize: 12,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(width: 4),
+        GestureDetector(
+          onTap: onOpenEula,
+          child: Text(
+            tr('Условия использования (EULA)'),
+            style: TextStyle(
+              color: scheme.primary,
+              fontSize: 12,
+              height: 1.4,
+              fontWeight: FontWeight.w700,
+              decoration: TextDecoration.underline,
+              decorationColor: scheme.primary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class AuthPlaceholderScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
 
@@ -380,8 +422,8 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   String? _signingInProvider; // 'google' | 'yandex' | 'telegram'
 
   Future<void> _handleSignIn() async {
-    final bool isDesktop = !kIsWeb &&
-        (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+    final bool isDesktop =
+        !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
     final bool googleConfigured = isDesktop
         ? OAuthConfig.googleDesktopClientId.isNotEmpty
         : OAuthConfig.googleMobileServerClientId.isNotEmpty;
@@ -389,9 +431,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              tr('Google-вход недоступен в этой сборке.'),
-            ),
+            content: Text(tr('Google-вход недоступен в этой сборке.')),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Theme.of(context).colorScheme.errorContainer,
           ),
@@ -450,7 +490,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr('Вход через Яндекс на компьютере пока не поддержан. Используйте Google.'),
+              tr(
+                'Вход через Яндекс на компьютере пока не поддержан. Используйте Google.',
+              ),
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -463,7 +505,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr('Yandex Login ещё не настроен (нужен clientId из oauth.yandex.ru).'),
+              tr(
+                'Yandex Login ещё не настроен (нужен clientId из oauth.yandex.ru).',
+              ),
             ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Theme.of(context).colorScheme.errorContainer,
@@ -542,9 +586,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              tr('Telegram-вход не настроен'),
-            ),
+            content: Text(tr('Telegram-вход не настроен')),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Theme.of(context).colorScheme.errorContainer,
           ),
@@ -608,15 +650,13 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       case TelegramLoginErrorCode.notConfigured:
         return tr('Telegram-вход не настроен');
       case TelegramLoginErrorCode.serverError:
-        return trf(
-          'Ошибка сервера Telegram ({p0})',
-          {'p0': e.statusCode ?? ''},
-        );
+        return trf('Ошибка сервера Telegram ({p0})', {
+          'p0': e.statusCode ?? '',
+        });
       default:
-        return trf(
-          'Ошибка Telegram-входа: {p0}',
-          {'p0': e.message ?? e.code.name},
-        );
+        return trf('Ошибка Telegram-входа: {p0}', {
+          'p0': e.message ?? e.code.name,
+        });
     }
   }
 
@@ -665,7 +705,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(tr('Sign in with Apple не поддержан на этом устройстве.')),
+            content: Text(
+              tr('Sign in with Apple не поддержан на этом устройстве.'),
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -709,10 +751,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
           'Сервис Google входа недоступен на этом устройстве. Обновите Google Play Services и попробуйте ещё раз.',
         );
       }
-      return trf(
-        'Ошибка входа: {p0}',
-        {'p0': error.description ?? error.code},
-      );
+      return trf('Ошибка входа: {p0}', {'p0': error.description ?? error.code});
     }
     if (error is PlatformException && error.code == 'sign_in_failed') {
       final details = '${error.message ?? ''} ${error.details ?? ''}'
@@ -1050,22 +1089,35 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          tr('Каталог квестов, публикации, облачные сохранения и социальные функции.'),
+                          tr(
+                            'Каталог квестов, публикации, облачные сохранения и социальные функции.',
+                          ),
                           textAlign: TextAlign.center,
                           style: textTheme.bodyMedium?.copyWith(
                             color: scheme.onSurfaceVariant,
                             height: 1.5,
                           ),
                         ),
-                        const SizedBox(height: 36),
+                        const SizedBox(height: 20),
+                        _SignInAgreement(
+                          onOpenEula: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => EulaScreen()),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
                         if (showApple) ...[
                           SizedBox(
                             width: double.infinity,
                             child: SignInWithAppleButton(
-                              onPressed: _isSigningIn ? null : _handleAppleSignIn,
+                              onPressed: _isSigningIn
+                                  ? null
+                                  : _handleAppleSignIn,
                               text: tr('Войти через Apple'),
                               height: 56,
-                              style: Theme.of(context).brightness == Brightness.dark
+                              style:
+                                  Theme.of(context).brightness ==
+                                      Brightness.dark
                                   ? SignInWithAppleButtonStyle.white
                                   : SignInWithAppleButtonStyle.black,
                             ),
@@ -1107,8 +1159,11 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.tonalIcon(
-                              onPressed: _isSigningIn ? null : _handleYandexSignIn,
-                              icon: _isSigningIn && _signingInProvider == 'yandex'
+                              onPressed: _isSigningIn
+                                  ? null
+                                  : _handleYandexSignIn,
+                              icon:
+                                  _isSigningIn && _signingInProvider == 'yandex'
                                   ? SizedBox(
                                       width: 20,
                                       height: 20,
@@ -1140,8 +1195,12 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.tonalIcon(
-                              onPressed: _isSigningIn ? null : _handleTelegramSignIn,
-                              icon: _isSigningIn && _signingInProvider == 'telegram'
+                              onPressed: _isSigningIn
+                                  ? null
+                                  : _handleTelegramSignIn,
+                              icon:
+                                  _isSigningIn &&
+                                      _signingInProvider == 'telegram'
                                   ? SizedBox(
                                       width: 20,
                                       height: 20,
@@ -1170,7 +1229,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
                         ],
                         const SizedBox(height: 16),
                         Text(
-                          tr('Без аккаунта вы можете пользоваться библиотекой и академией.'),
+                          tr(
+                            'Без аккаунта вы можете пользоваться библиотекой и академией.',
+                          ),
                           textAlign: TextAlign.center,
                           style: textTheme.bodySmall?.copyWith(
                             color: scheme.onSurfaceVariant,

@@ -33,14 +33,15 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('кнопки входа влезают: экран прокручивается, а не переполняется', (
-    WidgetTester tester,
-  ) async {
-    await pumpSmallPhone(tester);
+  testWidgets(
+    'кнопки входа влезают: экран прокручивается, а не переполняется',
+    (WidgetTester tester) async {
+      await pumpSmallPhone(tester);
 
-    expect(tester.takeException(), isNull);
-    expect(find.byType(SingleChildScrollView), findsOneWidget);
-  });
+      expect(tester.takeException(), isNull);
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+    },
+  );
 
   testWidgets('выход для гостя достижим даже при трёх кнопках входа', (
     WidgetTester tester,
@@ -57,6 +58,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('на экране входа есть согласие с EULA и его текст', (
+    WidgetTester tester,
+  ) async {
+    await pumpSmallPhone(tester);
+
+    expect(
+      find.textContaining('Регистрируясь или входя, вы принимаете'),
+      findsOneWidget,
+    );
+    final eulaLink = find.text('Условия использования (EULA)');
+    expect(eulaLink, findsOneWidget);
+    await tester.ensureVisible(eulaLink);
+    await tester.tap(eulaLink);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(
+        'There is no tolerance for objectionable content or abusive users.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('при обычном тексте контент остаётся по центру', (
     WidgetTester tester,
   ) async {
@@ -66,7 +90,10 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AuthPlaceholderScreen(onLoginSuccess: () {}, onBrowseAsGuest: () {}),
+        home: AuthPlaceholderScreen(
+          onLoginSuccess: () {},
+          onBrowseAsGuest: () {},
+        ),
       ),
     );
     await tester.pump();
