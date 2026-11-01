@@ -1,3 +1,4 @@
+import 'package:canvas_app/features/app/screens/policy_screen.dart';
 import 'package:canvas_app/features/settings/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,6 +41,21 @@ void main() {
     // А то, что действительно требует аккаунта, гостю не показываем.
     expect(find.text('Редактировать имя'), findsNothing);
     expect(find.text('Push-уведомления'), findsNothing);
+  });
+
+  testWidgets('debug: кнопка первого запуска открывает стартовый экран', (
+    tester,
+  ) async {
+    await _pumpSettings(tester, const {});
+
+    final tile = find.text('Первый запуск');
+    expect(tile, findsOneWidget);
+    await tester.ensureVisible(tile);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PolicyScreen), findsOneWidget);
+    expect(find.textContaining('Условия использования (EULA)'), findsOneWidget);
   });
 
   testWidgets('аккаунту по-прежнему видно профиль', (tester) async {
