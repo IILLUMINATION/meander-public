@@ -8,6 +8,7 @@ import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:canvas_app/core/utils/playtime_formatter.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
@@ -95,6 +96,9 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   /// Перечитать списки выдачи по кнопке «Обновить» в шапке.
   int _cosmeticsNonce = 0;
 
+  /// Тип жалоб, который сейчас показан. `all` — без фильтра.
+  String _reportFilter = 'all';
+
   @override
   void initState() {
     super.initState();
@@ -128,6 +132,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     final statsAsync = ref.watch(adminStatsProvider);
     final activityAsync = ref.watch(adminActivityProvider);
     final reportsAsync = ref.watch(reportsProvider);
+    final pendingReports = reportsAsync.valueOrNull?.length ?? 0;
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -168,11 +173,16 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                 context,
               ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
               tabs: [
+                Tab(
+                  child: _AdminTabLabel(
+                    label: tr('Жалобы'),
+                    count: pendingReports,
+                  ),
+                ),
                 Tab(text: tr('Модерация')),
                 Tab(text: tr('Активность')),
                 Tab(text: tr('Музыка')),
                 Tab(text: tr('Ассеты')),
-                Tab(text: tr('Жалобы')),
                 Tab(text: tr('Баны')),
                 Tab(text: tr('Оформление')),
               ],
@@ -187,11 +197,11 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           child: TabBarView(
             controller: _tabController,
             children: [
+              _buildReportsTab(reportsAsync),
               _buildModerationTab(statsAsync, queueAsync),
               _buildActivityTab(activityAsync),
               _buildMusicModerationTab(),
               _buildAssetModerationTab(),
-              _buildReportsTab(reportsAsync),
               _buildBlockedUsersTab(),
               AdminCosmeticsPanel(nonce: _cosmeticsNonce),
             ],
@@ -620,10 +630,85 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
             text: tr('Жалоб нет'),
           );
         }
-        return ListView.builder(
+
+        final types = <String>[];
+        for (final report in reports) {
+          final type = report['reported_type']?.toString() ?? '';
+          if (type.isNotEmpty && !types.contains(type)) types.add(type);
+        }
+        final activeFilter =
+            _reportFilter == 'all' || types.contains(_reportFilter)
+            ? _reportFilter
+            : 'all';
+        final visible = activeFilter == 'all'
+            ? reports
+            : reports.where((r) => r['reported_type'] == activeFilter).toList();
+
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-          itemCount: reports.length,
-          itemBuilder: (_, i) => _ReportCard(report: reports[i], ref: ref),
+          children: [
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Icon(
+                  Icons.report_gmailerrorred_rounded,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                Text(
+                  trf('Жалоб к разбору: {n}', {'n': reports.length}),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  tr('Сначала новые'),
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _ReportFilterChip(
+                    label: tr('Все'),
+                    selected: activeFilter == 'all',
+                    onSelected: () => setState(() => _reportFilter = 'all'),
+                  ),
+                  for (final type in types) ...[
+                    const SizedBox(width: 8),
+                    _ReportFilterChip(
+                      label: _reportFilterLabel(type),
+                      selected: activeFilter == type,
+                      onSelected: () => setState(() => _reportFilter = type),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (visible.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48),
+                child: Text(
+                  tr('Жалоб этого типа нет'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
+              for (final report in visible)
+                _ReportCard(report: report, ref: ref),
+          ],
         );
       },
     );
@@ -657,6 +742,54 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
 // ============================================================================
 //  ВСПОМОГАТЕЛЬНЫЕ ВИДЖЕТЫ
 // ============================================================================
+
+class _AdminTabLabel extends StatelessWidget {
+  final String label;
+  final int count;
+
+  const _AdminTabLabel({required this.label, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label),
+        if (count > 0) ...[
+          const SizedBox(width: 6),
+          Badge.count(
+            count: count,
+            backgroundColor: scheme.error,
+            textColor: scheme.onError,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReportFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  const _ReportFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: (_) => onSelected(),
+    );
+  }
+}
 
 class _SectionTitle extends StatelessWidget {
   final IconData icon;
@@ -1908,16 +2041,24 @@ class _ReportCard extends StatelessWidget {
     required bool withBan,
   }) async {
     final scheme = Theme.of(context).colorScheme;
+    final type = report['reported_type']?.toString() ?? '';
+    final typeLabel = _typeLabel(type).toLowerCase();
     final confirm = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
-          withBan ? tr('Удалить и заблокировать?') : tr('Удалить контент?'),
+          withBan
+              ? tr('Удалить и заблокировать?')
+              : trf('Удалить {type}?', {'type': typeLabel}),
         ),
         content: Text(
           withBan
               ? tr(
                   'Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.',
+                )
+              : type == 'message'
+              ? tr(
+                  'Сообщение будет скрыто из переписки без возможности восстановления.',
                 )
               : tr('Контент будет удалён без возможности восстановления.'),
         ),
@@ -1968,8 +2109,18 @@ class _ReportCard extends StatelessWidget {
         return tr('Отзыв');
       case 'user':
         return tr('Пользователь');
+      case 'wall_post':
+        return tr('Пост');
+      case 'wall_comment':
+        return tr('Комментарий');
       case 'message':
         return tr('Сообщение');
+      case 'asset':
+        return tr('Ассет');
+      case 'music':
+        return tr('Трек');
+      case 'forum':
+        return tr('Форум');
       default:
         return tr('Контент');
     }
@@ -1980,266 +2131,429 @@ class _ReportCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    final String type = report['reported_type'] ?? '';
-    final String? reporterId = report['reporter_id'];
-    final String? reporterName = report['reporter_name'];
+    final String type = report['reported_type']?.toString() ?? '';
+    final String typeLabel = _typeLabel(type);
+    final Color accent = _reportAccent(scheme, type);
 
-    final String? userIdToOpen = type == 'user'
-        ? report['reported_id']
-        : report['reported_user_id'];
+    final String? reporterId = _nonEmpty(report['reporter_id']);
+    final String reporterName =
+        _nonEmpty(report['reporter_name']) ?? tr('Неизвестный пользователь');
+    final String? reporterAvatar = _nonEmpty(report['reporter_avatar']);
+    final String? targetUserId = _nonEmpty(
+      type == 'user' ? report['reported_id'] : report['reported_user_id'],
+    );
+    final String? targetName = _nonEmpty(report['reported_user_name']);
+    final String? itemTitle = _nonEmpty(report['reported_item_title']);
+    final String? itemContent = _nonEmpty(report['reported_item_content']);
+    final int? rating = (report['rating'] as num?)?.toInt();
+    final String? description = _nonEmpty(report['description']);
+    final DateTime? createdAt = DateTime.tryParse(
+      report['created_at']?.toString() ?? '',
+    );
 
     String? questIdToOpen;
     if (type == 'quest') {
-      questIdToOpen = report['reported_id'];
+      questIdToOpen = _nonEmpty(report['reported_id']);
     } else if (type == 'review') {
-      questIdToOpen = report['quest_id'];
+      questIdToOpen = _nonEmpty(report['quest_id']);
     }
 
-    final String? itemTitle = report['reported_item_title'];
-    final String? itemContent = report['reported_item_content'];
-    final int? rating = report['rating'];
-
-    String reviewText = tr('Текст отзыва не загружен');
-    if (itemContent != null &&
-        itemContent != 'null' &&
-        itemContent.isNotEmpty) {
-      reviewText = itemContent;
-    } else if (type == 'review' && itemTitle != null && itemTitle.isNotEmpty) {
-      reviewText = itemTitle;
-    }
-
-    String contentText = tr('Контент не загружен');
-    if (itemTitle != null && itemTitle.isNotEmpty && itemTitle != 'null') {
-      contentText = itemTitle;
-    }
+    final String contentText = switch (type) {
+      'review' => itemContent ?? itemTitle ?? tr('Текст отзыва не загружен'),
+      'user' => tr('Профиль пользователя'),
+      _ => itemTitle ?? tr('Контент не загружен'),
+    };
 
     // Можем ли мы заблокировать автора? Только если знаем, чей контент.
-    final bool canBan = userIdToOpen != null;
+    final bool canBan = targetUserId != null;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.tertiaryContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _typeLabel(type),
-                  style: textTheme.labelSmall?.copyWith(
-                    color: scheme.onTertiaryContainer,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              if (reporterName != null)
-                Flexible(
-                  child: InkWell(
-                    onTap: () => _openProfile(context, reporterId),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      child: Text(
-                        trf('От: {reporterName}', {
-                          'reporterName': reporterName,
-                        }),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: textTheme.labelMedium?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w700,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // reason
-          Text(
-            report['reason']?.toString() ?? '',
-            style: textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: scheme.onSurface,
-            ),
-          ),
-          if (report['description'] != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              report['description']?.toString() ?? '',
-              style: textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-
-          // info block
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(14),
-            ),
+          Container(height: 3, color: accent),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (report['reported_user_name'] != null)
-                  InkWell(
-                    onTap: () => _openProfile(context, userIdToOpen),
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.person_rounded,
-                            size: 16,
-                            color: scheme.primary,
-                          ),
+                          Icon(_reportIcon(type), size: 16, color: accent),
                           const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              report['reported_user_name']?.toString() ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textTheme.labelLarge?.copyWith(
-                                color: scheme.primary,
-                                fontWeight: FontWeight.w700,
-                                decoration: TextDecoration.underline,
-                              ),
+                          Text(
+                            typeLabel,
+                            style: textTheme.labelMedium?.copyWith(
+                              color: accent,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-
-                if (type == 'quest' && itemTitle != null)
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.videogame_asset_rounded,
-                        size: 16,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
+                    const Spacer(),
+                    if (createdAt != null)
+                      Tooltip(
+                        message: _formatMoment(createdAt),
                         child: Text(
-                          itemTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.labelLarge?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.w700,
+                          formatRelativeTime(createdAt),
+                          style: textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
                           ),
                         ),
                       ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ReportAvatar(
+                      name: reporterName,
+                      avatarUrl: reporterAvatar,
+                      size: 40,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          InkWell(
+                            onTap: reporterId == null
+                                ? null
+                                : () => _openProfile(context, reporterId),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Text(
+                              reporterName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.titleSmall?.copyWith(
+                                color: reporterId == null
+                                    ? scheme.onSurface
+                                    : scheme.primary,
+                                fontWeight: FontWeight.w800,
+                                decoration: reporterId == null
+                                    ? null
+                                    : TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            tr('Пожаловался(ась)'),
+                            style: textTheme.labelMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: scheme.outlineVariant),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tr('На что жалуются'),
+                        style: textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      if (targetName != null) ...[
+                        const SizedBox(height: 6),
+                        InkWell(
+                          onTap: targetUserId == null
+                              ? null
+                              : () => _openProfile(context, targetUserId),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.person_outline_rounded,
+                                size: 16,
+                                color: targetUserId == null
+                                    ? scheme.onSurfaceVariant
+                                    : scheme.primary,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  targetName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.titleSmall?.copyWith(
+                                    color: targetUserId == null
+                                        ? scheme.onSurface
+                                        : scheme.primary,
+                                    fontWeight: FontWeight.w700,
+                                    decoration: targetUserId == null
+                                        ? null
+                                        : TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      if (type == 'review' && rating != null) ...[
+                        Row(
+                          children: List.generate(
+                            5,
+                            (i) => Icon(
+                              i < rating
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                              size: 18,
+                              color: Colors.amber,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      Text(
+                        contentText,
+                        maxLines: 6,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurface,
+                          height: 1.35,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                      if (questIdToOpen != null) ...[
+                        const SizedBox(height: 4),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () => _openQuest(context, questIdToOpen),
+                            icon: const Icon(
+                              Icons.open_in_new_rounded,
+                              size: 16,
+                            ),
+                            label: Text(tr('Открыть квест')),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
+                ),
 
-                if (type == 'review') ...[
-                  if (rating != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: List.generate(
-                          5,
-                          (i) => Icon(
-                            i < rating
-                                ? Icons.star_rounded
-                                : Icons.star_border_rounded,
-                            size: 18,
-                            color: Colors.amber,
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.flag_outlined,
+                            size: 16,
+                            color: scheme.error,
                           ),
+                          const SizedBox(width: 6),
+                          Text(
+                            tr('Причина'),
+                            style: textTheme.labelMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _reasonLabel(_nonEmpty(report['reason'])),
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: scheme.onSurface,
                         ),
                       ),
-                    ),
-                  Text(
-                    reviewText,
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurface,
-                      fontStyle: FontStyle.italic,
-                    ),
+                      if (description != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          description,
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
+                ),
 
-                if (type == 'wall_post' ||
-                    type == 'wall_comment' ||
-                    type == 'message') ...[
-                  Text(
-                    contentText,
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurface,
-                      fontStyle: FontStyle.italic,
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _resolveReport(context, 'dismiss'),
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      label: Text(tr('Отклонить жалобу')),
                     ),
-                  ),
-                ],
+                    FilledButton.tonalIcon(
+                      onPressed: () => _confirmDelete(context, withBan: false),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: Text(
+                        trf('Удалить {type}', {
+                          'type': typeLabel.toLowerCase(),
+                        }),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: scheme.errorContainer,
+                        foregroundColor: scheme.onErrorContainer,
+                      ),
+                    ),
+                    if (canBan)
+                      FilledButton.icon(
+                        onPressed: () => _confirmDelete(context, withBan: true),
+                        icon: const Icon(Icons.block_rounded, size: 18),
+                        label: Text(tr('Удалить и заблокировать')),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: scheme.error,
+                          foregroundColor: scheme.onError,
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
-
-          // actions — Wrap, чтобы не обрезалось на узких экранах
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              if (questIdToOpen != null)
-                OutlinedButton.icon(
-                  onPressed: () => _openQuest(context, questIdToOpen),
-                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                  label: Text(tr('Открыть')),
-                ),
-              TextButton(
-                onPressed: () => _resolveReport(context, 'dismiss'),
-                child: Text(tr('Пропустить')),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: () => _confirmDelete(context, withBan: false),
-                icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                label: Text(tr('Удалить')),
-                style: FilledButton.styleFrom(
-                  backgroundColor: scheme.errorContainer,
-                  foregroundColor: scheme.onErrorContainer,
-                ),
-              ),
-              if (canBan)
-                FilledButton.icon(
-                  onPressed: () => _confirmDelete(context, withBan: true),
-                  icon: const Icon(Icons.block_rounded, size: 18),
-                  label: Text(tr('Удалить + бан')),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: scheme.error,
-                    foregroundColor: scheme.onError,
-                  ),
-                ),
-            ],
-          ),
         ],
+      ),
+    );
+  }
+}
+
+// --- Помощники карточки жалобы -------------------------------------------
+
+String? _nonEmpty(dynamic value) {
+  final text = value?.toString().trim();
+  if (text == null || text.isEmpty || text == 'null') return null;
+  return text;
+}
+
+IconData _reportIcon(String type) => switch (type) {
+  'message' => Icons.chat_bubble_outline_rounded,
+  'wall_post' => Icons.article_outlined,
+  'wall_comment' => Icons.comment_outlined,
+  'quest' => Icons.videogame_asset_outlined,
+  'review' => Icons.star_outline_rounded,
+  'user' => Icons.person_outline_rounded,
+  'asset' => Icons.widgets_outlined,
+  'music' => Icons.music_note_outlined,
+  'forum' => Icons.forum_outlined,
+  _ => Icons.flag_outlined,
+};
+
+Color _reportAccent(ColorScheme scheme, String type) => switch (type) {
+  'message' => scheme.primary,
+  'wall_post' => scheme.tertiary,
+  'wall_comment' => scheme.secondary,
+  'quest' => scheme.primary,
+  'review' => scheme.tertiary,
+  'user' => scheme.secondary,
+  'asset' => scheme.primary,
+  'music' => scheme.tertiary,
+  _ => scheme.secondary,
+};
+
+String _reportFilterLabel(String type) => switch (type) {
+  'message' => tr('Сообщения'),
+  'wall_post' => tr('Посты'),
+  'wall_comment' => tr('Комментарии'),
+  'quest' => tr('Квесты'),
+  'review' => tr('Отзывы'),
+  'user' => tr('Пользователи'),
+  'asset' => tr('Ассеты'),
+  'music' => tr('Музыка'),
+  'forum' => tr('Форум'),
+  _ => tr('Другое'),
+};
+
+String _reasonLabel(String? reason) => switch (reason) {
+  'Спам' => tr('Спам'),
+  'Неподходящий контент' => tr('Неподходящий контент'),
+  'Оскорбления' => tr('Оскорбления'),
+  'Мошенничество' => tr('Мошенничество'),
+  'Нарушение авторских прав' => tr('Нарушение авторских прав'),
+  'Другое' => tr('Другое'),
+  _ => reason ?? tr('Причина не указана'),
+};
+
+class _ReportAvatar extends StatelessWidget {
+  final String name;
+  final String? avatarUrl;
+  final double size;
+
+  const _ReportAvatar({
+    required this.name,
+    required this.avatarUrl,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fallback = CircleAvatar(
+      radius: size / 2,
+      backgroundColor: scheme.primaryContainer,
+      foregroundColor: scheme.onPrimaryContainer,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: TextStyle(fontSize: size * 0.4, fontWeight: FontWeight.w800),
+      ),
+    );
+    if (avatarUrl == null) return fallback;
+    return ClipOval(
+      child: CachedNetworkImage(
+        imageUrl: avatarUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (_, _) => fallback,
+        errorWidget: (_, _, _) => fallback,
       ),
     );
   }
