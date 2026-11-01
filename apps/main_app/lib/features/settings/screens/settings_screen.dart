@@ -11,6 +11,7 @@ import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/features/app/screens/about_screen.dart';
+import 'package:canvas_app/features/app/screens/policy_screen.dart';
 import 'package:canvas_app/features/app/screens/tutorial_screen.dart';
 import 'package:canvas_app/features/guides/screens/guides_screen.dart';
 import 'package:canvas_app/features/guides/widgets/guide_prompt.dart';
@@ -127,7 +128,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(trf('Не удалось изменить: {p0}', {'p0': friendlyError(e)})),
+          content: Text(
+            trf('Не удалось изменить: {p0}', {'p0': friendlyError(e)}),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -187,7 +190,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                tr('Аккаунт, профиль, сохранения, переписки, публикации и статистика будут удалены безвозвратно.\n\nКвесты других авторов, которые вы купили или скачали, останутся на устройстве.'),
+                tr(
+                  'Аккаунт, профиль, сохранения, переписки, публикации и статистика будут удалены безвозвратно.\n\nКвесты других авторов, которые вы купили или скачали, останутся на устройстве.',
+                ),
               ),
               CheckboxListTile(
                 value: acknowledged,
@@ -233,8 +238,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           title: Text(tr('Удаление запланировано')),
           content: Text(
             scheduledAt == null
-                ? tr('Аккаунт будет удалён в ближайшие дни. Если передумаете — войдите и отмените удаление в этих же настройках.')
-                : trf('Аккаунт будет удалён {p0}. Если передумаете — вернитесь в приложение, войдите и отмените удаление здесь же.', {'p0': _formatDeletionDate(scheduledAt)}),
+                ? tr(
+                    'Аккаунт будет удалён в ближайшие дни. Если передумаете — войдите и отмените удаление в этих же настройках.',
+                  )
+                : trf(
+                    'Аккаунт будет удалён {p0}. Если передумаете — вернитесь в приложение, войдите и отмените удаление здесь же.',
+                    {'p0': _formatDeletionDate(scheduledAt)},
+                  ),
           ),
           actions: [
             TextButton(
@@ -257,7 +267,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(trf('Не удалось удалить аккаунт: {p0}', {'p0': friendlyError(e)})),
+            content: Text(
+              trf('Не удалось удалить аккаунт: {p0}', {'p0': friendlyError(e)}),
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -287,7 +299,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(trf('Не удалось отменить: {p0}', {'p0': friendlyError(e)})),
+            content: Text(
+              trf('Не удалось отменить: {p0}', {'p0': friendlyError(e)}),
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -330,7 +344,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         title: Text(tr('Сбросить обучение?')),
         content: Text(
-          tr('Обучение по созданию квеста будет показано снова при следующем нажатии на «Создать квест».'),
+          tr(
+            'Обучение по созданию квеста будет показано снова при следующем нажатии на «Создать квест».',
+          ),
         ),
         actions: [
           TextButton(
@@ -462,7 +478,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         builder: (ctx) => AlertDialog(
           title: Text(tr('Внимание')),
           content: Text(
-            tr('Контент 18+ может содержать нецензурную лексику, жестокость и материалы для взрослых.\n\nПодтвердите, что вам исполнилось 18 лет.'),
+            tr(
+              'Контент 18+ может содержать нецензурную лексику, жестокость и материалы для взрослых.\n\nПодтвердите, что вам исполнилось 18 лет.',
+            ),
           ),
           actions: [
             TextButton(
@@ -609,10 +627,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            behavior: SnackBarBehavior.floating,
-          ),
+          SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
         );
       }
     } catch (e) {
@@ -620,7 +635,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              serverErrorMessage(e, fallback: tr('Не удалось активировать код')),
+              serverErrorMessage(
+                e,
+                fallback: tr('Не удалось активировать код'),
+              ),
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -724,9 +742,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               ),
                               title: Text(tr('Контент 18+')),
                               subtitle: Text(
-                                showNsfw
-                                    ? tr('Включен')
-                                    : tr('Скрыт из ленты'),
+                                showNsfw ? tr('Включен') : tr('Скрыт из ленты'),
                               ),
                               value: showNsfw,
                               onChanged: (_) => _toggleNsfw(showNsfw),
@@ -734,12 +750,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             _SettingsTile(
                               icon: Icons.mail_outline_rounded,
                               title: tr('Личные сообщения'),
-                              subtitle: tr('Кто может писать, стаж, блокировки'),
+                              subtitle: tr(
+                                'Кто может писать, стаж, блокировки',
+                              ),
                               onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      ChatPrivacyScreen(),
+                                  builder: (_) => ChatPrivacyScreen(),
                                 ),
                               ),
                             ),
@@ -748,7 +765,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       },
                     ),
                   ),
-
                 ],
 
                 // Тема, плагины и поведение редактора — настройки устройства,
@@ -805,9 +821,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Material(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHigh,
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(20),
                       clipBehavior: Clip.antiAlias,
                       child: Column(
@@ -919,35 +933,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 // Интерактивный тур по созданию квеста скрыт — фича сырая,
                 // его методы оставлены выше и включаются раскомментированием.
-                _SectionHeader(
-                  title: tr('Помощь'),
-                  icon: Icons.school_rounded,
-                ),
+                _SectionHeader(title: tr('Помощь'), icon: Icons.school_rounded),
                 SliverToBoxAdapter(
                   child: _SettingsGroup(
                     tiles: [
                       _SettingsTile(
                         icon: Icons.menu_book_rounded,
                         title: tr('Академия'),
-                        subtitle:
-                            tr('Видеогайды, разборы квестов, ссылки сообщества'),
+                        subtitle: tr(
+                          'Видеогайды, разборы квестов, ссылки сообщества',
+                        ),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => TutorialScreen(),
-                          ),
+                          MaterialPageRoute(builder: (_) => TutorialScreen()),
                         ),
                       ),
                       _SettingsTile(
                         icon: Icons.auto_stories_rounded,
                         title: tr('Гайды по разделам'),
-                        subtitle:
-                            tr('Офлайн-статьи, видео и схемы с подсказками'),
+                        subtitle: tr(
+                          'Офлайн-статьи, видео и схемы с подсказками',
+                        ),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => GuidesScreen(),
-                          ),
+                          MaterialPageRoute(builder: (_) => GuidesScreen()),
                         ),
                       ),
                       _SettingsTile(
@@ -979,9 +988,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         subtitle: tr('История версий, команда'),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => AboutScreen(),
-                          ),
+                          MaterialPageRoute(builder: (_) => AboutScreen()),
                         ),
                       ),
                       if (isLoggedIn)
@@ -1010,6 +1017,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           iconColor: scheme.tertiary,
                           onTap: () => _showDebugUpdateDialog(context),
                         ),
+                        _SettingsTile(
+                          icon: Icons.rocket_launch_rounded,
+                          title: tr('Первый запуск'),
+                          subtitle: tr(
+                            'Экран, который видит новый пользователь',
+                          ),
+                          iconColor: scheme.tertiary,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => PolicyScreen()),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1031,9 +1050,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           iconColor: scheme.error,
                           onTap: () => Navigator.push(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => AdminScreen(),
-                            ),
+                            MaterialPageRoute(builder: (_) => AdminScreen()),
                           ),
                         ),
                       ],
@@ -1122,7 +1139,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  trf('Будет удалён {p0} — до этой даты всё можно вернуть.', {'p0': _formatDeletionDate(_deletionScheduledAt!)}),
+                                  trf(
+                                    'Будет удалён {p0} — до этой даты всё можно вернуть.',
+                                    {
+                                      'p0': _formatDeletionDate(
+                                        _deletionScheduledAt!,
+                                      ),
+                                    },
+                                  ),
                                   style: TextStyle(
                                     color: scheme.onErrorContainer,
                                   ),
@@ -1133,8 +1157,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   icon: const Icon(Icons.undo_rounded),
                                   label: Text(tr('Отменить удаление')),
                                   style: OutlinedButton.styleFrom(
-                                    foregroundColor:
-                                        scheme.onErrorContainer,
+                                    foregroundColor: scheme.onErrorContainer,
                                     side: BorderSide(
                                       color: scheme.onErrorContainer,
                                     ),
@@ -1297,7 +1320,7 @@ class _SettingsTile extends StatelessWidget {
                 color: (iconColor ?? scheme.primary).withOpacity(0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-      child: Icon(icon, size: 20, color: scheme.onSurface),
+              child: Icon(icon, size: 20, color: scheme.onSurface),
             ),
             const SizedBox(width: 14),
             Expanded(

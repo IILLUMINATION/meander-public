@@ -175,21 +175,23 @@ class _PolicyScreenState extends State<PolicyScreen> {
                           recognizer: TapGestureRecognizer()
                             ..onTap = _openPolicy,
                         ),
-                        const TextSpan(text: ', '),
-                        TextSpan(
-                          text: tr('Условия использования (EULA)'),
-                          style: TextStyle(
-                            color: scheme.primary,
-                            decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          recognizer: TapGestureRecognizer()..onTap = _openEula,
-                        ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: _openEula,
+                  child: Text(
+                    tr('Условия использования (EULA)'),
+                    style: TextStyle(
+                      color: scheme.primary,
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
 
                 // Кнопка
                 SizedBox(
