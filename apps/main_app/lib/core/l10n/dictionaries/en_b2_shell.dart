@@ -3,38 +3,49 @@
 /// Ключ — русская строка ровно как в коде (регистр и знаки включно);
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enB2Shell = {
-  'Yandex Login ещё не настроен (нужен clientId из oauth.yandex.ru).': 'Yandex Login is not set up yet (needs a clientId from oauth.yandex.ru).',
-  'Google-вход недоступен в этой сборке.': 'Google sign-in is unavailable in this build.',
+  'Yandex Login ещё не настроен (нужен clientId из oauth.yandex.ru).':
+      'Yandex Login is not set up yet (needs a clientId from oauth.yandex.ru).',
+  'Google-вход недоступен в этой сборке.':
+      'Google sign-in is unavailable in this build.',
   'Сервер не завершил вход: {p0}': 'The server did not complete sign-in: {p0}',
   'Сервер не выдал idToken.': 'The server did not return an idToken.',
   '{p0}\nиспользовано {p1} из {p2}': '{p0}\nused {p1} of {p2}',
   'Ассет одобрен': 'Asset approved',
   'Ассет отклонён': 'Asset rejected',
-  'Без аккаунта вы можете пользоваться библиотекой и академией.': 'Without an account, you can still use the library and the academy.',
+  'Без аккаунта вы можете пользоваться библиотекой и академией.':
+      'Without an account, you can still use the library and the academy.',
   'Войти через Google': 'Sign in with Google',
   'Войти через Telegram': 'Sign in with Telegram',
   'Войти через Яндекс': 'Sign in with Yandex',
-  'Вход через Яндекс на компьютере пока не поддержан. Используйте Google.': 'Signing in with Yandex on desktop is not supported yet. Use Google.',
+  'Вход через Яндекс на компьютере пока не поддержан. Используйте Google.':
+      'Signing in with Yandex on desktop is not supported yet. Use Google.',
   'Входим…': 'Signing in…',
-  'Выдано: {p0} предмет(ов) на {p1} чел.': 'Issued: {p0} item(s) to {p1} people.',
-  'Выдано: {written} из {p0}, остальное уже у него.': 'Issued: {written} of {p0}, the rest they already have.',
+  'Выдано: {p0} предмет(ов) на {p1} чел.':
+      'Issued: {p0} item(s) to {p1} people.',
+  'Выдано: {written} из {p0}, остальное уже у него.':
+      'Issued: {written} of {p0}, the rest they already have.',
   'Выдать {p0} предмет(ов) {p1} чел.': 'Issue {p0} item(s) to {p1} people.',
-  'Каталог квестов, публикации, облачные сохранения и социальные функции.': 'Quest catalog, publications, cloud saves and social features.',
-  'Код активируют сами победители в профиле — выдача по id не нужна. В код кладётся всё, что отмечено в каталоге выше.': 'Winners activate the code themselves in their profile — issuing by id is not needed. The code contains everything marked in the catalog above.',
+  'Каталог квестов, публикации, облачные сохранения и социальные функции.':
+      'Quest catalog, publications, cloud saves and social features.',
+  'Код активируют сами победители в профиле — выдача по id не нужна. В код кладётся всё, что отмечено в каталоге выше.':
+      'Winners activate the code themselves in their profile — issuing by id is not needed. The code contains everything marked in the catalog above.',
   'Кодов с оформлением пока нет.': 'No codes with cosmetics yet.',
-  'Контент будет удалён без возможности восстановления.': 'The content will be deleted with no way to restore it.',
-  'Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.': 'The content will be deleted and the author blocked. This action cannot be undone.',
-  'От: {reporterName}': 'From: {reporterName}',
+  'Контент будет удалён без возможности восстановления.':
+      'The content will be deleted with no way to restore it.',
+  'Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.':
+      'The content will be deleted and the author blocked. This action cannot be undone.',
   'Отказать': 'Decline',
-  'Откройте выдачу кнопкой выше или выберите человека — здесь появится срок, источник и причина каждой выдачи.': 'Open issuing with the button above or select a person — the expiry, source and reason for each issuance will appear here.',
+  'Откройте выдачу кнопкой выше или выберите человека — здесь появится срок, источник и причина каждой выдачи.':
+      'Open issuing with the button above or select a person — the expiry, source and reason for each issuance will appear here.',
   'Отметить показанные (+{p0})': 'Mark shown (+{p0})',
-  'По запросу «{_emptySearch}» никто не найден: id должен совпадать целиком, имя — от 2 символов.': 'No one was found for the query "{_emptySearch}": the id must match in full, the name at least 2 characters.',
-  'Пользователь «{p0}» снова сможет пользоваться приложением.': 'User "{p0}" will be able to use the app again.',
+  'По запросу «{_emptySearch}» никто не найден: id должен совпадать целиком, имя — от 2 символов.':
+      'No one was found for the query "{_emptySearch}": the id must match in full, the name at least 2 characters.',
+  'Пользователь «{p0}» снова сможет пользоваться приложением.':
+      'User "{p0}" will be able to use the app again.',
   'Снять показанные ({p0})': 'Unmark shown ({p0})',
   'Трек одобрен': 'Track approved',
   'Трек отклонён': 'Track rejected',
   'Удалить и заблокировать?': 'Delete and block?',
-  'Удалить контент?': 'Delete content?',
   'Центр управления': 'Control center',
   'бесплатно · не выдаётся': 'free · not issued',
   'Активность': 'Activity',
