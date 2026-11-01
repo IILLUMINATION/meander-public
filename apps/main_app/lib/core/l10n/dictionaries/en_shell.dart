@@ -22,6 +22,7 @@ final Map<String, String> enShell = {
   'Жалоб нет': 'No reports',
   'Жалоб этого типа нет': 'No reports of this type',
   'Жалобы': 'Reports',
+  'Заблокировать пользователя?': 'Block this user?',
   'За что (попадёт в историю выдач)': 'What for (goes into the grant history)',
   'Имя пользователя или id': 'Username or id',
   'Каталог': 'Catalog',
@@ -52,6 +53,9 @@ final Map<String, String> enShell = {
   'Параметры выдачи': 'Grant options',
   'Пожаловался(ась)': 'Reported',
   'Пользователи': 'Users',
+  'Пользователь будет заблокирован. Это действие нельзя отменить.':
+      'The user will be blocked. This action cannot be undone.',
+  'Пользователь заблокирован': 'User blocked',
   'Пользователь разблокирован': 'User unblocked',
   'Причина': 'Reason',
   'Причина не указана': 'Reason not specified',

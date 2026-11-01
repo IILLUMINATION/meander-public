@@ -8,12 +8,17 @@ import 'package:canvas_app/features/shell/screens/admin_screen.dart';
 /// Очередь жалоб проверяем без сети: важно, чтобы админ сразу видел, кто
 /// пожаловался, на кого и за что, а не разбирал безымянные карточки.
 class _FakeApi extends ApiService {
+  _FakeApi({List<Map<String, dynamic>>? reports})
+    : reports = reports ?? _reports;
+
+  final List<Map<String, dynamic>> reports;
+
   @override
   Future<dynamic> get(
     String endpoint, {
     Map<String, String>? queryParams,
   }) async {
-    if (endpoint == 'reports/admin') return _reports;
+    if (endpoint == 'reports/admin') return reports;
     if (endpoint == 'admin/stats') return <String, dynamic>{};
     if (endpoint == 'admin/activity?days=30') {
       return {
@@ -118,6 +123,50 @@ void main() {
     expect(
       find.text(
         'Сообщение будет скрыто из переписки без возможности восстановления.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('на пользователя можно только пожаловаться в бан, без удаления', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final userReport = {
+      'id': 'r-user',
+      'reported_type': 'user',
+      'reported_id': 'u-bad',
+      'reason': 'Оскорбления',
+      'reporter_id': 'u-anya',
+      'reporter_name': 'Аня Петрова',
+      'reported_user_name': 'Нарушитель',
+      'created_at': DateTime.now()
+          .subtract(const Duration(hours: 1))
+          .toIso8601String(),
+    };
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(_FakeApi(reports: [userReport])),
+        ],
+        child: const MaterialApp(home: AdminScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Заблокировать пользователя'), findsOneWidget);
+    expect(find.textContaining('Удалить пользователя'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Заблокировать пользователя'));
+    await tester.pumpAndSettle();
+    expect(find.text('Заблокировать пользователя?'), findsOneWidget);
+    expect(
+      find.text(
+        'Пользователь будет заблокирован. Это действие нельзя отменить.',
       ),
       findsOneWidget,
     );
