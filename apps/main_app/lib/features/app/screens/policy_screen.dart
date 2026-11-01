@@ -1,5 +1,6 @@
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 import 'package:canvas_app/features/app/screens/onboarding_screen.dart'; // Убедись, что импорт правильный (или класс ниже)
+import 'package:canvas_app/features/app/screens/eula_screen.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -26,7 +27,9 @@ class _PolicyScreenState extends State<PolicyScreen> {
       builder: (ctx) => AlertDialog(
         title: Text(tr('Подтверждение возраста')),
         content: Text(
-          tr('Контент 18+ может содержать нецензурную лексику, жестокость и материалы для взрослых.\n\nВам исполнилось 18 лет?'),
+          tr(
+            'Контент 18+ может содержать нецензурную лексику, жестокость и материалы для взрослых.\n\nВам исполнилось 18 лет?',
+          ),
         ),
         actions: [
           TextButton(
@@ -86,6 +89,10 @@ class _PolicyScreenState extends State<PolicyScreen> {
     }
   }
 
+  void _openEula() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => EulaScreen()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -132,7 +139,9 @@ class _PolicyScreenState extends State<PolicyScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  tr('Перед началом игры, пожалуйста, ознакомьтесь и примите нашу политику конфиденциальности. Мы заботимся о безопасности ваших данных.'),
+                  tr(
+                    'Перед началом игры, пожалуйста, ознакомьтесь и примите нашу политику конфиденциальности. Мы заботимся о безопасности ваших данных.',
+                  ),
                   style: GoogleFonts.inter(
                     fontSize: 16,
                     color: scheme.onSurfaceVariant,
@@ -152,8 +161,9 @@ class _PolicyScreenState extends State<PolicyScreen> {
                       ),
                       children: [
                         TextSpan(
-                          text:
-                              tr('Нажимая "Принять и продолжить", вы соглашаетесь с '),
+                          text: tr(
+                            'Нажимая "Принять и продолжить", вы соглашаетесь с ',
+                          ),
                         ),
                         TextSpan(
                           text: tr('Политикой конфиденциальности'),
@@ -164,6 +174,16 @@ class _PolicyScreenState extends State<PolicyScreen> {
                           ),
                           recognizer: TapGestureRecognizer()
                             ..onTap = _openPolicy,
+                        ),
+                        const TextSpan(text: ', '),
+                        TextSpan(
+                          text: tr('Условия использования (EULA)'),
+                          style: TextStyle(
+                            color: scheme.primary,
+                            decoration: TextDecoration.underline,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          recognizer: TapGestureRecognizer()..onTap = _openEula,
                         ),
                       ],
                     ),

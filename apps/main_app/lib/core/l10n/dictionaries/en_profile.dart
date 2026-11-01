@@ -13,12 +13,14 @@ final Map<String, String> enProfile = {
   'Блёстки': 'Glitter',
   'Больше всего': 'Most played',
   'Ведьмино пламя': 'Witch flame',
-  'Войдите в аккаунт, чтобы увидеть свои публикации.': 'Sign in to see your publications.',
+  'Войдите в аккаунт, чтобы увидеть свои публикации.':
+      'Sign in to see your publications.',
   'Время в Meander': 'Time in Meander',
   'Всего в квестах': 'Total in quests',
   'Вы ещё ничего не публиковали': 'You haven\'t published anything yet',
   'Вы подписаны': 'You\'re subscribed',
-  'Вы уверены, что хотите выйти из аккаунта?': 'Are you sure you want to sign out?',
+  'Вы уверены, что хотите выйти из аккаунта?':
+      'Are you sure you want to sign out?',
   'Выход': 'Sign out',
   'Глитч': 'Glitch',
   'Голограмма': 'Hologram',
@@ -61,7 +63,8 @@ final Map<String, String> enProfile = {
   'Муссон': 'Monsoon',
   'Мятный ореол': 'Mint halo',
   'На проверке': 'In review',
-  'Награда ваша: {names}. Надеть — в «Оформлении профиля»': 'Reward is yours: {names}. Equip it in "Profile cosmetics"',
+  'Награда ваша: {names}. Надеть — в «Оформлении профиля»':
+      'Reward is yours: {names}. Equip it in "Profile cosmetics"',
   'Награды': 'Rewards',
   'Награды за активность': 'Activity rewards',
   'Написать': 'Message',
@@ -82,18 +85,21 @@ final Map<String, String> enProfile = {
   'Одинокое дерево': 'Lone tree',
   'Опубликовано': 'Published',
   'Опубликуйте свой первый квест': 'Publish your first quest',
-  'Отзывы появятся после прохождения ваших квестов': 'Reviews will appear once your quests are played',
+  'Отзывы появятся после прохождения ваших квестов':
+      'Reviews will appear once your quests are played',
   'Отклонено': 'Rejected',
   'Оформление профиля': 'Profile cosmetics',
   'Ошибка выхода: {p0}': 'Sign-out error: {p0}',
   'Перечитать подписку': 'Reload subscription',
   'По умолчанию': 'Default',
-  'Подписки держатся на аккаунте — без него подписываться некому. Войдите на вкладке «Вход».': 'Subscriptions are tied to the account — without one there\'s no one to subscribe. Sign in on the "Sign in" tab.',
+  'Подписки держатся на аккаунте — без него подписываться некому. Войдите на вкладке «Вход».':
+      'Subscriptions are tied to the account — without one there\'s no one to subscribe. Sign in on the "Sign in" tab.',
   'Подписчики': 'Subscribers',
   'Пока нет достижений': 'No achievements yet',
   'Пока нет отзывов': 'No reviews yet',
   'Полночный прибой': 'Midnight surf',
-  'Пользователь пока ничего не загрузил в маркет': 'This user hasn\'t uploaded anything to the Market yet',
+  'Пользователь пока ничего не загрузил в маркет':
+      'This user hasn\'t uploaded anything to the Market yet',
   'Полярное сияние': 'Polar lights',
   'Пост не найден или удалён': 'Post not found or deleted',
   'Поставить': 'Set',
@@ -120,9 +126,11 @@ final Map<String, String> enProfile = {
   'Скопировать ID': 'Copy ID',
   'Сменить аватар': 'Change avatar',
   'Снегопад': 'Snowfall',
-  'Создавайте квесты и набирайте популярность': 'Create quests and gain popularity',
+  'Создавайте квесты и набирайте популярность':
+      'Create quests and gain popularity',
   'Солнечная корона': 'Solar corona',
-  'Список «не уведомлять об авторе» держится на аккаунте. Войдите на вкладке «Вход».': 'The "don\'t notify about this author" list is tied to the account. Sign in on the "Sign in" tab.',
+  'Список «не уведомлять об авторе» держится на аккаунте. Войдите на вкладке «Вход».':
+      'The "don\'t notify about this author" list is tied to the account. Sign in on the "Sign in" tab.',
   'Ссылка скопирована': 'Link copied',
   'Стена': 'Wall',
   'Токсичный': 'Toxic',
@@ -134,4 +142,35 @@ final Map<String, String> enProfile = {
   'Фон профиля': 'Profile background',
   'Холодный дождь': 'Cold rain',
   'Чернильный': 'Ink',
+  'Условия использования (EULA)': 'Terms of Use (EULA)',
+  'Регистрируясь или входя, вы принимаете':
+      'By signing up or signing in, you agree to the',
+  'Дата вступления в силу: 1 ноября 2026 г.':
+      'Effective date: November 1, 2026',
+  '1. Общие положения': '1. General',
+  'Используя Meander, вы соглашаетесь с настоящими Условиями использования (EULA) и Политикой конфиденциальности. Если вы не согласны с этими условиями, не используйте приложение.':
+      'By using Meander, you agree to these Terms of Use (EULA) and the Privacy Policy. If you do not agree, do not use the app.',
+  '2. Аккаунт': '2. Account',
+  'Вы отвечаете за безопасность своего аккаунта и за действия, совершённые под ним. Запрещено создавать аккаунты для обхода блокировок и ограничений.':
+      'You are responsible for the security of your account and for actions taken under it. Creating accounts to evade blocks or restrictions is prohibited.',
+  '3. Нулевая толерантность': '3. Zero tolerance',
+  'В Meander нет терпимости к неприемлемому контенту и токсичным пользователям. Запрещены оскорбления, угрозы, травля, разжигание ненависти, спам, мошенничество и публикация незаконных материалов.':
+      'Meander has no tolerance for objectionable content or abusive users. Insults, threats, bullying, hate speech, spam, fraud and illegal material are prohibited.',
+  'There is no tolerance for objectionable content or abusive users.':
+      'There is no tolerance for objectionable content or abusive users.',
+  '4. Контент пользователей': '4. User content',
+  'Вы сохраняете права на свой контент, но разрешаете Meander хранить, отображать и распространять его в рамках работы приложения. Вы подтверждаете, что имеете права на загружаемые материалы.':
+      'You retain rights to your content but grant Meander permission to store, display and distribute it as part of operating the app. You confirm that you have the rights to the materials you upload.',
+  '5. Модерация и жалобы': '5. Moderation and reports',
+  'Мы можем удалять контент, ограничивать доступ и блокировать аккаунты за нарушения. Пользователи могут жаловаться на контент и блокировать других авторов. Жалобы рассматриваются модерацией.':
+      'We may remove content, restrict access and block accounts for violations. Users can report content and block other authors. Reports are reviewed by moderation.',
+  '6. Прекращение доступа': '6. Termination',
+  'Мы можем приостановить или прекратить доступ к аккаунту при нарушении этих условий или по требованию закона.':
+      'We may suspend or terminate access to an account for violating these terms or when required by law.',
+  '7. Ответственность': '7. Liability',
+  'Приложение предоставляется «как есть». Мы не гарантируем бесперебойную работу и не несём ответственности за контент пользователей в пределах, разрешённых законом.':
+      'The app is provided "as is". We do not guarantee uninterrupted operation and are not liable for user content to the extent permitted by law.',
+  '8. Контакты': '8. Contact',
+  'Вопросы по условиям и модерации: @meanderRu.':
+      'Questions about these terms and moderation: @meanderRu.',
 };
