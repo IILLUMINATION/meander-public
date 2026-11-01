@@ -40,7 +40,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: "Missing required fields" });
     }
 
-    if (!['quest', 'review', 'user', 'wall_post', 'wall_comment', 'asset', 'music'].includes(reported_type)) {
+    if (!['quest', 'review', 'user', 'wall_post', 'wall_comment', 'asset', 'music', 'message'].includes(reported_type)) {
         return res.status(400).json({ error: "Invalid reported_type" });
     }
 
@@ -89,6 +89,24 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
             const trackCheck = await pool.query('SELECT id FROM music_tracks WHERE id = $1', [reported_id]);
             if (trackCheck.rows.length === 0) {
                 return res.status(404).json({ error: "Track not found" });
+            }
+        } else if (reported_type === 'message') {
+            // Жаловаться можно только на сообщение из своего диалога и только
+            // на чужое: иначе через reports можно было бы дёргать чужие ЛС.
+            const messageCheck = await pool.query(
+                `SELECT m.id, m.sender_id
+                   FROM dm_messages m
+                   JOIN dm_threads t ON t.id = m.thread_id
+                  WHERE m.id = $1
+                    AND m.deleted_at IS NULL
+                    AND (t.user_a = $2 OR t.user_b = $2)`,
+                [reported_id, userId]
+            );
+            if (messageCheck.rows.length === 0) {
+                return res.status(404).json({ error: "Message not found" });
+            }
+            if (messageCheck.rows[0].sender_id === userId) {
+                return res.status(400).json({ error: "Cannot report your own message" });
             }
         }
     } catch (err) {
@@ -142,6 +160,7 @@ router.get('/admin', authMiddleware, adminAuth, async (req: AuthRequest, res: Re
                     WHEN r.reported_type = 'wall_comment' THEN apc.content
                     WHEN r.reported_type = 'asset' THEN ma.title
                     WHEN r.reported_type = 'music' THEN mt.title
+                    WHEN r.reported_type = 'message' THEN dm.body
                 END as reported_item_title,
                 CASE 
                     WHEN r.reported_type = 'quest' THEN q.author_id
@@ -151,6 +170,7 @@ router.get('/admin', authMiddleware, adminAuth, async (req: AuthRequest, res: Re
                     WHEN r.reported_type = 'wall_comment' THEN apc.user_id
                     WHEN r.reported_type = 'asset' THEN ma.author_id
                     WHEN r.reported_type = 'music' THEN mt.author_id
+                    WHEN r.reported_type = 'message' THEN dm.sender_id
                 END as reported_user_id,
                 CASE 
                     WHEN r.reported_type = 'quest' THEN q_author.full_name
@@ -160,6 +180,7 @@ router.get('/admin', authMiddleware, adminAuth, async (req: AuthRequest, res: Re
                     WHEN r.reported_type = 'wall_comment' THEN apc_author.full_name
                     WHEN r.reported_type = 'asset' THEN ma_author.full_name
                     WHEN r.reported_type = 'music' THEN mt_author.full_name
+                    WHEN r.reported_type = 'message' THEN dm_sender.full_name
                 END as reported_user_name
             FROM reports r
             LEFT JOIN profiles reporter ON r.reporter_id = reporter.id
@@ -176,6 +197,8 @@ router.get('/admin', authMiddleware, adminAuth, async (req: AuthRequest, res: Re
             LEFT JOIN profiles ma_author ON ma.author_id = ma_author.id
             LEFT JOIN music_tracks mt ON r.reported_type = 'music' AND r.reported_id = mt.id
             LEFT JOIN profiles mt_author ON mt.author_id = mt_author.id
+            LEFT JOIN dm_messages dm ON r.reported_type = 'message' AND r.reported_id = dm.id
+            LEFT JOIN profiles dm_sender ON dm.sender_id = dm_sender.id
             WHERE r.status = $1
             ORDER BY r.created_at DESC
         `;
@@ -272,6 +295,20 @@ router.post('/admin/:id/resolve', authMiddleware, adminAuth, async (req: AuthReq
                 }
                 await pool.query('DELETE FROM music_tracks WHERE id = $1', [report.reported_id]);
                 deleteStoredMedia(MUSIC_STORAGE_DIR, report.reported_id);
+            } else if (report.reported_type === 'message') {
+                // Мягкое удаление: тело сообщения не оставляем даже в БД,
+                // история чата уже фильтрует deleted_at.
+                const messageResult = await pool.query(
+                    'SELECT sender_id FROM dm_messages WHERE id = $1',
+                    [report.reported_id]
+                );
+                if (messageResult.rows.length > 0) {
+                    userIdToBlock = messageResult.rows[0].sender_id;
+                }
+                await pool.query(
+                    "UPDATE dm_messages SET body = '', deleted_at = NOW() WHERE id = $1",
+                    [report.reported_id]
+                );
             }
 
             // Если нужно заблокировать пользователя

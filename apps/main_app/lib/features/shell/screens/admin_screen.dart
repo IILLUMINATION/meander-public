@@ -33,12 +33,13 @@ final adminStatsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((
   return response as Map<String, dynamic>;
 });
 
-final adminActivityProvider =
-    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-      final api = ref.watch(apiServiceProvider);
-      final response = await api.get('admin/activity?days=30');
-      return response as Map<String, dynamic>;
-    });
+final adminActivityProvider = FutureProvider.autoDispose<Map<String, dynamic>>((
+  ref,
+) async {
+  final api = ref.watch(apiServiceProvider);
+  final response = await api.get('admin/activity?days=30');
+  return response as Map<String, dynamic>;
+});
 
 final reportsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((
   ref,
@@ -48,17 +49,19 @@ final reportsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((
   return (response as List).map((j) => j as Map<String, dynamic>).toList();
 });
 
-final musicModerationQueueProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final response = await api.get('admin/music-moderation-queue');
-  return (response as List).map((j) => j as Map<String, dynamic>).toList();
-});
+final musicModerationQueueProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+      final api = ref.watch(apiServiceProvider);
+      final response = await api.get('admin/music-moderation-queue');
+      return (response as List).map((j) => j as Map<String, dynamic>).toList();
+    });
 
-final assetModerationQueueProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final api = ref.watch(apiServiceProvider);
-  final response = await api.get('admin/assets-moderation-queue');
-  return (response as List).map((j) => j as Map<String, dynamic>).toList();
-});
+final assetModerationQueueProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+      final api = ref.watch(apiServiceProvider);
+      final response = await api.get('admin/assets-moderation-queue');
+      return (response as List).map((j) => j as Map<String, dynamic>).toList();
+    });
 
 final blockedUsersProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -177,21 +180,24 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           ),
         ),
       ),
-      body: AdaptiveContent(maxWidth: 1100, child: RefreshIndicator(
-        onRefresh: () async => _refreshAll(),
-        child: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildModerationTab(statsAsync, queueAsync),
-            _buildActivityTab(activityAsync),
-            _buildMusicModerationTab(),
-            _buildAssetModerationTab(),
-            _buildReportsTab(reportsAsync),
-            _buildBlockedUsersTab(),
-            AdminCosmeticsPanel(nonce: _cosmeticsNonce),
-          ],
+      body: AdaptiveContent(
+        maxWidth: 1100,
+        child: RefreshIndicator(
+          onRefresh: () async => _refreshAll(),
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildModerationTab(statsAsync, queueAsync),
+              _buildActivityTab(activityAsync),
+              _buildMusicModerationTab(),
+              _buildAssetModerationTab(),
+              _buildReportsTab(reportsAsync),
+              _buildBlockedUsersTab(),
+              AdminCosmeticsPanel(nonce: _cosmeticsNonce),
+            ],
+          ),
         ),
-      )),
+      ),
     );
   }
 
@@ -558,15 +564,20 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     final musicAsync = ref.watch(musicModerationQueueProvider);
     return musicAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, _) => _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+      error: (err, _) =>
+          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
       data: (tracks) {
         if (tracks.isEmpty) {
-          return _EmptyBlock(icon: Icons.music_off_rounded, text: tr('Музыка: очередь пуста'));
+          return _EmptyBlock(
+            icon: Icons.music_off_rounded,
+            text: tr('Музыка: очередь пуста'),
+          );
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
           itemCount: tracks.length,
-          itemBuilder: (_, i) => _MusicModerationCard(track: tracks[i], ref: ref),
+          itemBuilder: (_, i) =>
+              _MusicModerationCard(track: tracks[i], ref: ref),
         );
       },
     );
@@ -576,15 +587,20 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     final assetAsync = ref.watch(assetModerationQueueProvider);
     return assetAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, _) => _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+      error: (err, _) =>
+          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
       data: (assets) {
         if (assets.isEmpty) {
-          return _EmptyBlock(icon: Icons.widgets_rounded, text: tr('Ассеты: очередь пуста'));
+          return _EmptyBlock(
+            icon: Icons.widgets_rounded,
+            text: tr('Ассеты: очередь пуста'),
+          );
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
           itemCount: assets.length,
-          itemBuilder: (_, i) => _AssetModerationCard(asset: assets[i], ref: ref),
+          itemBuilder: (_, i) =>
+              _AssetModerationCard(asset: assets[i], ref: ref),
         );
       },
     );
@@ -1181,7 +1197,9 @@ class _BlockedUserCard extends StatelessWidget {
         return AlertDialog(
           title: Text(tr('Разблокировать пользователя?')),
           content: Text(
-            trf('Пользователь «{p0}» снова сможет пользоваться приложением.', {'p0': user['full_name'] ?? 'Unknown'}),
+            trf('Пользователь «{p0}» снова сможет пользоваться приложением.', {
+              'p0': user['full_name'] ?? 'Unknown',
+            }),
           ),
           actions: [
             TextButton(
@@ -1398,7 +1416,9 @@ class _ModerationCard extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              status == 'published' ? tr('Квест опубликован') : tr('Квест отклонён'),
+              status == 'published'
+                  ? tr('Квест опубликован')
+                  : tr('Квест отклонён'),
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -1557,12 +1577,24 @@ class _MusicModerationCard extends StatelessWidget {
 
   Future<void> _review(BuildContext context, String status) async {
     try {
-      await ref.read(apiServiceProvider).post('admin/music/${track['id']}/review', body: {'status': status});
+      await ref
+          .read(apiServiceProvider)
+          .post('admin/music/${track['id']}/review', body: {'status': status});
       ref.invalidate(musicModerationQueueProvider);
       ref.invalidate(adminStatsProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'published' ? tr('Трек одобрен') : tr('Трек отклонён'))));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              status == 'published' ? tr('Трек одобрен') : tr('Трек отклонён'),
+            ),
+          ),
+        );
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(trf('Ошибка: {e}', {'e': e}))));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {e}', {'e': e}))));
     }
   }
 
@@ -1572,26 +1604,100 @@ class _MusicModerationCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: scheme.surfaceContainerHigh, borderRadius: BorderRadius.circular(20)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(width: 56, height: 56, decoration: BoxDecoration(color: scheme.secondaryContainer, borderRadius: BorderRadius.circular(12)), child: Icon(Icons.music_note_rounded, color: scheme.onSecondaryContainer)),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(track['title']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
-            Text('${track['performer'] ?? ''} • ${track['genre'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-            if (track['license'] != null) Text(trf('Лицензия: {p0}', {'p0': track['license']}), style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
-          ])),
-        ]),
-        const SizedBox(height: 8),
-        if (track['author_name'] != null) Row(children: [Icon(Icons.person_outline_rounded, size: 14, color: scheme.onSurfaceVariant), const SizedBox(width: 4), Text(track['author_name'].toString(), style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant))]),
-        const SizedBox(height: 12),
-        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-          OutlinedButton.icon(icon: Icon(Icons.close_rounded, color: scheme.error, size: 18), label: Text(tr('Отклонить'), style: TextStyle(color: scheme.error)), onPressed: () => _review(context, 'rejected')),
-          const SizedBox(width: 8),
-          FilledButton.icon(icon: const Icon(Icons.check_rounded, size: 18), label: Text(tr('Одобрить')), onPressed: () => _review(context, 'published')),
-        ]),
-      ]),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.music_note_rounded,
+                  color: scheme.onSecondaryContainer,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track['title']?.toString() ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${track['performer'] ?? ''} • ${track['genre'] ?? ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (track['license'] != null)
+                      Text(
+                        trf('Лицензия: {p0}', {'p0': track['license']}),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (track['author_name'] != null)
+            Row(
+              children: [
+                Icon(
+                  Icons.person_outline_rounded,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  track['author_name'].toString(),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                icon: Icon(Icons.close_rounded, color: scheme.error, size: 18),
+                label: Text(
+                  tr('Отклонить'),
+                  style: TextStyle(color: scheme.error),
+                ),
+                onPressed: () => _review(context, 'rejected'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(tr('Одобрить')),
+                onPressed: () => _review(context, 'published'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1603,12 +1709,26 @@ class _AssetModerationCard extends StatelessWidget {
 
   Future<void> _review(BuildContext context, String status) async {
     try {
-      await ref.read(apiServiceProvider).post('admin/assets/${asset['id']}/review', body: {'status': status});
+      await ref
+          .read(apiServiceProvider)
+          .post('admin/assets/${asset['id']}/review', body: {'status': status});
       ref.invalidate(assetModerationQueueProvider);
       ref.invalidate(adminStatsProvider);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'published' ? tr('Ассет одобрен') : tr('Ассет отклонён'))));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              status == 'published'
+                  ? tr('Ассет одобрен')
+                  : tr('Ассет отклонён'),
+            ),
+          ),
+        );
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(trf('Ошибка: {e}', {'e': e}))));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {e}', {'e': e}))));
     }
   }
 
@@ -1618,35 +1738,115 @@ class _AssetModerationCard extends StatelessWidget {
     final kind = asset['kind']?.toString() ?? 'asset';
     IconData icon;
     switch (kind) {
-      case 'button_preset': icon = Icons.smart_button_rounded; break;
-      case 'background': icon = Icons.wallpaper_rounded; break;
-      case 'sfx': icon = Icons.music_note_rounded; break;
-      case 'font': icon = Icons.text_fields_rounded; break;
-      default: icon = Icons.widgets_rounded;
+      case 'button_preset':
+        icon = Icons.smart_button_rounded;
+        break;
+      case 'background':
+        icon = Icons.wallpaper_rounded;
+        break;
+      case 'sfx':
+        icon = Icons.music_note_rounded;
+        break;
+      case 'font':
+        icon = Icons.text_fields_rounded;
+        break;
+      default:
+        icon = Icons.widgets_rounded;
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: scheme.surfaceContainerHigh, borderRadius: BorderRadius.circular(20)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(width: 56, height: 56, decoration: BoxDecoration(color: scheme.secondaryContainer, borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: scheme.onSecondaryContainer)),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(asset['title']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
-            Text('$kind • ${asset['genre'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-            if (asset['license'] != null) Text(trf('Лицензия: {p0}', {'p0': asset['license']}), style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
-          ])),
-        ]),
-        const SizedBox(height: 8),
-        if (asset['author_name'] != null) Row(children: [Icon(Icons.person_outline_rounded, size: 14, color: scheme.onSurfaceVariant), const SizedBox(width: 4), Text(asset['author_name'].toString(), style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant))]),
-        const SizedBox(height: 12),
-        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-          OutlinedButton.icon(icon: Icon(Icons.close_rounded, color: scheme.error, size: 18), label: Text(tr('Отклонить'), style: TextStyle(color: scheme.error)), onPressed: () => _review(context, 'rejected')),
-          const SizedBox(width: 8),
-          FilledButton.icon(icon: const Icon(Icons.check_rounded, size: 18), label: Text(tr('Одобрить')), onPressed: () => _review(context, 'published')),
-        ]),
-      ]),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: scheme.onSecondaryContainer),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      asset['title']?.toString() ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '$kind • ${asset['genre'] ?? ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (asset['license'] != null)
+                      Text(
+                        trf('Лицензия: {p0}', {'p0': asset['license']}),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (asset['author_name'] != null)
+            Row(
+              children: [
+                Icon(
+                  Icons.person_outline_rounded,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  asset['author_name'].toString(),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                icon: Icon(Icons.close_rounded, color: scheme.error, size: 18),
+                label: Text(
+                  tr('Отклонить'),
+                  style: TextStyle(color: scheme.error),
+                ),
+                onPressed: () => _review(context, 'rejected'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(tr('Одобрить')),
+                onPressed: () => _review(context, 'published'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1711,10 +1911,14 @@ class _ReportCard extends StatelessWidget {
     final confirm = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(withBan ? tr('Удалить и заблокировать?') : tr('Удалить контент?')),
+        title: Text(
+          withBan ? tr('Удалить и заблокировать?') : tr('Удалить контент?'),
+        ),
         content: Text(
           withBan
-              ? tr('Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.')
+              ? tr(
+                  'Контент будет удалён, а автор — заблокирован. Это действие нельзя отменить.',
+                )
               : tr('Контент будет удалён без возможности восстановления.'),
         ),
         actions: [
@@ -1764,6 +1968,8 @@ class _ReportCard extends StatelessWidget {
         return tr('Отзыв');
       case 'user':
         return tr('Пользователь');
+      case 'message':
+        return tr('Сообщение');
       default:
         return tr('Контент');
     }
@@ -1801,7 +2007,7 @@ class _ReportCard extends StatelessWidget {
     } else if (type == 'review' && itemTitle != null && itemTitle.isNotEmpty) {
       reviewText = itemTitle;
     }
-    
+
     String contentText = tr('Контент не загружен');
     if (itemTitle != null && itemTitle.isNotEmpty && itemTitle != 'null') {
       contentText = itemTitle;
@@ -1853,7 +2059,9 @@ class _ReportCard extends StatelessWidget {
                         vertical: 2,
                       ),
                       child: Text(
-                        trf('От: {reporterName}', {'reporterName': reporterName}),
+                        trf('От: {reporterName}', {
+                          'reporterName': reporterName,
+                        }),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: textTheme.labelMedium?.copyWith(
@@ -1976,8 +2184,10 @@ class _ReportCard extends StatelessWidget {
                     ),
                   ),
                 ],
-                
-                if (type == 'wall_post' || type == 'wall_comment') ...[
+
+                if (type == 'wall_post' ||
+                    type == 'wall_comment' ||
+                    type == 'message') ...[
                   Text(
                     contentText,
                     style: textTheme.bodyMedium?.copyWith(

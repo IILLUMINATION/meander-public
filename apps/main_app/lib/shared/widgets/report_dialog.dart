@@ -57,8 +57,9 @@ class _ReportDialogState extends ConsumerState<ReportDialog> {
 
     if (!await ensureAccount(
       context,
-      why:
-          tr('Жалобы разбирает модерация, а она видит обращения только от авторов с аккаунтом. Войдите на вкладке «Вход» — и кнопка заработает.'),
+      why: tr(
+        'Жалобы разбирает модерация, а она видит обращения только от авторов с аккаунтом. Войдите на вкладке «Вход» — и кнопка заработает.',
+      ),
     )) {
       return;
     }
@@ -70,7 +71,7 @@ class _ReportDialogState extends ConsumerState<ReportDialog> {
 
     try {
       final api = ref.read(apiServiceProvider);
-      
+
       await api.post(
         'reports',
         body: {
@@ -119,6 +120,8 @@ class _ReportDialogState extends ConsumerState<ReportDialog> {
         return tr('Пожаловаться на отзыв');
       case 'user':
         return tr('Пожаловаться на пользователя');
+      case 'message':
+        return tr('Пожаловаться на сообщение');
       default:
         return tr('Пожаловаться');
     }
@@ -129,10 +132,7 @@ class _ReportDialogState extends ConsumerState<ReportDialog> {
     final scheme = Theme.of(context).colorScheme;
     return AlertDialog(
       backgroundColor: scheme.surfaceContainerHigh,
-      title: Text(
-        _getTitle(),
-        style: TextStyle(color: scheme.onSurface),
-      ),
+      title: Text(_getTitle(), style: TextStyle(color: scheme.onSurface)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -151,27 +151,35 @@ class _ReportDialogState extends ConsumerState<ReportDialog> {
             ],
             Text(
               tr('Причина жалобы:'),
-              style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
-            ..._reasons.map((reason) => RadioListTile<String>(
-                  title: Text(
-                    reason.$2,
-                    style: TextStyle(color: scheme.onSurface),
-                  ),
-                  value: reason.$1,
-                  groupValue: _selectedReason,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedReason = value;
-                    });
-                  },
-                  activeColor: scheme.error,
-                )),
+            ..._reasons.map(
+              (reason) => RadioListTile<String>(
+                title: Text(
+                  reason.$2,
+                  style: TextStyle(color: scheme.onSurface),
+                ),
+                value: reason.$1,
+                groupValue: _selectedReason,
+                onChanged: (value) {
+                  setState(() {
+                    _selectedReason = value;
+                  });
+                },
+                activeColor: scheme.error,
+              ),
+            ),
             const SizedBox(height: 16),
             Text(
               tr('Дополнительная информация (необязательно):'),
-              style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             TextField(

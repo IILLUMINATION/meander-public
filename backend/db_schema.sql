@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS promo_code_usages (
 CREATE TABLE IF NOT EXISTS reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reporter_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    reported_type TEXT NOT NULL CHECK (reported_type IN ('quest', 'review', 'user', 'wall_post', 'wall_comment', 'asset', 'music')),
+    reported_type TEXT NOT NULL CHECK (reported_type IN ('quest', 'review', 'user', 'wall_post', 'wall_comment', 'asset', 'music', 'message')),
     reported_id UUID NOT NULL,
     reason TEXT NOT NULL,
     description TEXT,

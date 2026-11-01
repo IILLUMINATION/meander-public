@@ -5,6 +5,7 @@ import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/features/profile/screens/profile_screen.dart';
 import 'package:canvas_app/shared/entity_links/entity_ref_card.dart';
+import 'package:canvas_app/shared/widgets/report_dialog.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:flutter/material.dart';
@@ -29,9 +30,7 @@ Future<void> openChat(BuildContext context, String peerId) async {
     return;
   }
   if (me == peerId) {
-    messenger.showSnackBar(
-      SnackBar(content: Text(tr('Себе написать нельзя'))),
-    );
+    messenger.showSnackBar(SnackBar(content: Text(tr('Себе написать нельзя'))));
     return;
   }
   await Navigator.push(
@@ -140,7 +139,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               subtitle: Text(
                 blocked
                     ? tr('Переписка и новый чат снова будут доступны')
-                    : tr('Человек не сможет писать тебе, пока ты не разблокируешь'),
+                    : tr(
+                        'Человек не сможет писать тебе, пока ты не разблокируешь',
+                      ),
               ),
               onTap: () {
                 Navigator.pop(sheetContext);
@@ -160,6 +161,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : await notifier.block(peer);
     if (!mounted || error == null) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+  }
+
+  Future<void> _reportMessage(DmMessage message) async {
+    if (message.isService || message.pending) return;
+    await showAdaptiveSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(
+                Icons.flag_outlined,
+                color: Theme.of(sheetContext).colorScheme.error,
+              ),
+              title: Text(tr('Пожаловаться')),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                showDialog<void>(
+                  context: context,
+                  builder: (_) => ReportDialog(
+                    reportedType: 'message',
+                    reportedId: message.id,
+                    reportedTitle: message.body,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -246,7 +279,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           padding: const EdgeInsets.all(32),
           child: Text(
             state.isSystem
-                ? tr('Здесь появятся новости команды и уведомления о том, что происходило с аккаунтом.')
+                ? tr(
+                    'Здесь появятся новости команды и уведомления о том, что происходило с аккаунтом.',
+                  )
                 : tr('Сообщений пока нет — напиши первым.'),
             textAlign: TextAlign.center,
             style: Theme.of(
@@ -284,9 +319,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (olderRetry && index == (state.isLoadingMore ? 1 : 0)) {
           return _OlderErrorBanner(
             message: state.olderError!,
-            onRetry: () => ref
-                .read(dmChatProvider(widget.peerId).notifier)
-                .loadOlder(),
+            onRetry: () =>
+                ref.read(dmChatProvider(widget.peerId).notifier).loadOlder(),
           );
         }
         final position = index - leading;
@@ -319,6 +353,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               mine: mine,
               isGroupEnd: !groupContinues,
               showStamp: !groupContinues,
+              onReport: mine || message.isService
+                  ? null
+                  : () => _reportMessage(message),
             ),
           ],
         );
@@ -449,7 +486,9 @@ class _ChatHead extends StatelessWidget {
           ? null
           : () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => ProfileScreen(userId: current.id)),
+              MaterialPageRoute(
+                builder: (_) => ProfileScreen(userId: current.id),
+              ),
             ),
       child: Row(
         children: [
@@ -502,10 +541,12 @@ class _Bubble extends StatelessWidget {
     required this.mine,
     required this.isGroupEnd,
     required this.showStamp,
+    this.onReport,
   });
 
   final DmMessage message;
   final bool mine;
+  final VoidCallback? onReport;
 
   /// Хвостик у пузыря только у последней реплики группы: иначе подряд идущие
   /// сообщения читаются как отдельные карточки.
@@ -567,41 +608,71 @@ class _Bubble extends StatelessWidget {
 
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-        ),
-        margin: EdgeInsets.only(bottom: isGroupEnd ? 8 : 3),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: mine ? const Radius.circular(18) : tail,
-            bottomRight: mine ? tail : const Radius.circular(18),
+      child: GestureDetector(
+        key: ValueKey('dm-message-${message.id}'),
+        behavior: HitTestBehavior.opaque,
+        onLongPress: onReport,
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width * 0.78,
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            MeanderEntityLinkText(
-              data: message.body,
-              style: textTheme.bodyMedium?.copyWith(
-                color: textColor,
-                height: 1.35,
-              ),
+          margin: EdgeInsets.only(bottom: isGroupEnd ? 8 : 3),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: mine ? const Radius.circular(18) : tail,
+              bottomRight: mine ? tail : const Radius.circular(18),
             ),
-            if (showStamp) ...[
-              const SizedBox(height: 2),
-              Text(
-                _stamp(message.createdAt),
-                style: textTheme.labelSmall?.copyWith(
-                  color: textColor.withValues(alpha: 0.7),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              MeanderEntityLinkText(
+                data: message.body,
+                style: textTheme.bodyMedium?.copyWith(
+                  color: textColor,
+                  height: 1.35,
                 ),
               ),
+              if (showStamp || onReport != null) ...[
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (showStamp)
+                      Text(
+                        _stamp(message.createdAt),
+                        style: textTheme.labelSmall?.copyWith(
+                          color: textColor.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    if (onReport != null) ...[
+                      const SizedBox(width: 4),
+                      InkWell(
+                        key: ValueKey('dm-report-${message.id}'),
+                        onTap: onReport,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Tooltip(
+                          message: tr('Пожаловаться'),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(
+                              Icons.flag_outlined,
+                              size: 14,
+                              color: textColor.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -707,7 +778,9 @@ class _SystemChatFooter extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                tr('Ответить нельзя: это аккаунт команды. Сюда приходят новости и системные уведомления.'),
+                tr(
+                  'Ответить нельзя: это аккаунт команды. Сюда приходят новости и системные уведомления.',
+                ),
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),

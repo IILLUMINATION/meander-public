@@ -215,6 +215,21 @@ void main() {
     expect(find.text('загляни в пятницу'), findsOneWidget);
   });
 
+  testWidgets('на чужое сообщение можно пожаловаться', (tester) async {
+    await _openChat(tester, _peer);
+
+    final reportButton = tester.widget<InkWell>(
+      find.byKey(const ValueKey('dm-report-m1')),
+    );
+    reportButton.onTap!();
+    await tester.pumpAndSettle();
+    expect(find.text('Пожаловаться'), findsOneWidget);
+
+    await tester.tap(find.text('Пожаловаться'));
+    await tester.pumpAndSettle();
+    expect(find.text('Пожаловаться на сообщение'), findsOneWidget);
+  });
+
   testWidgets('чат команды читается, но писать в него не предлагают', (
     tester,
   ) async {
