@@ -175,4 +175,6 @@ final Map<String, String> enProfile = {
       'Questions about these terms and moderation: @meanderRu.',
   'Условиями использования (EULA)': 'Terms of Use (EULA)',
   'и': 'and',
+  'Пожаловаться на сообщение': 'Report message',
+  'Сообщение': 'Message',
 };
