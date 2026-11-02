@@ -272,6 +272,7 @@ String? _blockMarkerAt(String source, int at) {
 /// шрифта, акценты, встроенный код.
 final List<RegExp> _inlineTagExps = [
   RegExp(r'\[color=#[0-9A-Fa-f]{6,8}\]'),
+  RegExp(r'\[outline=#[0-9A-Fa-f]{6,8}(?::[0-9.]+)?\]'),
   RegExp(r'\[font=[^\]\n]+\]'),
 ];
 
@@ -280,7 +281,7 @@ String? _inlineTokenAt(String source, int at) {
     final m = re.matchAsPrefix(source, at);
     if (m != null) return m.group(0);
   }
-  for (final token in const ['[/color]', '[/font]']) {
+  for (final token in const ['[/color]', '[/outline]', '[/font]']) {
     if (source.startsWith(token, at)) return token;
   }
   for (final token in TextRevealPlan._emphasisTokens) {
@@ -292,8 +293,11 @@ String? _inlineTokenAt(String source, int at) {
 /// Что закроет конструкцию, если обрезали внутри неё.
 String? _closerOf(String token) {
   if (token.startsWith('[color=')) return '[/color]';
+  if (token.startsWith('[outline=')) return '[/outline]';
   if (token.startsWith('[font=')) return '[/font]';
-  if (token == '[/color]' || token == '[/font]') return token;
+  if (token == '[/color]' || token == '[/outline]' || token == '[/font]') {
+    return token;
+  }
   if (TextRevealPlan._emphasisTokens.contains(token)) return token;
   return null;
 }

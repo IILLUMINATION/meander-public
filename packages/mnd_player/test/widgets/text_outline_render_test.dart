@@ -104,7 +104,8 @@ void main() {
   testWidgets('обводка: под текстом лежит штриховой слой того же текста', (
     tester,
   ) async {
-    const source = '# Заголовок\n\nобычный [color=#00FF00]зелёный[/color] текст';
+    const source =
+        '# Заголовок\n\nобычный [color=#00FF00]зелёный[/color] текст';
     await renderText(
       tester,
       textItem(text: source, outlineColor: _outline, outlineWidth: 4),
@@ -130,7 +131,11 @@ void main() {
     tester,
   ) async {
     await renderText(tester, textItem(text: 'текст', outlineWidth: 9));
-    expect(_strokePaints(tester), isEmpty, reason: 'толщина не включает обводку');
+    expect(
+      _strokePaints(tester),
+      isEmpty,
+      reason: 'толщина не включает обводку',
+    );
 
     await renderText(tester, textItem(text: 'текст', outlineColor: _outline));
     final defaults = _strokePaints(tester);
@@ -153,13 +158,82 @@ void main() {
   testWidgets('режим scale тоже получает слой обводки', (tester) async {
     await renderText(
       tester,
-      textItem(text: '**жирный** текст', outlineColor: _outline, outlineWidth: 3),
+      textItem(
+        text: '**жирный** текст',
+        outlineColor: _outline,
+        outlineWidth: 3,
+      ),
       textFit: 'scale',
     );
     final strokes = _strokePaints(tester);
     expect(strokes, isNotEmpty);
-    expect(strokes.every((p) => p.color == _outline && p.strokeWidth == 3.0), isTrue);
+    expect(
+      strokes.every((p) => p.color == _outline && p.strokeWidth == 3.0),
+      isTrue,
+    );
     expect(_drawnTexts(tester).where((t) => t.contains('жирный')).length, 2);
+  });
+
+  testWidgets('фрагментная обводка красит только выделенный кусок', (
+    tester,
+  ) async {
+    await renderText(
+      tester,
+      textItem(text: 'до [outline=#0000FF:3]синий[/outline] после'),
+    );
+
+    final shadowed = <TextStyle>[];
+    void walk(InlineSpan span) {
+      if (span is! TextSpan) return;
+      if (span.style?.shadows?.isNotEmpty ?? false) {
+        shadowed.add(span.style!);
+      }
+      for (final child in span.children ?? const <InlineSpan>[]) {
+        walk(child);
+      }
+    }
+
+    for (final element in tester.allElements) {
+      final widget = element.widget;
+      if (widget is RichText) walk(widget.text);
+    }
+    expect(shadowed, isNotEmpty, reason: 'у фрагмента нет теневого контура');
+    expect(
+      shadowed.every(
+        (s) => s.shadows!.every(
+          (shadow) => shadow.color == const Color(0xFF0000FF),
+        ),
+      ),
+      isTrue,
+    );
+    expect(shadowed.every((s) => s.shadows!.length == 8), isTrue);
+  });
+
+  testWidgets('item-обводка не дублирует фрагментные тени в штриховом слое', (
+    tester,
+  ) async {
+    await renderText(
+      tester,
+      textItem(
+        text: '[outline=#00FF00]зелёный[/outline] текст',
+        outlineColor: _outline,
+      ),
+    );
+    final strokes = _strokePaints(tester);
+    expect(strokes, isNotEmpty);
+    final shadowedStroke = tester.allWidgets.whereType<RichText>().any((w) {
+      bool hasShadows(InlineSpan span) {
+        if (span is! TextSpan) return false;
+        if (span.style?.foreground?.style == PaintingStyle.stroke &&
+            (span.style?.shadows?.isNotEmpty ?? false)) {
+          return true;
+        }
+        return (span.children ?? const <InlineSpan>[]).any(hasShadows);
+      }
+
+      return hasShadows(w.text);
+    });
+    expect(shadowedStroke, isFalse);
   });
 
   testWidgets('анимация появления режет и слой обводки', (tester) async {
@@ -180,10 +254,18 @@ void main() {
     }
     expect(stroked, isNotEmpty);
     for (final shown in stroked) {
-      expect(shown.length, lessThan(full.length), reason: 'обводка набрана целиком: $shown');
+      expect(
+        shown.length,
+        lessThan(full.length),
+        reason: 'обводка набрана целиком: $shown',
+      );
       expect(full.startsWith(shown), isTrue);
     }
-    expect(texts, contains(full), reason: 'невидимый резерв габарита обязан быть полным');
+    expect(
+      texts,
+      contains(full),
+      reason: 'невидимый резерв габарита обязан быть полным',
+    );
   });
 }
 
