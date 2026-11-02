@@ -298,6 +298,27 @@ async function execBlock(block) {
     }
     return null;
   }
+  if (type === 'for_each') {
+    var tableName5 = String(block.table || block['таблица'] || '').trim();
+    var t5 = getTable(tableName5);
+    if (!t5 || !t5.rows || !block.children) return null;
+    var prefix5 = String(block.var_prefix || block['префикс'] || 'row').trim();
+    if (!prefix5) prefix5 = 'row';
+    var index5 = String(block.index_variable || block['индекс'] || 'i').trim();
+    if (!index5) index5 = 'i';
+    var cols5 = t5.columns || [];
+    for (var i5 = 0; i5 < t5.rows.length; i5++) {
+      setVariable(index5, i5);
+      for (var c5 = 0; c5 < cols5.length; c5++) {
+        setVariable(prefix5 + '_' + cols5[c5], t5.rows[i5][cols5[c5]]);
+      }
+      for (var ch5 = 0; ch5 < block.children.length; ch5++) {
+        var rr5 = await execBlock(block.children[ch5]);
+        if (rr5 != null) return rr5;
+      }
+    }
+    return null;
+  }
   if (type === 'wait' || type === 'задержка') {
     var v3 = evalExpr(block.expression || block.milliseconds || '0');
     var ms = (typeof v3 === 'number') ? v3 : parseInt(String(v3), 10) || 0;

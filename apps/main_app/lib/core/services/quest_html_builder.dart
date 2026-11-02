@@ -239,6 +239,19 @@ class QuestHtmlBuilder {
       }
     }
 
+    // Таблицы квеста: без них HTML-плеер играл с пустым state.tables,
+    // и любой квест с таблицами молча терял данные.
+    final initialTables = <String, dynamic>{};
+    if (config != null) {
+      final tables = config['tables'] as List<dynamic>? ?? const [];
+      for (final raw in tables) {
+        if (raw is! Map) continue;
+        final table = Map<String, dynamic>.from(raw);
+        final name = table['name']?.toString() ?? '';
+        if (name.isNotEmpty) initialTables[name] = table;
+      }
+    }
+
     // Переменные квеста (initial)
     final initialVariables = <String, dynamic>{};
     if (config != null) {
@@ -373,7 +386,7 @@ class QuestHtmlBuilder {
       ...{
         for (final id in bootScriptIds)
           if (scriptsMap.containsKey(id)) id,
-      }
+      },
     ];
 
     final questMeta = {
@@ -387,6 +400,7 @@ class QuestHtmlBuilder {
       'chapters': chaptersForJs,
       'nodes': jsNodes,
       'variables': initialVariables,
+      'tables': initialTables,
       'scripts': scriptsMap,
       if (startScriptIds.isNotEmpty) 'startScripts': startScriptIds,
     };

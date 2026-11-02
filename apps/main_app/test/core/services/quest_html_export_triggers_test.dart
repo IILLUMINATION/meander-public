@@ -147,6 +147,68 @@ void main() {
     });
   });
 
+  test('экспорт переносит таблицы в quest-data, а не теряет их', () async {
+    final configPath = QuestPaths.config(_questId);
+    final old = File(configPath);
+    final backup = old.existsSync() ? old.readAsStringSync() : null;
+    addTearDown(() {
+      if (backup == null) {
+        if (old.existsSync()) old.deleteSync();
+      } else {
+        old.writeAsStringSync(backup);
+      }
+    });
+    await FileStorage.writeJsonFile(configPath, {
+      'id': _questId,
+      'title': 'Табличный квест',
+      'startNodeId': 'n1',
+      'tables': [
+        {
+          'name': 'лавка',
+          'columns': ['цена'],
+          'rows': [
+            {'цена': 30},
+          ],
+          'data': {'открыто': true},
+        },
+      ],
+    });
+
+    final nodes = <Map<String, dynamic>>[
+      {
+        'id': 'n1',
+        'chapterId': 'ch1',
+        'title': 'Нода 1',
+        'content': {
+          'items': [
+            {'id': 't1', 'type': 'text', 'text': 'Таблица'},
+          ],
+        },
+      },
+    ];
+    final book = QuestBook(
+      id: _questId,
+      title: 'Табличный квест',
+      author: null,
+      description: null,
+      startNodeId: 'n1',
+      nodesById: {'n1': nodes.first},
+      chapters: [QuestChapter(id: 'ch1', name: 'Глава 1', nodes: nodes)],
+      previewBytes: null,
+      previewMime: null,
+      customFontFileName: null,
+      customFontBytes: null,
+    );
+
+    final quest = await _questData(await QuestHtmlBuilder.build(book));
+    expect(quest['tables'], isA<Map>());
+    expect(quest['tables']['лавка']['columns'], ['цена']);
+    expect(quest['tables']['лавка']['rows'], [
+      {'цена': 30},
+    ]);
+    expect(quest['tables']['лавка']['data'], {'открыто': true});
+  });
+
   /// Реестра «Глобальные скрипты» в конфиге больше нет: движок (и этот
   /// экспорт вместе с ним) находит скрипты запуска по объявленному событию.
   /// Плоский скрипт без event-обёртки в запуске квеста не участвует — иначе

@@ -130,15 +130,16 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
 
   void _syncHeaderScroll() {
     if (!_hHeader.hasClients || !_hScroll.hasClients) return;
-    final target = _hScroll.offset
-        .clamp(0.0, _hHeader.position.maxScrollExtent);
+    final target = _hScroll.offset.clamp(
+      0.0,
+      _hHeader.position.maxScrollExtent,
+    );
     if ((_hHeader.offset - target).abs() > 0.5) _hHeader.jumpTo(target);
   }
 
   void _syncRowNumbersScroll() {
     if (!_vRows.hasClients || !_vScroll.hasClients) return;
-    final target = _vScroll.offset
-        .clamp(0.0, _vRows.position.maxScrollExtent);
+    final target = _vScroll.offset.clamp(0.0, _vRows.position.maxScrollExtent);
     if ((_vRows.offset - target).abs() > 0.5) _vRows.jumpTo(target);
   }
 
@@ -428,7 +429,12 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _table.data = next;
       _hasEdits = true;
     });
-    _snack(trf('Ключей скриптов: было {before}, стало {p0}', {'before': before, 'p0': next.length}));
+    _snack(
+      trf('Ключей скриптов: было {before}, стало {p0}', {
+        'before': before,
+        'p0': next.length,
+      }),
+    );
   }
 
   Future<void> _addColumn() async {
@@ -540,9 +546,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     final insertAt = index.clamp(0, _table.rows.length);
     _pushUndo(columns: false, rows: true);
     setState(() {
-      _table.insertRowAt(insertAt, {
-        for (final col in _table.columns) col: '',
-      });
+      _table.insertRowAt(insertAt, {for (final col in _table.columns) col: ''});
       _selRow = insertAt;
       _hasEdits = true;
       _syncFormulaFromSelection();
@@ -579,50 +583,50 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
               ListTile(
                 title: Text(
                   trf('Строка {p0}', {'p0': row + 1}),
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                dense: true,
               ),
-              dense: true,
-            ),
-            ListTile(
-              leading: const Icon(Icons.label_outline_rounded),
-              title: Text(tr('Имя строки…')),
-              subtitle: Text(
-                _table.rowName(row).isEmpty
-                    ? tr('Пока без имени — доступ по номеру')
-                    : _table.rowName(row),
+              ListTile(
+                leading: const Icon(Icons.label_outline_rounded),
+                title: Text(tr('Имя строки…')),
+                subtitle: Text(
+                  _table.rowName(row).isEmpty
+                      ? tr('Пока без имени — доступ по номеру')
+                      : _table.rowName(row),
+                ),
+                onTap: () => Navigator.pop(ctx, 'rename'),
               ),
-              onTap: () => Navigator.pop(ctx, 'rename'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.arrow_upward),
-              title: Text(tr('Вставить строку выше')),
-              onTap: () => Navigator.pop(ctx, 'insertAbove'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.arrow_downward),
-              title: Text(tr('Вставить строку ниже')),
-              onTap: () => Navigator.pop(ctx, 'insertBelow'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.chevron_left),
-              title: Text(tr('Переместить выше')),
-              enabled: row > 0,
-              onTap: () => Navigator.pop(ctx, 'moveUp'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.chevron_right),
-              title: Text(tr('Переместить ниже')),
-              enabled: row < _table.rows.length - 1,
-              onTap: () => Navigator.pop(ctx, 'moveDown'),
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: scheme.error),
-              title: Text(
-                tr('Удалить строку'),
-                style: TextStyle(color: scheme.error),
+              ListTile(
+                leading: const Icon(Icons.arrow_upward),
+                title: Text(tr('Вставить строку выше')),
+                onTap: () => Navigator.pop(ctx, 'insertAbove'),
               ),
-              onTap: () => Navigator.pop(ctx, 'delete'),
-            ),
+              ListTile(
+                leading: const Icon(Icons.arrow_downward),
+                title: Text(tr('Вставить строку ниже')),
+                onTap: () => Navigator.pop(ctx, 'insertBelow'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.chevron_left),
+                title: Text(tr('Переместить выше')),
+                enabled: row > 0,
+                onTap: () => Navigator.pop(ctx, 'moveUp'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.chevron_right),
+                title: Text(tr('Переместить ниже')),
+                enabled: row < _table.rows.length - 1,
+                onTap: () => Navigator.pop(ctx, 'moveDown'),
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_outline, color: scheme.error),
+                title: Text(
+                  tr('Удалить строку'),
+                  style: TextStyle(color: scheme.error),
+                ),
+                onTap: () => Navigator.pop(ctx, 'delete'),
+              ),
             ],
           ),
         ),
@@ -649,8 +653,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
   /// `{таблица["имя"]["колонка"]}`. Пустое имя — доступ по номеру, как раньше.
   Future<void> _renameRow(int row) async {
     if (row < 0 || row >= _table.rows.length) return;
-    final exampleCol =
-        _table.columns.isEmpty ? tr('колонка') : _table.columns.first;
+    final exampleCol = _table.columns.isEmpty
+        ? tr('колонка')
+        : _table.columns.first;
     String? validate(String name) {
       if (name.isEmpty) return null;
       final reserved = [
@@ -737,8 +742,8 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _snack(trf('Столбец «{col}» уже есть', {'col': name}));
       return;
     }
-    final insertAt = _selRow == null
-        ? _table.columns.length
+    final insertAt = _table.columns.isEmpty
+        ? 0
         : (_selCol + 1).clamp(0, _table.columns.length);
     _pushUndo(columns: true, rows: true);
     final newCols = [..._table.columns]..insert(insertAt, name);
@@ -809,7 +814,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
           builder: (ctx) => AlertDialog(
             title: Text(tr('Заменить значение вложенной таблицей?')),
             content: Text(
-              tr('В ячейке уже есть значение или формула. Оно будет заменено подтаблицей.'),
+              tr(
+                'В ячейке уже есть значение или формула. Оно будет заменено подтаблицей.',
+              ),
             ),
             actions: [
               TextButton(
@@ -854,12 +861,11 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     final col = level.parentCol;
     if (row == null || col == null || _levels.length < 2) return;
     final parent = _levels[_levels.length - 2];
-    if (row >= parent.table.rows.length ||
-        col >= parent.table.columns.length) {
+    if (row >= parent.table.rows.length || col >= parent.table.columns.length) {
       return;
     }
-    parent.table.rows[row][parent.table.columns[col]] =
-        level.table.toNestedValue();
+    parent.table.rows[row][parent.table.columns[col]] = level.table
+        .toNestedValue();
   }
 
   /// Ярус выше: изменения подтаблицы возвращаются в ячейку родителя.
@@ -873,13 +879,13 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
         _levels.removeLast();
         final parent = _levels.last;
         final row = closing.parentRow;
-        if (row != null &&
-            row >= 0 &&
-            row < parent.table.rows.length) {
+        if (row != null && row >= 0 && row < parent.table.rows.length) {
           parent.selRow = row;
           if (parent.table.columns.isNotEmpty) {
-            parent.selCol = (closing.parentCol ?? 0)
-                .clamp(0, parent.table.columns.length - 1);
+            parent.selCol = (closing.parentCol ?? 0).clamp(
+              0,
+              parent.table.columns.length - 1,
+            );
           }
         }
       }
@@ -912,8 +918,8 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
           col >= parent.table.columns.length) {
         continue;
       }
-      parent.table.rows[row][parent.table.columns[col]] =
-          child.table.toNestedValue();
+      parent.table.rows[row][parent.table.columns[col]] = child.table
+          .toNestedValue();
     }
   }
 
@@ -945,71 +951,71 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
               ListTile(
                 title: Text(
                   trf('Ячейка {p0}', {'p0': _cellAddress(row, col)}),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                nested != null
-                    ? trf('Вложенная таблица {p0}×{p1}', {
-                        'p0': nested.columns.length,
-                        'p1': nested.rows.length,
-                      })
-                    : (hasValue ? tr('Формула или значение') : tr('Пусто')),
-              ),
-              dense: true,
-            ),
-            if (nested != null)
-              ListTile(
-                leading: const Icon(Icons.grid_on_rounded),
-                title: Text(tr('Открыть вложенную таблицу')),
-                onTap: () => Navigator.pop(ctx, 'openNested'),
-              )
-            else ...[
-              ListTile(
-                leading: const Icon(Icons.functions),
-                title: Text(tr('Изменить формулу')),
-                onTap: () => Navigator.pop(ctx, 'formula'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: Text(
-                  hasValue
-                      ? tr('Заменить на вложенную таблицу')
-                      : tr('Создать вложенную таблицу'),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                onTap: () => Navigator.pop(ctx, 'makeNested'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.image_outlined),
-                title: Text(tr('Вставить картинку из ресурсов')),
-                onTap: () => Navigator.pop(ctx, 'image'),
-              ),
-            ],
-            if (hasValue && nested == null)
-              ListTile(
-                leading: const Icon(Icons.backspace_outlined),
-                title: Text(tr('Очистить ячейку')),
-                onTap: () => Navigator.pop(ctx, 'clear'),
-              ),
-            if (nested != null)
-              ListTile(
-                leading: Icon(Icons.delete_outline, color: scheme.error),
-                title: Text(
-                  tr('Удалить вложенную таблицу'),
-                  style: TextStyle(color: scheme.error),
+                subtitle: Text(
+                  nested != null
+                      ? trf('Вложенная таблица {p0}×{p1}', {
+                          'p0': nested.columns.length,
+                          'p1': nested.rows.length,
+                        })
+                      : (hasValue ? tr('Формула или значение') : tr('Пусто')),
                 ),
-                onTap: () => Navigator.pop(ctx, 'deleteNested'),
+                dense: true,
               ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.table_rows_rounded),
-              title: Text(tr('Вставить строку ниже')),
-              onTap: () => Navigator.pop(ctx, 'insertRow'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.view_column_rounded),
-              title: Text(tr('Вставить столбец справа')),
-              onTap: () => Navigator.pop(ctx, 'insertColumn'),
-            ),
+              if (nested != null)
+                ListTile(
+                  leading: const Icon(Icons.grid_on_rounded),
+                  title: Text(tr('Открыть вложенную таблицу')),
+                  onTap: () => Navigator.pop(ctx, 'openNested'),
+                )
+              else ...[
+                ListTile(
+                  leading: const Icon(Icons.functions),
+                  title: Text(tr('Изменить формулу')),
+                  onTap: () => Navigator.pop(ctx, 'formula'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.account_tree_outlined),
+                  title: Text(
+                    hasValue
+                        ? tr('Заменить на вложенную таблицу')
+                        : tr('Создать вложенную таблицу'),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'makeNested'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.image_outlined),
+                  title: Text(tr('Вставить картинку из ресурсов')),
+                  onTap: () => Navigator.pop(ctx, 'image'),
+                ),
+              ],
+              if (hasValue && nested == null)
+                ListTile(
+                  leading: const Icon(Icons.backspace_outlined),
+                  title: Text(tr('Очистить ячейку')),
+                  onTap: () => Navigator.pop(ctx, 'clear'),
+                ),
+              if (nested != null)
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: scheme.error),
+                  title: Text(
+                    tr('Удалить вложенную таблицу'),
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  onTap: () => Navigator.pop(ctx, 'deleteNested'),
+                ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.table_rows_rounded),
+                title: Text(tr('Вставить строку ниже')),
+                onTap: () => Navigator.pop(ctx, 'insertRow'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.view_column_rounded),
+                title: Text(tr('Вставить столбец справа')),
+                onTap: () => Navigator.pop(ctx, 'insertColumn'),
+              ),
             ],
           ),
         ),
@@ -1036,8 +1042,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     }
   }
 
-
-
   Future<void> _importCsv() async {
     final files = await FilePicker.pickFiles(
       allowMultiple: false,
@@ -1058,8 +1062,12 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
         _table.rows = imported.rows
             .map((r) => Map<String, dynamic>.from(r))
             .toList();
-        // В CSV имён строк нет — старые имена к новым строкам не относятся.
-        _table.rowNames = List<String>.filled(_table.rows.length, '');
+        // CSV хранит имена в первой колонке `__row_name`; сервис уже
+        // восстановил их, терять нельзя — иначе ссылки {т["к"][N]} поедут.
+        _table.rowNames = List<String>.generate(
+          _table.rows.length,
+          (i) => i < imported.rowNames.length ? imported.rowNames[i] : '',
+        );
         _selRow = null;
         _selCol = 0;
         _formulaCtrl.clear();
@@ -1086,11 +1094,25 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
         _ => false,
       };
       if (ok) {
+        final truncatedXlsx =
+            format == 'xlsx' &&
+            _table.rows.length > TableExportService.maxXlsxRows;
         // CSV физически не умеет пары «ключ → значение»: без этой строки
         // автор теряет хранилище молча и ищет баг в движке.
         _snack(
-          format == 'csv' && _table.data.isNotEmpty
-              ? trf('CSV сохранён: в нём только сетка, {p0} ключей хранилища остались здесь', {'p0': _table.data.length})
+          truncatedXlsx
+              ? trf(
+                  'XLSX сохранён: поместились первые {p0} строк из {p1}. Полный слепок — JSON.',
+                  {
+                    'p0': TableExportService.maxXlsxRows,
+                    'p1': _table.rows.length,
+                  },
+                )
+              : format == 'csv' && _table.data.isNotEmpty
+              ? trf(
+                  'CSV сохранён: в нём только сетка, {p0} ключей хранилища остались здесь',
+                  {'p0': _table.data.length},
+                )
               : tr('Файл сохранён'),
         );
       }
@@ -1289,7 +1311,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
               Text(
                 widget.cellPickerMode
                     ? tr('Выбор ячейки')
-                    : (_isNestedLevel ? tr('Подтаблица') : tr('Редактор таблицы')),
+                    : (_isNestedLevel
+                          ? tr('Подтаблица')
+                          : tr('Редактор таблицы')),
                 style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
               ),
             ],
@@ -1335,7 +1359,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
                     value: 'csv',
                     child: _ExportOption(
                       title: 'CSV',
-                      note: tr('только сетка: ключи хранилища в файл не пишутся'),
+                      note: tr(
+                        'только сетка: ключи хранилища в файл не пишутся',
+                      ),
                     ),
                   ),
                   PopupMenuItem(
@@ -1429,8 +1455,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
 
   Widget _buildToolbar(ColorScheme scheme) {
     final hasSelection = _selRow != null && _table.columns.isNotEmpty;
-    final selectedNested =
-        hasSelection && _isNestedCell(_selRow!, _selCol);
+    final selectedNested = hasSelection && _isNestedCell(_selRow!, _selCol);
 
     // Одна компактная строка с горизонтальным скроллом: кнопки не прыгают
     // на вторую строку и не отнимают высоту у сетки на телефоне.
@@ -1505,8 +1530,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
 
   Widget _buildFormulaBar(ColorScheme scheme) {
     final hasSelection = _selRow != null && _table.columns.isNotEmpty;
-    final selectedNested =
-        hasSelection && _isNestedCell(_selRow!, _selCol);
+    final selectedNested = hasSelection && _isNestedCell(_selRow!, _selCol);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1617,8 +1641,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
                           IconButton(
                             tooltip: tr('Вставить картинку из ресурсов'),
                             icon: const Icon(Icons.image, size: 20),
-                            onPressed:
-                                hasSelection ? _insertImageIntoCurrent : null,
+                            onPressed: hasSelection
+                                ? _insertImageIntoCurrent
+                                : null,
                           ),
                           IconButton(
                             tooltip: tr('Очистить ячейку'),
@@ -1654,8 +1679,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
               icon: Icon(
                 Icons.check,
                 size: 22,
-                color:
-                    _editingFormula ? scheme.primary : scheme.onSurfaceVariant,
+                color: _editingFormula
+                    ? scheme.primary
+                    : scheme.onSurfaceVariant,
               ),
               onPressed: hasSelection && _editingFormula
                   ? () => _applyFormula(_formulaCtrl.text)
@@ -1833,11 +1859,13 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       onTap: () {
         if (_table.rows.isNotEmpty) _selectCell(0, col, scrollIntoView: true);
       },
-      onLongPress:
-          widget.cellPickerMode ? null : () => _columnMenu(scheme, col),
+      onLongPress: widget.cellPickerMode
+          ? null
+          : () => _columnMenu(scheme, col),
       // ПК: меню колонки по правой кнопке, а не долгим тапом.
-      onSecondaryTap:
-          widget.cellPickerMode ? null : () => _columnMenu(scheme, col),
+      onSecondaryTap: widget.cellPickerMode
+          ? null
+          : () => _columnMenu(scheme, col),
       child: Container(
         width: _colWidth,
         height: _headerHeight,
@@ -1895,40 +1923,40 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
               ListTile(
                 title: Text(
                   trf('Столбец «{p0}»', {'p0': _table.columns[col]}),
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                dense: true,
               ),
-              dense: true,
-            ),
-            ListTile(
-              leading: const Icon(Icons.drive_file_rename_outline),
-              title: Text(tr('Переименовать')),
-              onTap: () => Navigator.pop(ctx, 'rename'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.view_column_rounded),
-              title: Text(tr('Вставить столбец справа')),
-              onTap: () => Navigator.pop(ctx, 'insertRight'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.chevron_left),
-              title: Text(tr('Переместить влево')),
-              enabled: col > 0,
-              onTap: () => Navigator.pop(ctx, 'left'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.chevron_right),
-              title: Text(tr('Переместить вправо')),
-              enabled: col < _table.columns.length - 1,
-              onTap: () => Navigator.pop(ctx, 'right'),
-            ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: scheme.error),
-              title: Text(
-                tr('Удалить столбец'),
-                style: TextStyle(color: scheme.error),
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline),
+                title: Text(tr('Переименовать')),
+                onTap: () => Navigator.pop(ctx, 'rename'),
               ),
-              onTap: () => Navigator.pop(ctx, 'delete'),
-            ),
+              ListTile(
+                leading: const Icon(Icons.view_column_rounded),
+                title: Text(tr('Вставить столбец справа')),
+                onTap: () => Navigator.pop(ctx, 'insertRight'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.chevron_left),
+                title: Text(tr('Переместить влево')),
+                enabled: col > 0,
+                onTap: () => Navigator.pop(ctx, 'left'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.chevron_right),
+                title: Text(tr('Переместить вправо')),
+                enabled: col < _table.columns.length - 1,
+                onTap: () => Navigator.pop(ctx, 'right'),
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_outline, color: scheme.error),
+                title: Text(
+                  tr('Удалить столбец'),
+                  style: TextStyle(color: scheme.error),
+                ),
+                onTap: () => Navigator.pop(ctx, 'delete'),
+              ),
             ],
           ),
         ),
@@ -1981,8 +2009,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
             children: [
               InkWell(
                 onTap: () => _selectRow(r),
-                onLongPress:
-                    widget.cellPickerMode ? null : () => _rowMenu(r),
+                onLongPress: widget.cellPickerMode ? null : () => _rowMenu(r),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 4,
@@ -2161,23 +2188,23 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       message: tr('Вложенная таблица'),
       child: Row(
         children: [
-        Icon(Icons.grid_on_rounded, size: 18, color: scheme.primary),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            trf('Таблица {p0}×{p1}', {
-              'p0': nested.columns.length,
-              'p1': nested.rows.length,
-            }),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: scheme.primary,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Icon(Icons.grid_on_rounded, size: 18, color: scheme.primary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              trf('Таблица {p0}×{p1}', {
+                'p0': nested.columns.length,
+                'p1': nested.rows.length,
+              }),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-        ),
           Icon(Icons.chevron_right, size: 16, color: scheme.onSurfaceVariant),
         ],
       ),
@@ -2264,8 +2291,7 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
             tooltip: tr('Как устроена таблица'),
             visualDensity: VisualDensity.compact,
             icon: Icon(Icons.help_outline_rounded, size: 18),
-            onPressed: () =>
-                showTableGuide(context, exampleTable: _table.name),
+            onPressed: () => showTableGuide(context, exampleTable: _table.name),
           ),
         ],
       ),

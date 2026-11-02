@@ -318,7 +318,11 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
         isSystem: true,
       ),
       QuestVariable(name: '_SYS_DAY', defaultValue: tr('День'), isSystem: true),
-      QuestVariable(name: '_SYS_MONTH', defaultValue: tr('Месяц'), isSystem: true),
+      QuestVariable(
+        name: '_SYS_MONTH',
+        defaultValue: tr('Месяц'),
+        isSystem: true,
+      ),
       QuestVariable(name: '_SYS_YEAR', defaultValue: tr('Год'), isSystem: true),
       QuestVariable(
         name: '_SYS_WEEKDAY',
@@ -491,7 +495,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
       builder: (context) => AlertDialog(
         title: Text(tr('Удалить?')),
         content: Text(
-          trf('Переменная "{name}" будет удалена. Использования останутся как текст.', {'name': name}),
+          trf(
+            'Переменная "{name}" будет удалена. Использования останутся как текст.',
+            {'name': name},
+          ),
         ),
         actions: [
           TextButton(
@@ -746,6 +753,20 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     final config = await _readConfig();
     final tables = (config['tables'] as List<dynamic>? ?? []).toList();
 
+    final duplicate = tables.any(
+      (t) => t is Map && t['name']?.toString() == name,
+    );
+    if (duplicate) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Таблица «{p0}» уже существует', {'p0': name})),
+          ),
+        );
+      }
+      return;
+    }
+
     tables.add({...newTable.toJson(), 'folderPath': _currentFolder});
     config['tables'] = tables;
 
@@ -759,7 +780,11 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     final newName = await showAppDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(trf('Переименовать {p0}', {'p0': isTable ? tr('таблицу') : tr('переменную')})),
+        title: Text(
+          trf('Переименовать {p0}', {
+            'p0': isTable ? tr('таблицу') : tr('переменную'),
+          }),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -769,7 +794,9 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              tr('Изменение автоматически обновит имя во всех скриптах и нодах.'),
+              tr(
+                'Изменение автоматически обновит имя во всех скриптах и нодах.',
+              ),
               style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
             ),
           ],
@@ -798,9 +825,13 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
       ..._tables.map((t) => t.name),
     }..remove(oldName);
     if (taken.contains(newName)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(trf('Имя «{newName}» уже занято', {'newName': newName}))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            trf('Имя «{newName}» уже занято', {'newName': newName}),
+          ),
+        ),
+      );
       return;
     }
 
@@ -811,9 +842,11 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(trf('Обновлено файлов: {count}', {'count': count}))));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(trf('Обновлено файлов: {count}', {'count': count})),
+      ),
+    );
     setState(_resetUsageData);
     await _loadData();
   }
@@ -897,10 +930,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)})),
+        ),
       );
     }
   }
@@ -928,7 +961,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
           builder: (ctx) => AlertDialog(
             title: Text(tr('Таблица уже существует')),
             content: Text(
-              trf('Таблица «{p0}» уже есть в квесте. Заменить её данными из файла?', {'p0': imported.name}),
+              trf(
+                'Таблица «{p0}» уже есть в квесте. Заменить её данными из файла?',
+                {'p0': imported.name},
+              ),
             ),
             actions: [
               TextButton(
@@ -976,15 +1012,16 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
         name: finalName,
         columns: imported.columns,
         rows: imported.rows,
+        rowNames: imported.rowNames,
         data: imported.data,
       );
       await _saveEditedTable(renamed);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(content: Text(trf('Ошибка импорта: {p0}', {'p0': friendlyError(e)}))),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(trf('Ошибка импорта: {p0}', {'p0': friendlyError(e)})),
+        ),
       );
     }
   }
@@ -1029,7 +1066,9 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
           children: [
             if (_currentFolder != '/')
               Text(
-                trf('В папке: {_currentFolder}', {'_currentFolder': _currentFolder}),
+                trf('В папке: {_currentFolder}', {
+                  '_currentFolder': _currentFolder,
+                }),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             const SizedBox(height: 8),
@@ -1463,7 +1502,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     final usageText = _scanningUsage
         ? tr('Анализ идет в фоне')
         : (_hasUsageData
-              ? trf('{p0} из {p1} используются', {'p0': usedCount, 'p1': _customVariables.length})
+              ? trf('{p0} из {p1} используются', {
+                  'p0': usedCount,
+                  'p1': _customVariables.length,
+                })
               : tr('Проверка запускается вручную'));
 
     return Material(
@@ -1516,7 +1558,11 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    trf('{p0} переменных · {p1} таблиц · {p2} папок', {'p0': _customVariables.length, 'p1': _tables.length, 'p2': _explicitFolders.length}),
+                    trf('{p0} переменных · {p1} таблиц · {p2} папок', {
+                      'p0': _customVariables.length,
+                      'p1': _tables.length,
+                      'p2': _explicitFolders.length,
+                    }),
                     style: TextStyle(
                       color: scheme.onSurfaceVariant,
                       fontSize: 12,
@@ -1566,8 +1612,9 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
                 decoration: InputDecoration(
                   isCollapsed: true,
                   border: InputBorder.none,
-                  hintText:
-                      tr('Поиск по переменным, системным данным, таблицам...'),
+                  hintText: tr(
+                    'Поиск по переменным, системным данным, таблицам...',
+                  ),
                   hintStyle: TextStyle(
                     color: scheme.onSurfaceVariant,
                     fontSize: 15,
@@ -1684,7 +1731,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
-                      trf('Не удалось проверить использование: {_usageScanError}', {'_usageScanError': _usageScanError}),
+                      trf(
+                        'Не удалось проверить использование: {_usageScanError}',
+                        {'_usageScanError': _usageScanError},
+                      ),
                       style: TextStyle(
                         color: scheme.onErrorContainer,
                         fontSize: 12,
@@ -1888,7 +1938,9 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
             ),
           ),
           subtitle: Text(
-            itemCount == 1 ? tr('1 элемент') : trf('{itemCount} элементов', {'itemCount': itemCount}),
+            itemCount == 1
+                ? tr('1 элемент')
+                : trf('{itemCount} элементов', {'itemCount': itemCount}),
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
           ),
           trailing: PopupMenuButton<String>(
@@ -1901,10 +1953,7 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
               }
             },
             itemBuilder: (ctx) => [
-              PopupMenuItem(
-                value: 'rename',
-                child: Text(tr('Переименовать')),
-              ),
+              PopupMenuItem(value: 'rename', child: Text(tr('Переименовать'))),
               PopupMenuItem(
                 value: 'move_pick',
                 child: Row(
@@ -2231,7 +2280,9 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: TableHintBanner(
-            text: tr('Блок «Данные» читает ключи хранилища скриптов, а не ряды сетки. Ключи видны в редакторе таблицы.'),
+            text: tr(
+              'Блок «Данные» читает ключи хранилища скриптов, а не ряды сетки. Ключи видны в редакторе таблицы.',
+            ),
             detailsLabel: tr('Шпаргалка'),
             onDetails: () => showTableGuide(context),
           ),
@@ -2342,7 +2393,15 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
                       Text(
                         // Без счётчика ключей автор выбирает таблицу с красивой
                         // сеткой и блок молчит: в хранилище скриптов пусто.
-                        trf('{p0} столбцов · {p1} строк · {p2}', {'p0': t.columns.length, 'p1': t.rows.length, 'p2': t.data.isEmpty ? tr('хранилище скриптов пусто') : trf('ключей скриптов: {p0}', {'p0': t.data.length})}),
+                        trf('{p0} столбцов · {p1} строк · {p2}', {
+                          'p0': t.columns.length,
+                          'p1': t.rows.length,
+                          'p2': t.data.isEmpty
+                              ? tr('хранилище скриптов пусто')
+                              : trf('ключей скриптов: {p0}', {
+                                  'p0': t.data.length,
+                                }),
+                        }),
                         style: TextStyle(
                           color: t.data.isEmpty
                               ? scheme.error.withValues(alpha: 0.8)

@@ -72,6 +72,22 @@ class _TableDataKeysSheetState extends State<_TableDataKeysSheet> {
           _KeyEditDialog(existing: existing, current: _data[existing]),
     );
     if (edit == null || edit.name.isEmpty || !mounted) return;
+    if (edit.name.startsWith('__')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr('Имена с «__» служебные: движок не сохранит такой ключ.'),
+          ),
+        ),
+      );
+      return;
+    }
+    if (existing != edit.name && _data.containsKey(edit.name)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(trf('Ключ «{p0}» уже есть', {'p0': edit.name}))),
+      );
+      return;
+    }
     setState(() {
       if (existing != null && existing != edit.name) _data.remove(existing);
       _data[edit.name] = edit.value;
@@ -94,7 +110,9 @@ class _TableDataKeysSheetState extends State<_TableDataKeysSheet> {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
           child: TableHintBanner(
-            text: tr('Блок «Данные» и формулы видят только эти ключи. Строки и столбцы сетки — отдельно.'),
+            text: tr(
+              'Блок «Данные» и формулы видят только эти ключи. Строки и столбцы сетки — отдельно.',
+            ),
             detailsLabel: tr('Как устроена таблица'),
             onDetails: () =>
                 showTableGuide(context, exampleTable: widget.table.name),
@@ -104,7 +122,9 @@ class _TableDataKeysSheetState extends State<_TableDataKeysSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
             child: Text(
-              tr('Хранилище пусто: скриптам тут читать нечего. Добавьте первый ключ здесь или операцией «Записать» в блоке «Данные».'),
+              tr(
+                'Хранилище пусто: скриптам тут читать нечего. Добавьте первый ключ здесь или операцией «Записать» в блоке «Данные».',
+              ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -214,10 +234,12 @@ class _KeyEditDialog extends StatefulWidget {
 }
 
 class _KeyEditDialogState extends State<_KeyEditDialog> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.existing ?? '');
-  late final TextEditingController _value =
-      TextEditingController(text: _asEditableText(widget.current));
+  late final TextEditingController _name = TextEditingController(
+    text: widget.existing ?? '',
+  );
+  late final TextEditingController _value = TextEditingController(
+    text: _asEditableText(widget.current),
+  );
 
   @override
   void dispose() {
@@ -240,7 +262,9 @@ class _KeyEditDialogState extends State<_KeyEditDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(
-        widget.existing == null ? tr('Новый ключ') : trf('Ключ «{p0}»', {'p0': widget.existing}),
+        widget.existing == null
+            ? tr('Новый ключ')
+            : trf('Ключ «{p0}»', {'p0': widget.existing}),
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -261,8 +285,9 @@ class _KeyEditDialogState extends State<_KeyEditDialog> {
             decoration: InputDecoration(
               isDense: true,
               labelText: tr('Значение'),
-              helperText:
-                  tr('текст как есть; числа, true/false, списки [1, 2] и словари {"a": 1} понятны'),
+              helperText: tr(
+                'текст как есть; числа, true/false, списки [1, 2] и словари {"a": 1} понятны',
+              ),
             ),
           ),
         ],
@@ -272,10 +297,7 @@ class _KeyEditDialogState extends State<_KeyEditDialog> {
           onPressed: () => Navigator.pop(context),
           child: Text(tr('Отмена')),
         ),
-        FilledButton(
-          onPressed: _save,
-          child: Text(tr('Сохранить')),
-        ),
+        FilledButton(onPressed: _save, child: Text(tr('Сохранить'))),
       ],
     );
   }
