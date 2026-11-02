@@ -16,6 +16,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' show Color;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:mnd_core/engine/game_engine.dart';
@@ -26,6 +27,7 @@ import 'package:mnd_core/models/content_item.dart';
 import 'package:mnd_core/models/saved_node.dart';
 import 'package:mnd_core/models/value_format.dart';
 import 'package:mnd_core/rust_bootstrap.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'quest_bundle.dart';
 
@@ -86,7 +88,8 @@ class QuestPlayer extends ChangeNotifier {
   /// строил бы JS-стектрейс.
   void _noteSyncBlocked(Object error, [String expression = '']) {
     final text = '$error';
-    if (!text.contains('EXECUTE_SYNC_ABORT') && !text.contains('Atomics.wait')) {
+    if (!text.contains('EXECUTE_SYNC_ABORT') &&
+        !text.contains('Atomics.wait')) {
       // Обычная опечатка автора в формуле: текст показываем как есть, но
       // под счётчик раундов она не попадает.
       return;
@@ -134,6 +137,11 @@ class QuestPlayer extends ChangeNotifier {
   /// (`engineVisibilityOf`, `itemSourceOverride`), которые работают по карте
   /// значений, а не по живому движку.
   Map<String, dynamic> variables = const {};
+
+  /// Музыка/звуки текущей сцены. Браузер разрешает запуск только после
+  /// действия игрока, поэтому ошибки autoplay глушим в лог, а не в сцену.
+  AudioPlayer? _musicPlayer;
+  final Map<String, AudioPlayer> _soundPlayers = {};
 
   String? backgroundImageId;
   String? backgroundAudioId;
@@ -197,6 +205,11 @@ class QuestPlayer extends ChangeNotifier {
     _timers.clear();
     _engine?.dispose();
     _engine = null;
+    for (final p in _soundPlayers.values) {
+      p.dispose();
+    }
+    _soundPlayers.clear();
+    _musicPlayer?.dispose();
     super.dispose();
   }
 
@@ -249,20 +262,30 @@ class QuestPlayer extends ChangeNotifier {
         ?.toString()
         .ifEmptyOrNull;
     backgroundColor = node?.color == null ? null : Color(node!.color!);
+    final bgAudio = view['backgroundAudio'];
+    if (bgAudio is Map) {
+      final id = bgAudio['audioId']?.toString();
+      if (id != null && id.isNotEmpty) {
+        unawaited(
+          _playMusic(id, (bgAudio['volume'] as num?)?.toDouble() ?? 1.0, true),
+        );
+      }
+    } else {
+      unawaited(_stopMusic());
+    }
     phase = PlayPhase.playing;
     errorMessage = null;
     _revealSuspended = false;
     _safeNotify();
 
-    // Звук и внешние команды в веб-плеере v1 не играются, но очереди обязаны
-    // быть слиты: иначе команда ушедшей сцены доедет до следующей.
-    await _call('drainAudio', engine.drainAudio);
-    await _call('drainExternal', engine.drainExternal);
+    await _drainAudio();
+    await _drainExternal();
 
     final pacingSteps = await _call('takePacingSteps', engine.drainDelaySteps);
     if (gen != _gen) return;
     await _syncState(holdPacing: pacingSteps.isNotEmpty);
     if (gen != _gen) return;
+    _armPendingTimers();
 
     if (pacingSteps.isNotEmpty) {
       // Первый кадр задержки уже отражён в сцене; остальные доигрывает фон.
@@ -421,6 +444,11 @@ class QuestPlayer extends ChangeNotifier {
       final name = item.variableName;
       if (name != null && name.isNotEmpty) {
         engine.setStateVariable(name, value);
+        final pending = engine.takePendingTransition();
+        if (pending != null && pending.isNotEmpty) {
+          await loadNodeByTarget(pending);
+          return;
+        }
       }
       final trigger = item.scriptForEvent('onSubmit');
       String? next;
@@ -537,10 +565,129 @@ class QuestPlayer extends ChangeNotifier {
     return null;
   }
 
+  Future<void> _drainAudio() async {
+    final engine = _engine;
+    if (engine == null) return;
+    final cmd = await _call('drainAudio', engine.drainAudio);
+    final commands = cmd['commands'] as List? ?? const [];
+    for (final raw in commands) {
+      if (raw is! Map) continue;
+      final c = Map<String, dynamic>.from(raw);
+      final type = c['type']?.toString() ?? '';
+      switch (type) {
+        case 'playSound':
+          await _playSound(
+            c['id']?.toString() ?? '',
+            (c['volume'] as num?)?.toDouble() ?? 1.0,
+          );
+        case 'stopSound':
+          await _stopSound(c['target']?.toString() ?? '');
+        case 'playMusic':
+          await _playMusic(
+            c['id']?.toString() ?? '',
+            (c['volume'] as num?)?.toDouble() ?? 1.0,
+            c['loop'] as bool? ?? true,
+          );
+        case 'stopMusic':
+          await _stopMusic();
+        case 'pauseResume':
+          await _pauseResumeAudio(
+            c['target']?.toString() ?? '',
+            c['action']?.toString() ?? '',
+          );
+      }
+    }
+  }
+
+  Future<AudioPlayer?> _audioFor(String id, {bool music = false}) async {
+    final bytes = bundle.assetBytes(id);
+    if (bytes == null || bytes.isEmpty) {
+      debugPrint('[web-player] аудио не найдено: $id');
+      return null;
+    }
+    final player = music
+        ? (_musicPlayer ??= AudioPlayer())
+        : (_soundPlayers[id] ??= AudioPlayer());
+    try {
+      await player.stop();
+      await player.setReleaseMode(
+        music ? ReleaseMode.loop : ReleaseMode.release,
+      );
+      await player.play(BytesSource(bytes));
+      return player;
+    } catch (e) {
+      debugPrint('[web-player] аудио $id не запустилось: $e');
+      return null;
+    }
+  }
+
+  Future<void> _playMusic(String id, double volume, bool loop) async {
+    if (id.isEmpty) return;
+    final player = await _audioFor(id, music: true);
+    if (player == null) return;
+    await player.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.release);
+    await player.setVolume(volume.clamp(0.0, 1.0));
+    await player.resume();
+  }
+
+  Future<void> _stopMusic() async {
+    final player = _musicPlayer;
+    if (player == null) return;
+    try {
+      await player.stop();
+    } catch (_) {}
+  }
+
+  Future<void> _playSound(String id, double volume) async {
+    if (id.isEmpty) return;
+    final player = await _audioFor(id);
+    if (player == null) return;
+    await player.setVolume(volume.clamp(0.0, 1.0));
+    await player.resume();
+  }
+
+  Future<void> _stopSound(String id) async {
+    final player = _soundPlayers.remove(id);
+    if (player == null) return;
+    try {
+      await player.stop();
+      await player.dispose();
+    } catch (_) {}
+  }
+
+  Future<void> _pauseResumeAudio(String target, String action) async {
+    final player = _musicPlayer;
+    if (player == null) return;
+    try {
+      if (action == 'pause') await player.pause();
+      if (action == 'resume') await player.resume();
+    } catch (_) {}
+  }
+
+  Future<void> _drainExternal() async {
+    final engine = _engine;
+    if (engine == null) return;
+    final cmd = await _call('drainExternal', engine.drainExternal);
+    final commands = cmd['commands'] as List? ?? const [];
+    for (final raw in commands) {
+      if (raw is! Map) continue;
+      final c = Map<String, dynamic>.from(raw);
+      if (c['type'] != 'open_link') continue;
+      final uri = Uri.tryParse(c['url']?.toString() ?? '');
+      if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https'))
+        continue;
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (e) {
+        debugPrint('[web-player] open_link failed: $e');
+      }
+    }
+  }
+
   Future<void> _afterEngineStep() async {
     await _paceScriptDelays();
-    await _call('drainAudio', () => _engine!.drainAudio());
-    await _call('drainExternal', () => _engine!.drainExternal());
+    await _drainAudio();
+    await _drainExternal();
     await _syncState();
     _armPendingTimers();
     _safeNotify();
@@ -558,8 +705,9 @@ class QuestPlayer extends ChangeNotifier {
     if (engine == null || !_syncUsable) return collapsed;
     var lastExpression = '';
     try {
-      final result = ScriptExecutor.substitutePlaceholders(collapsed,
-          (expression) {
+      final result = ScriptExecutor.substitutePlaceholders(collapsed, (
+        expression,
+      ) {
         lastExpression = expression;
         return formatScriptValue(engine.evaluateSync(expression));
       });
@@ -591,10 +739,9 @@ class QuestPlayer extends ChangeNotifier {
     if (formula == null) return staticValue;
     final engine = _engine;
     if (engine == null || !_syncUsable) return staticValue;
-    final expression =
-        ScriptExecutor.collapseDoubleBraces(formula)
-            .replaceAll(RegExp('[{}]'), '')
-            .trim();
+    final expression = ScriptExecutor.collapseDoubleBraces(
+      formula,
+    ).replaceAll(RegExp('[{}]'), '').trim();
     if (expression.isEmpty) return staticValue;
     try {
       final value = engine.evaluateSync(expression);
@@ -651,7 +798,8 @@ class QuestPlayer extends ChangeNotifier {
     final engine = _engine;
     if (engine == null) return;
     final delta = await _call('drainStateDelta', engine.drainStateDelta);
-    final raw = (delta['variables'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final raw =
+        (delta['variables'] as Map?)?.cast<String, dynamic>() ?? const {};
     var incoming = decodeDeltaVariables(raw);
     if (holdPacing) {
       _heldVars = incoming;
@@ -670,7 +818,8 @@ class QuestPlayer extends ChangeNotifier {
   Future<void> _applyPacingStep(Map<String, dynamic> step) async {
     final engine = _engine;
     if (engine == null) return;
-    final raw = (step['variables'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final raw =
+        (step['variables'] as Map?)?.cast<String, dynamic>() ?? const {};
     if (raw.isNotEmpty) {
       final vars = decodeDeltaVariables(raw);
       variables = {...variables, ...vars};
@@ -753,25 +902,29 @@ class QuestPlayer extends ChangeNotifier {
       if (armedThisRound.contains(key) || _armedTimers.contains(key)) continue;
       armedThisRound.add(key);
       _armedTimers.add(key);
-      _timers.add(Timer(Duration(milliseconds: ms), () async {
-        _armedTimers.remove(key);
-        if (_engine == null) return;
-        try {
-          final res = await _call(
-            'runScheduledTimer',
-            () => engine.runScheduledTimer(path, entry),
-          );
-          await _afterEngineStep();
-          final transition = res?['transition']?.toString();
-          if (res?['ran'] == true && transition != null && transition.isNotEmpty) {
-            await loadNode(transition);
-            return;
+      _timers.add(
+        Timer(Duration(milliseconds: ms), () async {
+          _armedTimers.remove(key);
+          if (_engine == null) return;
+          try {
+            final res = await _call(
+              'runScheduledTimer',
+              () => engine.runScheduledTimer(path, entry),
+            );
+            await _afterEngineStep();
+            final transition = res?['transition']?.toString();
+            if (res?['ran'] == true &&
+                transition != null &&
+                transition.isNotEmpty) {
+              await loadNode(transition);
+              return;
+            }
+          } catch (e) {
+            debugPrint('[web-player] timer tick failed ($key): $e');
           }
-        } catch (e) {
-          debugPrint('[web-player] timer tick failed ($key): $e');
-        }
-        _armPendingTimers();
-      }));
+          _armPendingTimers();
+        }),
+      );
     }
   }
 
@@ -802,7 +955,9 @@ class QuestPlayer extends ChangeNotifier {
   void _safeNotify() {
     try {
       notifyListeners();
-    } catch (_) {/* диспоунутый listener — не беда игрока */}
+    } catch (_) {
+      /* диспоунутый listener — не беда игрока */
+    }
   }
 }
 
@@ -830,7 +985,8 @@ Map<String, dynamic> decodeDeltaVariables(Map<String, dynamic> raw) {
 /// менялось: новое значение (таймер или `onContentAppear` за время `wait`)
 /// обязано выйти сразу, иначе его затрёт старым кадром задержки. Те же ключи
 /// из удержания при этом убираем — второй раз их публиковать нельзя.
-({Map<String, dynamic> publish, Map<String, dynamic> held}) splitDeltaAgainstHold({
+({Map<String, dynamic> publish, Map<String, dynamic> held})
+splitDeltaAgainstHold({
   required Map<String, dynamic> incoming,
   required Map<String, dynamic> held,
 }) {

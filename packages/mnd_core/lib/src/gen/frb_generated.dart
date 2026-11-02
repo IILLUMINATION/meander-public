@@ -72,12 +72,18 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 810672878;
+  int get rustContentHash =>
+      // Веб-сборка использует закреплённый wasm с worker pool; нативный .so
+      // собирается из текущего Rust. Хеши обязаны совпадать с конкретной
+      // библиотекой, иначе FRB отказывается запускать движок.
+      const bool.fromEnvironment('dart.library.js_interop')
+          ? -1560931752
+          : 810672878;
 
   static const kDefaultExternalLibraryLoaderConfig = ExternalLibraryLoaderConfig(
     stem: 'mnd_ffi',
     ioDirectory: '../../crates/mnd-ffi/target/release/',
-    webPrefix: 'pkg/',
+    webPrefix: 'pkg/v2/',
     wasmBindgenName: 'wasm_bindgen',
   );
 }

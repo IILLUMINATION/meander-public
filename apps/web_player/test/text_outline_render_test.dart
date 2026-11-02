@@ -129,7 +129,63 @@ void main() {
       expect(_strokePaints(tester), isEmpty);
     });
 
-    testWidgets('markdown-разновидности уходят в тот же контур', (
+  
+  testWidgets('фрагментная обводка даёт тени только выделенному куску', (
+    tester,
+  ) async {
+    await renderText(
+      tester,
+      _textItem(text: 'до [outline=#0000FF:3]синий[/outline] после'),
+    );
+    final shadowed = <TextStyle>[];
+    void collect(InlineSpan span) {
+      if (span is! TextSpan) return;
+      if (span.style?.shadows?.isNotEmpty ?? false) shadowed.add(span.style!);
+      span.children?.forEach(collect);
+    }
+
+    for (final element in tester.allElements) {
+      final widget = element.widget;
+      if (widget is RichText) collect(widget.text);
+    }
+    expect(shadowed, isNotEmpty);
+    expect(
+      shadowed.every(
+        (s) => s.shadows!.every((shadow) => shadow.color == const Color(0xFF0000FF)),
+      ),
+      isTrue,
+    );
+    expect(shadowed.every((s) => s.shadows!.length == 8), isTrue);
+  });
+
+  testWidgets('item-обводка не дублирует фрагментные тени в штриховом слое', (
+    tester,
+  ) async {
+    await renderText(
+      tester,
+      _textItem(
+        text: '[outline=#00FF00]зелёный[/outline] текст',
+        outlineColor: _outline,
+      ),
+    );
+    final strokes = _strokePaints(tester);
+    expect(strokes, isNotEmpty);
+    bool shadowedStroke(InlineSpan span) {
+      if (span is! TextSpan) return false;
+      if (span.style?.foreground?.style == PaintingStyle.stroke &&
+          (span.style?.shadows?.isNotEmpty ?? false)) {
+        return true;
+      }
+      return (span.children ?? const <InlineSpan>[]).any(shadowedStroke);
+    }
+
+    final found = tester.allWidgets.whereType<RichText>().any(
+          (w) => shadowedStroke(w.text),
+        );
+    expect(found, isFalse);
+  });
+
+  testWidgets('markdown-разновидности уходят в тот же контур', (
       tester,
     ) async {
       await renderText(

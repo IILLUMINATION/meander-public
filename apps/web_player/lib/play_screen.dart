@@ -66,7 +66,7 @@ class _PlayScreenState extends State<PlayScreen> {
     final node = player.node;
     final duration = node?.timerDuration ?? 0;
     final running = duration > 0 && node?.timerHidden != true;
-    final id = running ? player.nodeId : null;
+    final id = running ? '${player.nodeId}:${player.presentationId}' : null;
     if (id == _timerNodeId) return;
     _timerNodeId = id;
     _tick?.cancel();
@@ -162,8 +162,7 @@ class _PlayScreenState extends State<PlayScreen> {
             errorBuilder: (context, error, stack) => const SizedBox.shrink(),
           ),
         // Без затемнения белый текст квеста сливается с яркой фотографией.
-        if (bytes != null && dims)
-          const ColoredBox(color: Color(0x66000000)),
+        if (bytes != null && dims) const ColoredBox(color: Color(0x66000000)),
       ],
     );
   }
@@ -184,7 +183,11 @@ class _PlayScreenState extends State<PlayScreen> {
             padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
             child: Row(
               children: [
-                const Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
+                const Icon(
+                  Icons.error_outline,
+                  color: Colors.redAccent,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -193,7 +196,11 @@ class _PlayScreenState extends State<PlayScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                  icon: const Icon(
+                    Icons.close,
+                    color: Colors.white54,
+                    size: 18,
+                  ),
                   onPressed: player.clearError,
                 ),
               ],
@@ -224,7 +231,11 @@ class _PlayScreenState extends State<PlayScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+              const Icon(
+                Icons.error_outline,
+                color: Colors.redAccent,
+                size: 40,
+              ),
               const SizedBox(height: 12),
               Text(
                 player.errorMessage ?? 'Квест не открылся',
@@ -274,9 +285,7 @@ class _PlayScreenState extends State<PlayScreen> {
                     child: ItemView(
                       // Ключ с поколением: вход в ту же ноду заново обязан
                       // перезапустить анимации, как новый `presentationId`.
-                      key: ValueKey(
-                        'game_${player.presentationId}_${item.id}',
-                      ),
+                      key: ValueKey('game_${player.presentationId}_${item.id}'),
                       player: player,
                       item: item,
                       onComplete: player.revealNext,
