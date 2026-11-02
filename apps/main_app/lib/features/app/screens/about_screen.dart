@@ -152,9 +152,21 @@ class _AboutScreenState extends State<AboutScreen> {
   }
 
   Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      // silent fail
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+          mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('Не удалось открыть ссылку'))),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('Не удалось открыть ссылку'))),
+        );
+      }
     }
   }
 
@@ -216,7 +228,10 @@ class _AboutScreenState extends State<AboutScreen> {
         ),
 
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
-        _Header(title: tr('Список изменений'), icon: Icons.auto_awesome_rounded),
+        _Header(
+          title: tr('Список изменений'),
+          icon: Icons.auto_awesome_rounded,
+        ),
         const SliverToBoxAdapter(child: SizedBox(height: 12)),
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -710,7 +725,9 @@ class _TestersSection extends StatelessWidget {
                       : Icons.expand_more_rounded,
                 ),
                 label: Text(
-                  expanded ? tr('Скрыть') : trf('Показать ещё {p0}', {'p0': testers.length - 3}),
+                  expanded
+                      ? tr('Скрыть')
+                      : trf('Показать ещё {p0}', {'p0': testers.length - 3}),
                 ),
               ),
             ),

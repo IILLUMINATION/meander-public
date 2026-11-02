@@ -23,6 +23,7 @@ import 'package:canvas_app/features/quests/screens/quest_history_screen.dart';
 import 'package:canvas_app/features/quests/screens/quest_publish_screen.dart';
 import 'package:canvas_app/features/quests/widgets/pdf_export_options_sheet.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -77,7 +78,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       unawaited(
         OfflineApkBuilder.isAvailable().then((available) {
           if (mounted) setState(() => _canBuildApk = available);
@@ -276,10 +277,18 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     );
 
     if (confirm == true) {
-      await ref.read(saveGameServiceProvider).deleteAllSaves(quest.id);
-      ref.invalidate(saveSlotsProvider(quest.id));
-      if (mounted) {
-        _showSnack(tr('Сохранения удалены'), success: true);
+      try {
+        await ref.read(saveGameServiceProvider).deleteAllSaves(quest.id);
+        ref.invalidate(saveSlotsProvider(quest.id));
+        if (mounted) _showSnack(tr('Сохранения удалены'), success: true);
+      } catch (e) {
+        if (mounted) {
+          _showSnack(
+            trf('Не удалось удалить сохранения: {p0}', {
+              'p0': friendlyError(e),
+            }),
+          );
+        }
       }
     }
   }

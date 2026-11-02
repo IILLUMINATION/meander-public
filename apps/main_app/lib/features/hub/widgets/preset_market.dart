@@ -874,9 +874,9 @@ class _PresetEmptyState extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
           ],
@@ -908,7 +908,8 @@ class _PresetMarketListViewState extends ConsumerState<PresetMarketListView> {
     final loggedIn = profileAsync.value != null;
     return presetsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))),
+      error: (e, _) =>
+          Center(child: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))),
       data: (allPresets) {
         // Публиковать можно только свои пресеты: пресеты из скачанных
         // квестов принадлежат другим авторам.
@@ -920,15 +921,17 @@ class _PresetMarketListViewState extends ConsumerState<PresetMarketListView> {
             return _PresetEmptyState(
               icon: Icons.lock_person_rounded,
               title: tr('Войдите в аккаунт'),
-              message:
-                  tr('Публиковать пресеты можно только из-под своего профиля'),
+              message: tr(
+                'Публиковать пресеты можно только из-под своего профиля',
+              ),
             );
           }
           return _PresetEmptyState(
             icon: Icons.smart_button_rounded,
             title: tr('Пресетов нет'),
-            message:
-                tr('Создай свои пресеты в редакторе квеста: Настройки квеста → Кастомные кнопки'),
+            message: tr(
+              'Создай свои пресеты в редакторе квеста: Настройки квеста → Кастомные кнопки',
+            ),
           );
         }
         return RefreshIndicator(
@@ -1030,15 +1033,17 @@ class _PresetMarketSheetState extends ConsumerState<_PresetMarketSheet> {
                     return _PresetEmptyState(
                       icon: Icons.lock_person_rounded,
                       title: tr('Войдите в аккаунт'),
-                      message:
-                          tr('Публиковать пресеты можно только из-под своего профиля'),
+                      message: tr(
+                        'Публиковать пресеты можно только из-под своего профиля',
+                      ),
                     );
                   }
                   return _PresetEmptyState(
                     icon: Icons.smart_button_rounded,
                     title: tr('Пресетов нет'),
-                    message:
-                        tr('Создай пресеты в редакторе квеста: Настройки квеста → Кастомные кнопки'),
+                    message: tr(
+                      'Создай пресеты в редакторе квеста: Настройки квеста → Кастомные кнопки',
+                    ),
                   );
                 }
                 return RefreshIndicator(
@@ -1267,7 +1272,16 @@ Future<void> publishPresetFlow(
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: () {
+                if (titleCtrl.text.trim().isEmpty ||
+                    licenseCtrl.text.trim().isEmpty) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(tr('Заполните обязательные поля'))),
+                  );
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
               label: Text(tr('Отправить на модерацию')),
               icon: const Icon(Icons.cloud_upload_rounded, size: 16),
             ),
@@ -1359,7 +1373,10 @@ Future<String?> addPresetToQuestFlow({
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          trf('Пресет добавлен (текстур: {imported}). Выбери его в настройках кнопки.', {'imported': imported}),
+          trf(
+            'Пресет добавлен (текстур: {imported}). Выбери его в настройках кнопки.',
+            {'imported': imported},
+          ),
         ),
       ),
     );

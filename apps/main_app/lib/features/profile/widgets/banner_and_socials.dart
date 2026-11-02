@@ -176,7 +176,24 @@ class SocialLinksRow extends StatelessWidget {
             onTap: () async {
               final uri = Uri.tryParse(link.url);
               if (uri == null) return;
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
+              try {
+                if (!await launchUrl(
+                  uri,
+                  mode: LaunchMode.externalApplication,
+                )) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(tr('Не удалось открыть ссылку'))),
+                    );
+                  }
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(tr('Не удалось открыть ссылку'))),
+                  );
+                }
+              }
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -214,11 +231,8 @@ Future<void> showSocialLinksEditor({
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (ctx) => _SocialLinksEditorSheet(
-      ref: ref,
-      userId: userId,
-      current: current,
-    ),
+    builder: (ctx) =>
+        _SocialLinksEditorSheet(ref: ref, userId: userId, current: current),
   );
 }
 
@@ -266,9 +280,9 @@ class _SocialLinksEditorSheetState extends State<_SocialLinksEditorSheet> {
                 const SizedBox(width: 10),
                 Text(
                   tr('Соцсети'),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
@@ -295,15 +309,13 @@ class _SocialLinksEditorSheetState extends State<_SocialLinksEditorSheet> {
                             url: _items[i].url,
                             onPlatformChange: (newId) {
                               setState(() {
-                                _items[i] =
-                                    _items[i].copyWith(platform: newId);
+                                _items[i] = _items[i].copyWith(platform: newId);
                               });
                             },
                             onUrlChange: (newUrl) {
                               _items[i] = _items[i].copyWith(url: newUrl);
                             },
-                            onDelete: () =>
-                                setState(() => _items.removeAt(i)),
+                            onDelete: () => setState(() => _items.removeAt(i)),
                           ),
                         ),
                     ],
@@ -350,15 +362,18 @@ class _SocialLinksEditorSheetState extends State<_SocialLinksEditorSheet> {
                                       .toList(),
                                 },
                               );
-                          widget.ref
-                              .invalidate(userProfileProvider(widget.userId));
+                          widget.ref.invalidate(
+                            userProfileProvider(widget.userId),
+                          );
                           if (context.mounted) Navigator.pop(context);
                         } catch (e) {
                           if (context.mounted) {
                             setState(() => _isSaving = false);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+                                content: Text(
+                                  trf('Ошибка: {p0}', {'p0': friendlyError(e)}),
+                                ),
                               ),
                             );
                           }

@@ -20,9 +20,7 @@ class ImportDialog extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Dialog(
       backgroundColor: const Color(0xFF2A2A2A),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -58,10 +56,7 @@ class ImportDialog extends ConsumerWidget {
                       ),
                       Text(
                         tr('Выберите формат для импорта'),
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 14,
-                        ),
+                        style: TextStyle(color: Colors.white54, fontSize: 14),
                       ),
                     ],
                   ),
@@ -118,6 +113,7 @@ class ImportDialog extends ConsumerWidget {
 
   Future<void> _importQst(BuildContext context, WidgetRef ref) async {
     Navigator.pop(context);
+    var loadingShown = false;
 
     try {
       final result = await _pickQstFile();
@@ -129,9 +125,10 @@ class ImportDialog extends ConsumerWidget {
         return;
       }
       final file = File(pickedPath);
-      
+
       // Показываем индикатор загрузки
       _showLoadingDialog(context);
+      loadingShown = true;
 
       // Импортируем
       final importer = QstImporter();
@@ -147,7 +144,7 @@ class ImportDialog extends ConsumerWidget {
       // Показываем результат
       _showImportResultDialog(context, importResult, ref);
     } catch (e) {
-      Navigator.pop(context);
+      if (loadingShown && context.mounted) Navigator.pop(context);
       _showErrorDialog(context, trf('Ошибка: {p0}', {'p0': friendlyError(e)}));
     }
   }
@@ -191,9 +188,7 @@ class ImportDialog extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2A2A2A),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(Icons.error, color: Colors.red),
@@ -201,10 +196,7 @@ class ImportDialog extends ConsumerWidget {
             Text(tr('Ошибка импорта')),
           ],
         ),
-        content: Text(
-          error,
-          style: const TextStyle(color: Colors.white70),
-        ),
+        content: Text(error, style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -224,9 +216,7 @@ class ImportDialog extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2A2A2A),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(Icons.check_circle, color: Color(0xFF00C853)),
@@ -260,16 +250,18 @@ class ImportDialog extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: result.warnings
-                          .map((w) => Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Text(
-                                  '• $w',
-                                  style: const TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 12,
-                                  ),
+                          .map(
+                            (w) => Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                '• $w',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
                                 ),
-                              ))
+                              ),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
@@ -342,7 +334,10 @@ class ImportDialog extends ConsumerWidget {
         );
       }
     } catch (e) {
-      _showErrorDialog(context, trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)}));
+      _showErrorDialog(
+        context,
+        trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)}),
+      );
     }
   }
 

@@ -88,12 +88,16 @@ class _AssetUploadScreenState extends ConsumerState<AssetUploadScreen> {
       type: FileType.custom,
       allowedExtensions: _allowedExt,
     );
-    if (res.isNotEmpty && mounted) setState(() => _file = File(res.first.path!));
+    if (res.isNotEmpty && res.first.path != null && mounted) {
+      setState(() => _file = File(res.first.path!));
+    }
   }
 
   Future<void> _pickCover() async {
     final res = await FilePicker.pickFiles(type: FileType.image);
-    if (res.isNotEmpty && mounted) setState(() => _cover = File(res.first.path!));
+    if (res.isNotEmpty && res.first.path != null && mounted) {
+      setState(() => _cover = File(res.first.path!));
+    }
   }
 
   Future<void> _submit() async {
@@ -177,9 +181,11 @@ class _AssetUploadScreenState extends ConsumerState<AssetUploadScreen> {
       }
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -334,12 +340,21 @@ class _AssetUploadScreenState extends ConsumerState<AssetUploadScreen> {
                         )
                       : const Icon(Icons.cloud_upload_rounded),
                   label: Text(
-                    _isUploading ? tr('Загрузка...') : tr('Отправить на модерацию'),
+                    _isUploading
+                        ? tr('Загрузка...')
+                        : tr('Отправить на модерацию'),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  trf('Файл: {p0} • {p1}', {'p0': _file != null ? p.basename(_file!.path) : tr('не выбран'), 'p1': _file != null ? '${(_file!.lengthSync() / 1024 / 1024).toStringAsFixed(2)} MB' : ''}),
+                  trf('Файл: {p0} • {p1}', {
+                    'p0': _file != null
+                        ? p.basename(_file!.path)
+                        : tr('не выбран'),
+                    'p1': _file != null
+                        ? '${(_file!.lengthSync() / 1024 / 1024).toStringAsFixed(2)} MB'
+                        : '',
+                  }),
                   style: TextStyle(
                     fontSize: 12,
                     color: scheme.onSurfaceVariant,
@@ -347,7 +362,9 @@ class _AssetUploadScreenState extends ConsumerState<AssetUploadScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  tr('Максимальный размер файла — 100 MB. Аудио: MP3, WAV, OGG, M4A, FLAC, AAC.'),
+                  tr(
+                    'Максимальный размер файла — 100 MB. Аудио: MP3, WAV, OGG, M4A, FLAC, AAC.',
+                  ),
                   style: TextStyle(
                     fontSize: 11,
                     color: scheme.onSurfaceVariant,
@@ -357,7 +374,9 @@ class _AssetUploadScreenState extends ConsumerState<AssetUploadScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      tr('JSON должен содержать поля preset (corner/h/v/center assets). Пример смотри в редакторе пресетов.'),
+                      tr(
+                        'JSON должен содержать поля preset (corner/h/v/center assets). Пример смотри в редакторе пресетов.',
+                      ),
                       style: TextStyle(
                         fontSize: 11,
                         color: scheme.onSurfaceVariant,
@@ -368,7 +387,9 @@ class _AssetUploadScreenState extends ConsumerState<AssetUploadScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      tr('Поддерживаются TTF/OTF/WOFF. После одобрения шрифт появится в выборе шрифтов.'),
+                      tr(
+                        'Поддерживаются TTF/OTF/WOFF. После одобрения шрифт появится в выборе шрифтов.',
+                      ),
                       style: TextStyle(
                         fontSize: 11,
                         color: scheme.onSurfaceVariant,
@@ -432,7 +453,9 @@ class _UploadIntroCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    trf('Форматы: {p0}', {'p0': formats.join(', ').toUpperCase()}),
+                    trf('Форматы: {p0}', {
+                      'p0': formats.join(', ').toUpperCase(),
+                    }),
                     style: TextStyle(
                       color: scheme.onPrimaryContainer,
                       fontWeight: FontWeight.w700,
@@ -499,7 +522,9 @@ class _FilePickerTile extends StatelessWidget {
                     Text(
                       hasFile
                           ? p.basename(file!.path)
-                          : trf('Нажмите чтобы выбрать ({allowed})', {'allowed': allowed}),
+                          : trf('Нажмите чтобы выбрать ({allowed})', {
+                              'allowed': allowed,
+                            }),
                       style: TextStyle(
                         color: hasFile
                             ? scheme.onSurface

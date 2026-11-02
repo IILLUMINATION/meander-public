@@ -104,7 +104,9 @@ class LoadGameScreen extends ConsumerWidget {
       builder: (ctx) => AlertDialog(
         title: Text(tr('Удалить сохранение?')),
         content: Text(
-          trf('Квест «{p0}» будет удалён без возможности восстановления.', {'p0': slot.slotName}),
+          trf('Квест «{p0}» будет удалён без возможности восстановления.', {
+            'p0': slot.slotName,
+          }),
           style: const TextStyle(fontSize: 14, height: 1.4),
         ),
         actions: [
@@ -124,8 +126,22 @@ class LoadGameScreen extends ConsumerWidget {
       ),
     );
     if (confirm == true) {
-      await ref.read(saveGameServiceProvider).deleteSave(questId, slot.id);
-      ref.invalidate(saveSlotsProvider(questId));
+      try {
+        await ref.read(saveGameServiceProvider).deleteSave(questId, slot.id);
+        ref.invalidate(saveSlotsProvider(questId));
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                trf('Не удалось удалить сохранение: {p0}', {
+                  'p0': friendlyError(e),
+                }),
+              ),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -632,7 +648,9 @@ class _EmptySavesState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              tr('Начните новую игру. Прогресс сохраняется автоматически при выходе, также вы можете сохраняться вручную.'),
+              tr(
+                'Начните новую игру. Прогресс сохраняется автоматически при выходе, также вы можете сохраняться вручную.',
+              ),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: scheme.onSurfaceVariant,
