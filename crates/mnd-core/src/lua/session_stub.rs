@@ -17,6 +17,14 @@ impl LuaSession {
         LuaSession
     }
 
+    pub fn exec_source(
+        &mut self,
+        _state: &mut dyn ScriptRuntime,
+        _script: &str,
+    ) -> Result<(), String> {
+        Err("Lua в этой сборке недоступен — откройте квест в приложении".to_string())
+    }
+
     pub fn call_function(
         &mut self,
         _state: &mut dyn ScriptRuntime,
