@@ -10,6 +10,10 @@ enum BlockCategory { event, control, variable, action, script, comment }
 
 enum TableOperation { get, set, add, remove, removeValue, clear, contains }
 
+/// Операции блока «Сохранения». Имена уходят в JSON как есть и совпадают с
+/// `save_operation.rs`; клиент превращает их во внешние команды.
+enum SaveOperation { save, open, load, delete }
+
 /// Как операция записывается в JSON скрипта. Имена — контракт движка
 /// (`execute_table_operation` в `crates/mnd-core/src/executor.rs`), поэтому
 /// `removeValue` уходит на диск как `remove_value`, а не как `removeValue`.
@@ -51,13 +55,27 @@ extension TableOperationHelp on TableOperation {
   /// Строка в списке операций: чем отличается от похожей. Ключ перевода обязан
   /// быть одним литералом, поэтому строки не разрезаются склейкой.
   String get description => switch (this) {
-    TableOperation.get => tr('Прочитать значение по пути в переменную. Пустой путь читает не таблицу, а запасное значение из поля «Значение».'),
-    TableOperation.set => tr('Заменить значение по пути (ключ, элемент списка items[1] или items[0].name). Корень таблицы не перезаписывается.'),
-    TableOperation.add => tr('Дописать элемент в конец списка по пути. Если списка там нет — он создастся.'),
-    TableOperation.remove => tr('Убрать ключ словаря (Путь = bread) или элемент по номеру с нуля (items[1] — второй). По значению — см. «Удалить значение».'),
-    TableOperation.removeValue => tr('Убрать из списка первое совпадение со значением: Путь = items, Значение = «меч». Для ключей словаря берите «Удалить».'),
-    TableOperation.clear => tr('Очистить всю таблицу, а по пути — только список или словарь по нему.'),
-    TableOperation.contains => tr('Есть ли значение в списке или словаре; Путь пустой — ищем по всей таблице. Результат (да/нет) кладём в переменную.'),
+    TableOperation.get => tr(
+      'Прочитать значение по пути в переменную. Пустой путь читает не таблицу, а запасное значение из поля «Значение».',
+    ),
+    TableOperation.set => tr(
+      'Заменить значение по пути (ключ, элемент списка items[1] или items[0].name). Корень таблицы не перезаписывается.',
+    ),
+    TableOperation.add => tr(
+      'Дописать элемент в конец списка по пути. Если списка там нет — он создастся.',
+    ),
+    TableOperation.remove => tr(
+      'Убрать ключ словаря (Путь = bread) или элемент по номеру с нуля (items[1] — второй). По значению — см. «Удалить значение».',
+    ),
+    TableOperation.removeValue => tr(
+      'Убрать из списка первое совпадение со значением: Путь = items, Значение = «меч». Для ключей словаря берите «Удалить».',
+    ),
+    TableOperation.clear => tr(
+      'Очистить всю таблицу, а по пути — только список или словарь по нему.',
+    ),
+    TableOperation.contains => tr(
+      'Есть ли значение в списке или словаре; Путь пустой — ищем по всей таблице. Результат (да/нет) кладём в переменную.',
+    ),
   };
 
   /// Подпись под полем: что туда писать.
@@ -66,10 +84,14 @@ extension TableOperationHelp on TableOperation {
     (TableOperation.get, 'path') => tr('имя ключа, например gold'),
     (TableOperation.set, 'path') => tr('куда пишем: gold или items[0]'),
     (TableOperation.add, 'path') => tr('какой список пополняем: items'),
-    (TableOperation.remove, 'path') => tr('ключ (bread) или элемент с нуля: items[1] — второй'),
+    (TableOperation.remove, 'path') => tr(
+      'ключ (bread) или элемент с нуля: items[1] — второй',
+    ),
     (TableOperation.removeValue, 'path') => tr('какой список: items'),
     (TableOperation.contains, 'path') => tr('где искать; пусто — вся таблица'),
-    (_, 'value') when this == TableOperation.get => tr('кладётся в переменную, если ключа нет'),
+    (_, 'value') when this == TableOperation.get => tr(
+      'кладётся в переменную, если ключа нет',
+    ),
     (TableOperation.contains, 'value') => tr('что ищем'),
     (_, 'value') => tr('формула или литерал в кавычках'),
     (_, 'target') => tr('переменная получит результат'),
@@ -155,6 +177,8 @@ abstract class VisualScriptBlock {
           return OpenLinkBlock.fromJson(json);
         case BlockTypes.httpRequest:
           return HttpRequestBlock.fromJson(json);
+        case BlockTypes.saveOperation:
+          return SaveOperationBlock.fromJson(json);
         case BlockTypes.forEach:
           return ForEachBlock.fromJson(json);
         case BlockTypes.comment:
@@ -1147,6 +1171,41 @@ class HttpRequestBlock extends VisualScriptBlock {
 /// JSON и т.п.). Хранит исходный JSON и сериализуется обратно 1-в-1:
 /// load→save НЕ теряет данные. В редакторе показывается карточкой
 /// «Неизвестный блок»; пользователь может только удалить его.
+/// Блок «Сохранения»: создать слот, открыть список, загрузить или удалить.
+/// Сами файлы пишет клиент через `SaveGameService`, движок только ставит
+/// команду в очередь — это оставляет ядро без ФС и работает на всех плеерах.
+class SaveOperationBlock extends VisualScriptBlock {
+  SaveOperation operation;
+  String slotName;
+
+  SaveOperationBlock({
+    String? id,
+    this.operation = SaveOperation.save,
+    this.slotName = '',
+  }) : super(id: id, category: BlockCategory.action);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': BlockTypes.saveOperation,
+    'id': id,
+    'operation': operation.name,
+    'slotName': slotName,
+  };
+
+  static SaveOperationBlock fromJson(Map<String, dynamic> json) {
+    final raw = (json['operation'] ?? 'save').toString();
+    final op = SaveOperation.values.firstWhere(
+      (o) => o.name == raw,
+      orElse: () => SaveOperation.save,
+    );
+    return SaveOperationBlock(
+      id: json['id'] as String?,
+      operation: op,
+      slotName: (json['slotName'] ?? json['slot'] ?? '').toString(),
+    );
+  }
+}
+
 class UnknownBlock extends VisualScriptBlock {
   /// Исходный JSON блока — возвращается из toJson() без изменений.
   final Map<String, dynamic> raw;

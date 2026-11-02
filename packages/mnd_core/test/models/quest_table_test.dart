@@ -45,6 +45,22 @@ void main() {
       expect(table.rows.first.containsKey('b'), isFalse);
       expect(table.rows.first['c'], '');
     });
+    test('row names trim and rows-array survive legacy JSON', () {
+      final decoded = QuestTable.fromJson({
+        'name': 't',
+        'columns': ['a'],
+        'rows': [
+          ['sword'],
+          {'a': 2},
+        ],
+        'rowNames': [' меч ', 'лук'],
+      });
+      expect(decoded.rowNames, ['меч', 'лук']);
+      expect(decoded.rows[0], isEmpty);
+      expect(decoded.rows[1]['a'], 2);
+      expect(decoded.rowIndexByName('меч'), 0);
+    });
+
     test('handles __table_full_json__ correctly without polluting data', () {
       final jsonWithFull = {
         'рука': [

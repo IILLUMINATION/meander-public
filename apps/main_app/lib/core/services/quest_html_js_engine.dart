@@ -31,7 +31,7 @@ function getResUrl(resId) {
 
 var state = {
   variables: Object.assign({}, quest.variables || {}),
-  tables: {}
+  tables: JSON.parse(JSON.stringify(quest.tables || {}))
 };
 function getVariable(n) {
   return Object.prototype.hasOwnProperty.call(state.variables, n) ? state.variables[n] : null;
@@ -128,7 +128,7 @@ function manualDeepLookup(expr) {
   }
   var baseName = expr.substring(0, i).trim();
   if (!baseName) return null;
-  var cur, tbl = getTable(baseName);
+  var cur, tbl = getTable(baseName), tableRoot = tbl;
   if (tbl) cur = tbl.data;
   else cur = getVariable(baseName);
   if (cur == null) return null;
@@ -142,6 +142,7 @@ function manualDeepLookup(expr) {
       if (!key) return null;
       if (cur && typeof cur === 'object' && !Array.isArray(cur)) cur = cur[key];
       else return null;
+      tableRoot = null;
     } else if (c2 === '[') {
       i++;
       var start = i, endIdx = -1, inQ = false, qc = '';
@@ -160,16 +161,34 @@ function manualDeepLookup(expr) {
       if ((content.charAt(0) === '"' && content.charAt(content.length - 1) === '"') ||
           (content.charAt(0) === "'" && content.charAt(content.length - 1) === "'")) {
         var key2 = content.substring(1, content.length - 1);
-        if (cur && typeof cur === 'object' && !Array.isArray(cur)) cur = cur[key2];
-        else return null;
+        if (tableRoot && tableRoot.columns && tableRoot.columns.indexOf(key2) >= 0) {
+          // Колонка сетки: следующий числовой индекс — 1-based, как в ядре.
+          var vals = (tableRoot.rows || []).map(function(r) { return r[key2]; });
+          vals.__mndColumn = true;
+          cur = vals;
+          tableRoot = null;
+        } else if (tableRoot && tableRoot.rowNames && tableRoot.rowNames.indexOf(key2) >= 0) {
+          var ri2 = tableRoot.rowNames.indexOf(key2);
+          cur = (tableRoot.rows || [])[ri2] || null;
+          tableRoot = null;
+        } else if (cur && typeof cur === 'object' && !Array.isArray(cur)) {
+          cur = cur[key2];
+        } else return null;
       } else {
         var idx = parseInt(content, 10);
         if (!isNaN(idx)) {
-          if (Array.isArray(cur) && idx >= 0 && idx < cur.length) cur = cur[idx];
+          if (cur && cur.__mndColumn) {
+            if (idx < 1 || idx > cur.length) return null;
+            cur = cur[idx - 1];
+          } else if (Array.isArray(cur) && idx >= 0 && idx < cur.length) cur = cur[idx];
           else return null;
         } else {
           var kv = evalExpr(content);
-          if (Array.isArray(cur)) {
+          if (cur && cur.__mndColumn) {
+            var ci = typeof kv === 'number' ? kv : parseInt(String(kv), 10);
+            if (isNaN(ci) || ci < 1 || ci > cur.length) return null;
+            cur = cur[ci - 1];
+          } else if (Array.isArray(cur)) {
             var ii = typeof kv === 'number' ? kv : parseInt(String(kv), 10);
             if (isNaN(ii) || ii < 0 || ii >= cur.length) return null;
             cur = cur[ii];
@@ -236,6 +255,155 @@ function normalizeBraces(text) {
   }
   return out;
 }
+function splitArgs(raw) {
+  var out = [], depth = 0, start = 0, inQ = false, qc = '';
+  for (var i = 0; i < raw.length; i++) {
+    var c = raw.charAt(i);
+    if (inQ) { if (c === qc && raw.charAt(i - 1) !== '\\') inQ = false; continue; }
+    if (c === '"' || c === "'") { inQ = true; qc = c; continue; }
+    if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (c === ',' && depth === 0) {
+      out.push(raw.substring(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(raw.substring(start).trim());
+  return out.filter(function(x) { return x !== ''; });
+}
+function unquote(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (s.length >= 2 &&
+      ((s.charAt(0) === '"' && s.charAt(s.length - 1) === '"') ||
+       (s.charAt(0) === "'" && s.charAt(s.length - 1) === "'"))) {
+    return s.substring(1, s.length - 1);
+  }
+  return s;
+}
+function tableArg(raw) {
+  var name = unquote(raw);
+  var t = getTable(name);
+  if (t) return t;
+  var v = evalExpr(raw);
+  if (typeof v === 'string') return getTable(v);
+  return null;
+}
+function tableValue(t, col, row) {
+  if (!t || !t.rows) return null;
+  if (typeof row === 'string') {
+    var rn = t.rowNames || [];
+    var ri = rn.indexOf(row);
+    if (ri < 0) return null;
+    row = ri + 1;
+  }
+  var n = Number(row);
+  if (!isFinite(n) || n < 1 || n > t.rows.length) return null;
+  return t.rows[n - 1][col];
+}
+function tableColumn(t, col) {
+  return (t && t.rows ? t.rows.map(function(r) { return r[col]; }) : []);
+}
+function tableNumbers(t, col) {
+  return tableColumn(t, col).map(function(v) {
+    var n = Number(v);
+    return (v === null || v === '' || isNaN(n)) ? null : n;
+  }).filter(function(n) { return n !== null; });
+}
+function evalFunction(name, rawArgs) {
+  var args = splitArgs(rawArgs || '');
+  var fn = name.toLowerCase();
+  if (fn === 'length' || fn === 'len') {
+    var v = evalExpr(args[0]);
+    if (typeof v === 'string') return v.length;
+    if (Array.isArray(v)) return v.length;
+    if (v && typeof v === 'object') return Object.keys(v).length;
+    return 0;
+  }
+  if (fn === 'split') {
+    var text = evalExpr(args[0]);
+    var sep = evalExpr(args[1]);
+    return String(text == null ? '' : text).split(String(sep == null ? ' ' : sep));
+  }
+  if (fn === 'join') {
+    var arr = evalExpr(args[0]);
+    var sep2 = evalExpr(args[1]);
+    return Array.isArray(arr) ? arr.join(String(sep2 == null ? ',' : sep2)) : '';
+  }
+  if (fn === 'contains') {
+    var hay = evalExpr(args[0]), needle = evalExpr(args[1]);
+    if (Array.isArray(hay)) return hay.some(function(x) { return valuesEqual(x, needle); });
+    return String(hay == null ? '' : hay).indexOf(String(needle == null ? '' : needle)) >= 0;
+  }
+  if (fn === 'upper' || fn === 'uppercase') return String(evalExpr(args[0]) || '').toUpperCase();
+  if (fn === 'lower' || fn === 'lowercase') return String(evalExpr(args[0]) || '').toLowerCase();
+  if (fn === 'trim') return String(evalExpr(args[0]) || '').trim();
+  if (fn === 'number' || fn === 'to_number' || fn === 'tonumber') return toNum(evalExpr(args[0]));
+  if (fn === 'int' || fn === 'to_int') { var ni = toNum(evalExpr(args[0])); return ni == null ? null : Math.trunc(ni); }
+  if (fn === 'float') return toNum(evalExpr(args[0]));
+  if (fn === 'round') { var nr = toNum(evalExpr(args[0])); return nr == null ? null : Math.round(nr); }
+  if (fn === 'floor') { var nf = toNum(evalExpr(args[0])); return nf == null ? null : Math.floor(nf); }
+  if (fn === 'ceil') { var nc = toNum(evalExpr(args[0])); return nc == null ? null : Math.ceil(nc); }
+  if (fn === 'abs') { var na = toNum(evalExpr(args[0])); return na == null ? null : Math.abs(na); }
+  if (fn === 'min' || fn === 'max') {
+    var nums = args.map(function(a) { return toNum(evalExpr(a)); }).filter(function(n) { return n !== null; });
+    if (!nums.length) return null;
+    return fn === 'min' ? Math.min.apply(null, nums) : Math.max.apply(null, nums);
+  }
+  if (fn === 'table_cell') {
+    var t1 = tableArg(args[0]), col1 = evalExpr(args[1]);
+    return tableValue(t1, String(col1 == null ? '' : col1), evalExpr(args[2]));
+  }
+  if (fn === 'table_column') {
+    var t2 = tableArg(args[0]), col2 = evalExpr(args[1]);
+    return tableColumn(t2, String(col2 == null ? '' : col2));
+  }
+  if (fn === 'table_columns') {
+    var t3 = tableArg(args[0]);
+    return t3 && t3.columns ? t3.columns.slice() : [];
+  }
+  if (fn === 'table_rows') {
+    var t4 = tableArg(args[0]);
+    return t4 && t4.rows ? t4.rows.length : 0;
+  }
+  if (fn === 'table_row') {
+    var t5 = tableArg(args[0]), row5 = evalExpr(args[1]);
+    if (!t5 || !t5.rows) return null;
+    var n5 = typeof row5 === 'string'
+        ? (t5.rowNames || []).indexOf(row5) + 1
+        : Number(row5);
+    if (!isFinite(n5) || n5 < 1 || n5 > t5.rows.length) return null;
+    return t5.rows[n5 - 1];
+  }
+  if (fn === 'table_text') {
+    var t6 = tableArg(args[0]);
+    if (!t6 || !t6.columns) return '';
+    var lines = [t6.columns.join('\t')];
+    (t6.rows || []).forEach(function(r) {
+      lines.push(t6.columns.map(function(c) { return String(r[c] == null ? '' : r[c]); }).join('\t'));
+    });
+    return lines.join('\n');
+  }
+  if (fn === 'table_sum' || fn === 'table_avg' || fn === 'table_min' || fn === 'table_max') {
+    var t7 = tableArg(args[0]), col7 = evalExpr(args[1]);
+    var vals7 = tableNumbers(t7, String(col7 == null ? '' : col7));
+    if (!vals7.length) return null;
+    if (fn === 'table_sum') return vals7.reduce(function(a, b) { return a + b; }, 0);
+    if (fn === 'table_avg') return vals7.reduce(function(a, b) { return a + b; }, 0) / vals7.length;
+    return fn === 'table_min' ? Math.min.apply(null, vals7) : Math.max.apply(null, vals7);
+  }
+  if (fn === 'table_find' || fn === 'table_where' || fn === 'table_has') {
+    var t8 = tableArg(args[0]), col8 = evalExpr(args[1]), val8 = evalExpr(args[2]);
+    var found = [];
+    (t8 && t8.rows ? t8.rows : []).forEach(function(r, i) {
+      if (valuesEqual(r[String(col8 == null ? '' : col8)], val8)) found.push(i + 1);
+    });
+    if (fn === 'table_has') return found.length > 0;
+    if (fn === 'table_find') return found.length ? found[0] : null;
+    return found;
+  }
+  return null;
+}
+
 function evalExpr(input) {
   if (input == null) return null;
   var expr = normalizeBraces(input).trim();
@@ -276,6 +444,11 @@ function evalExpr(input) {
     var L = evalExpr(expr.substring(0, idx));
     var R = evalExpr(expr.substring(idx + op.length));
     return compareValues(L, R, op);
+  }
+  var call = expr.match(/^([A-Za-z_][A-Za-z0-9_]*)\(([\s\S]*)\)$/);
+  if (call) {
+    var fv = evalFunction(call[1], call[2]);
+    if (fv != null) return fv;
   }
   if (expr.indexOf('{') >= 0) {
     expr = resolveInlinePlaceholders(expr);

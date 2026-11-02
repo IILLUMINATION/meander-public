@@ -35,7 +35,7 @@ class QuestTable implements ScriptTable {
     final out = List<String>.generate(rowCount, (_) => '');
     if (names != null) {
       for (var i = 0; i < rowCount && i < names.length; i++) {
-        out[i] = names[i];
+        out[i] = names[i].trim();
       }
     }
     return out;
@@ -157,7 +157,11 @@ class QuestTable implements ScriptTable {
       name: (json['name'] as String?) ?? '',
       columns: List<String>.from(json['columns'] ?? []),
       rows: (json['rows'] as List<dynamic>? ?? [])
-          .map((row) => Map<String, dynamic>.from(row as Map))
+          .map(
+            (row) => row is Map
+                ? Map<String, dynamic>.from(row)
+                : <String, dynamic>{},
+          )
           .toList(),
       rowNames: List<String>.from(
         (json['rowNames'] ?? json['row_names']) as List<dynamic>? ?? [],

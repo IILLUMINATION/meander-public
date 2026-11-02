@@ -18,7 +18,7 @@ class TableExportService {
   TableExportService._();
 
   static const int _maxCellLength = 32000;
-  static const int _maxSheetRows = 16000;
+  static const int maxXlsxRows = 16000;
 
   /// Метка колонки как в Excel: 0 → A, 25 → Z, 26 → AA.
   static String columnLabel(int index) {
@@ -93,9 +93,8 @@ class TableExportService {
     }
 
     writeRow([if (withNames) '__row_name', ...table.columns]);
-    final maxRows =
-        table.rows.length > _maxSheetRows ? _maxSheetRows : table.rows.length;
-    for (var i = 0; i < maxRows; i++) {
+    // CSV не обязан резать данные: лимит относится к листам XLSX.
+    for (var i = 0; i < table.rows.length; i++) {
       final row = table.rows[i];
       writeRow([
         if (withNames) table.rowName(i),
@@ -168,7 +167,8 @@ class TableExportService {
     }
 
     var header = rowsRaw.first;
-    final hasRowNames = header.isNotEmpty && header.first.trim() == '__row_name';
+    final hasRowNames =
+        header.isNotEmpty && header.first.trim() == '__row_name';
     if (hasRowNames) header = header.sublist(1);
     if (header.isEmpty) {
       throw FormatException(tr('Файл CSV не содержит заголовков'));
@@ -224,7 +224,10 @@ class TableExportService {
   //  JSON
   // ---------------------------------------------------------------------------
 
-  static QuestTable parseQuestTableJson(String content, {String? fallbackName}) {
+  static QuestTable parseQuestTableJson(
+    String content, {
+    String? fallbackName,
+  }) {
     final dynamic decoded;
     try {
       decoded = jsonDecode(content);
@@ -243,9 +246,7 @@ class TableExportService {
     }
     for (final r in json['rows'] as List) {
       if (r is! Map) {
-        throw FormatException(
-            tr('Каждая строка должна быть объектом'),
-          );
+        throw FormatException(tr('Каждая строка должна быть объектом'));
       }
     }
     final name = json['name'];
@@ -286,12 +287,11 @@ class TableExportService {
   }
 
   /// Импорт таблицы из CSV/JSON-файла. Имя таблицы — из имени файла.
-  static Future<QuestTable> importTableFromFile(String filePath) async {    final ext = p.extension(filePath).toLowerCase();
+  static Future<QuestTable> importTableFromFile(String filePath) async {
+    final ext = p.extension(filePath).toLowerCase();
     final file = File(filePath);
     if (!await file.exists()) {
-      throw FormatException(
-        trf('Файл не найден: {p0}', {'p0': filePath}),
-      );
+      throw FormatException(trf('Файл не найден: {p0}', {'p0': filePath}));
     }
     final name = sanitizeFileName(p.basenameWithoutExtension(filePath));
 
@@ -323,7 +323,9 @@ class TableExportService {
       ),
     ];
     if (table.data.isNotEmpty) {
-      sheets.add(_XlsxSheet(name: tr('Данные (KV)'), rows: _kvToXlsxRows(table)));
+      sheets.add(
+        _XlsxSheet(name: tr('Данные (KV)'), rows: _kvToXlsxRows(table)),
+      );
     }
     return _buildXlsx(sheets);
   }
@@ -335,15 +337,14 @@ class TableExportService {
       if (withNames) {'v': '__row_name', 'bold': true},
       for (final col in table.columns) {'v': col, 'bold': true},
     ]);
-    final maxRows = table.rows.length > _maxSheetRows
-        ? _maxSheetRows
+    final maxRows = table.rows.length > maxXlsxRows
+        ? maxXlsxRows
         : table.rows.length;
     for (var i = 0; i < maxRows; i++) {
       final row = table.rows[i];
       rows.add([
         if (withNames) {'v': table.rowName(i)},
-        for (final col in table.columns)
-          {'v': _smartValue(row[col])},
+        for (final col in table.columns) {'v': _smartValue(row[col])},
       ]);
     }
     return rows;
@@ -426,21 +427,21 @@ class TableExportService {
     addFile(
       '[Content_Types].xml',
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-      '<Default Extension="xml" ContentType="application/xml"/>'
-      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
-      '$typeEntries'
-      '</Types>',
+          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+          '<Default Extension="xml" ContentType="application/xml"/>'
+          '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+          '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+          '$typeEntries'
+          '</Types>',
     );
 
     addFile(
       '_rels/.rels',
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
-      '</Relationships>',
+          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+          '</Relationships>',
     );
 
     final sheetsXml = [
@@ -450,9 +451,9 @@ class TableExportService {
     addFile(
       'xl/workbook.xml',
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-      '<sheets>$sheetsXml</sheets></workbook>',
+          '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+          'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+          '<sheets>$sheetsXml</sheets></workbook>',
     );
 
     final sheetRels = [
@@ -462,25 +463,25 @@ class TableExportService {
     addFile(
       'xl/_rels/workbook.xml.rels',
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-      '$sheetRels'
-      '<Relationship Id="rIdStyle" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
-      '</Relationships>',
+          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+          '$sheetRels'
+          '<Relationship Id="rIdStyle" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+          '</Relationships>',
     );
 
     addFile(
       'xl/styles.xml',
       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-      '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-      '<fonts count="2"><font><name t="Calibri"/></font><font><b/><name t="Calibri"/></font></fonts>'
-      '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
-      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
-      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-      '<cellXfs count="2">'
-      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-      '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
-      '</cellXfs>'
-      '</styleSheet>',
+          '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+          '<fonts count="2"><font><name t="Calibri"/></font><font><b/><name t="Calibri"/></font></fonts>'
+          '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+          '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+          '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+          '<cellXfs count="2">'
+          '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+          '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+          '</cellXfs>'
+          '</styleSheet>',
     );
 
     for (var i = 0; i < sheets.length; i++) {
@@ -516,9 +517,7 @@ class TableExportService {
   }
 
   static Future<bool> exportTableJson(QuestTable table) async {
-    final json = const JsonEncoder.withIndent(
-      '  ',
-    ).convert(table.toJson());
+    final json = const JsonEncoder.withIndent('  ').convert(table.toJson());
     return _saveBytes(
       bytes: Uint8List.fromList(utf8.encode(json)),
       fileName: '${sanitizeFileName(table.name)}.json',

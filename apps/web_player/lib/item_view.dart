@@ -21,6 +21,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:mnd_core/engine/item_visibility.dart';
 import 'package:mnd_core/models/content_item.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'player.dart';
 
@@ -296,7 +297,8 @@ class _ItemViewState extends State<ItemView> {
     if (widget.suppress || item.type == 'button' || item.type == 'input') {
       return content;
     }
-    final takesPress = itemHasInteraction(item) ||
+    final takesPress =
+        itemHasInteraction(item) ||
         (item.targetNodeId?.trim().isNotEmpty ?? false) ||
         (item.scriptAssetId?.trim().isNotEmpty ?? false);
     if (!takesPress) return content;
@@ -310,9 +312,7 @@ class _ItemViewState extends State<ItemView> {
   /// Контейнер с собственным onPress перехватывает тап: дети не кликабельны
   /// (нативный `suppressChildrenInteraction`).
   static bool _containerSuppresses(ContentItem item) =>
-      item.type == 'row' ||
-      item.type == 'column' ||
-      item.type == 'stack'
+      item.type == 'row' || item.type == 'column' || item.type == 'stack'
       ? itemHasInteraction(item) || (item.scriptAssetId?.isNotEmpty ?? false)
       : false;
 }
@@ -391,7 +391,8 @@ class _TextViewState extends State<_TextView>
   @override
   void didUpdateWidget(covariant _TextView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final changed = oldWidget.item.id != widget.item.id ||
+    final changed =
+        oldWidget.item.id != widget.item.id ||
         oldWidget.item.text != widget.item.text ||
         oldWidget.item.textReveal != widget.item.textReveal ||
         oldWidget.item.revealSpeed != widget.item.revealSpeed;
@@ -431,26 +432,59 @@ class _TextViewState extends State<_TextView>
     controller.forward();
   }
 
-  static int _visibleChars(String text) =>
-      text.replaceAll(RegExp(r'\s'), '').length;
+  static final RegExp _inlineTag = RegExp(
+    r'\[(?:color=#[0-9A-Fa-f]{6,8}|outline=#[0-9A-Fa-f]{6,8}(?::[0-9.]+)?|font=[^\]]+|/(?:color|outline|font))\]',
+  );
 
-  /// Доля набранного текста: префикс по числу видимых символов.
+  static int _visibleChars(String text) =>
+      text.replaceAll(_inlineTag, '').replaceAll(RegExp(r'\s'), '').length;
+
+  /// Доля набранного текста: префикс по числу видимых символов. Теги
+  /// копируются целиком, а открытые на момент обрыва закрываются, поэтому
+  /// `[outline=…]` не показывается куском и не ломает разбор.
   String _prefix(String text, double fraction) {
     if (fraction >= 1) return text;
     final target = (_visibleChars(text) * fraction).round();
+    final out = StringBuffer();
+    final open = <String>[];
     var seen = 0;
-    for (var i = 0; i < text.length; i++) {
-      if (!RegExp(r'\s').hasMatch(text[i])) seen++;
-      if (seen > target) return text.substring(0, i);
+    var i = 0;
+    while (i < text.length) {
+      final tag = _inlineTag.matchAsPrefix(text, i);
+      if (tag != null) {
+        final value = tag.group(0)!;
+        out.write(value);
+        if (value.startsWith('[/')) {
+          final name = value.substring(2, value.length - 1);
+          final index = open.lastIndexOf(name);
+          if (index >= 0) open.removeAt(index);
+        } else {
+          final eq = value.indexOf('=');
+          open.add(value.substring(1, eq < 0 ? value.length - 1 : eq));
+        }
+        i = tag.end;
+        continue;
+      }
+      if (!RegExp(r'\s').hasMatch(text[i])) {
+        if (seen >= target) break;
+        seen++;
+      }
+      out.write(text[i]);
+      i++;
     }
-    return text;
+    for (final name in open.reversed) {
+      out.write('[/$name]');
+    }
+    return out.toString();
   }
 
   @override
   Widget build(BuildContext context) {
     final raw = widget.item.text ?? '';
     final parsed = widget.player.resolveText(raw);
-    final shown = (_isFade || _fraction >= 1) ? parsed : _prefix(parsed, _fraction);
+    final shown = (_isFade || _fraction >= 1)
+        ? parsed
+        : _prefix(parsed, _fraction);
 
     Widget body = _MarkdownBlock(
       text: shown,
@@ -508,7 +542,9 @@ class _MarkdownBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final baseSize = item.textFit == 'scale'
         ? 16.0
-        : player.numeric(item, 'textSize', item.textSize ?? 16.0).clamp(6.0, 200.0);
+        : player
+              .numeric(item, 'textSize', item.textSize ?? 16.0)
+              .clamp(6.0, 200.0);
     final base = TextStyle(
       color: item.backgroundColor == null ? Colors.white : null,
       fontSize: baseSize,
@@ -550,53 +586,67 @@ class _MarkdownBlock extends StatelessWidget {
       if (heading != null) {
         flushParagraph();
         final level = heading.group(1)!.length;
-        final scale = switch (level) { 1 => 1.5, 2 => 1.35, _ => 1.2 };
-        blocks.add(Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: _rich(
-            heading.group(2)!,
-            base.copyWith(
-              fontSize: baseSize * scale,
-              fontWeight: FontWeight.bold,
+        final scale = switch (level) {
+          1 => 1.5,
+          2 => 1.35,
+          _ => 1.2,
+        };
+        blocks.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: _rich(
+              heading.group(2)!,
+              base.copyWith(
+                fontSize: baseSize * scale,
+                fontWeight: FontWeight.bold,
+              ),
+              align,
             ),
-            align,
           ),
-        ));
+        );
         continue;
       }
 
       final quote = _quote.firstMatch(line);
       if (quote != null) {
         flushParagraph();
-        blocks.add(Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(width: 3, color: Colors.white38),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _rich(quote.group(1)!, base.copyWith(color: Colors.white70), align),
-              ),
-            ],
+        blocks.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 8, bottom: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: 3, color: Colors.white38),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _rich(
+                    quote.group(1)!,
+                    base.copyWith(color: Colors.white70),
+                    align,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ));
+        );
         continue;
       }
 
       final bullet = _bullet.firstMatch(line);
       if (bullet != null) {
         flushParagraph();
-        blocks.add(Padding(
-          padding: const EdgeInsets.only(left: 20, bottom: 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('•  ', style: base),
-              Expanded(child: _rich(bullet.group(1)!, base, TextAlign.start)),
-            ],
+        blocks.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 20, bottom: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('•  ', style: base),
+                Expanded(child: _rich(bullet.group(1)!, base, TextAlign.start)),
+              ],
+            ),
           ),
-        ));
+        );
         continue;
       }
 
@@ -624,7 +674,11 @@ class _MarkdownBlock extends StatelessWidget {
     );
 
     if (item.textFit == 'scale') {
-      body = FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: body);
+      body = FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: body,
+      );
     }
 
     final background = item.backgroundColor;
@@ -639,11 +693,7 @@ class _MarkdownBlock extends StatelessWidget {
         child: body,
       );
     }
-    return DefaultTextStyle.merge(
-      textAlign: align,
-      style: base,
-      child: body,
-    );
+    return DefaultTextStyle.merge(textAlign: align, style: base, child: body);
   }
 
   TextAlign _alignment(BuildContext context) {
@@ -717,7 +767,7 @@ InlineSpan _asOutlineText(InlineSpan span, Paint stroke) {
   if (span is! TextSpan) return span;
   return TextSpan(
     text: span.text,
-    style: span.style?.copyWith(foreground: stroke),
+    style: span.style?.copyWith(foreground: stroke, shadows: const []),
     children: span.children?.map((c) => _asOutlineText(c, stroke)).toList(),
   );
 }
@@ -743,18 +793,65 @@ List<InlineSpan> _inline(
   final style = base.copyWith(fontFamily: fontFamily ?? base.fontFamily);
   if (text.isEmpty) return const [];
 
-  final font = RegExp(r'\[font=([^\]]+)\](.*?)\[/font\]', dotAll: true)
-      .firstMatch(text);
+  final font = RegExp(
+    r'\[font=([^\]]+)\](.*?)\[/font\]',
+    dotAll: true,
+  ).firstMatch(text);
   if (font != null) {
     final family = questFontFamily(font.group(1)?.trim());
     return [
-      ..._inline(text.substring(0, font.start), base,
-          player: player, fontFamily: fontFamily),
-      ..._inline(font.group(2) ?? '', base,
-          player: player, fontFamily: family ?? fontFamily),
-      ..._inline(text.substring(font.end), base,
-          player: player, fontFamily: fontFamily),
+      ..._inline(
+        text.substring(0, font.start),
+        base,
+        player: player,
+        fontFamily: fontFamily,
+      ),
+      ..._inline(
+        font.group(2) ?? '',
+        base,
+        player: player,
+        fontFamily: family ?? fontFamily,
+      ),
+      ..._inline(
+        text.substring(font.end),
+        base,
+        player: player,
+        fontFamily: fontFamily,
+      ),
     ];
+  }
+
+  final outline = RegExp(
+    r'\[outline=(#[0-9A-Fa-f]{6,8})(?::([0-9]+(?:\.[0-9]+)?))?\](.*?)\[/outline\]',
+    dotAll: true,
+  ).firstMatch(text);
+  if (outline != null) {
+    final parsed = _parseHexColor(outline.group(1)!);
+    if (parsed != null) {
+      final width =
+          (double.tryParse(outline.group(2) ?? '') ?? kTextOutlineWidthDefault)
+              .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
+      return [
+        ..._inline(
+          text.substring(0, outline.start),
+          base,
+          player: player,
+          fontFamily: fontFamily,
+        ),
+        ..._inline(
+          outline.group(3) ?? '',
+          base.copyWith(shadows: _outlineShadows(parsed, width)),
+          player: player,
+          fontFamily: fontFamily,
+        ),
+        ..._inline(
+          text.substring(outline.end),
+          base,
+          player: player,
+          fontFamily: fontFamily,
+        ),
+      ];
+    }
   }
 
   final color = RegExp(
@@ -765,65 +862,105 @@ List<InlineSpan> _inline(
     final parsed = _parseHexColor(color.group(1)!);
     if (parsed != null) {
       return [
-        ..._inline(text.substring(0, color.start), base,
-            player: player, fontFamily: fontFamily),
-        ..._inline(color.group(2) ?? '', base.copyWith(color: parsed),
-            player: player, fontFamily: fontFamily),
-        ..._inline(text.substring(color.end), base,
-            player: player, fontFamily: fontFamily),
+        ..._inline(
+          text.substring(0, color.start),
+          base,
+          player: player,
+          fontFamily: fontFamily,
+        ),
+        ..._inline(
+          color.group(2) ?? '',
+          base.copyWith(color: parsed),
+          player: player,
+          fontFamily: fontFamily,
+        ),
+        ..._inline(
+          text.substring(color.end),
+          base,
+          player: player,
+          fontFamily: fontFamily,
+        ),
       ];
     }
   }
 
   final link = RegExp(r'\[([^\]\n]*)\]\(([^)\n]+)\)').firstMatch(text);
   final bold = RegExp(r'\*\*(.+?)\*\*', dotAll: true).firstMatch(text);
-  final italic = RegExp(r'(?<!\*)\*([^*\n]+)\*(?!\*)', dotAll: true)
-      .firstMatch(text);
+  final italic = RegExp(
+    r'(?<!\*)\*([^*\n]+)\*(?!\*)',
+    dotAll: true,
+  ).firstMatch(text);
   final code = RegExp(r'`([^`\n]+)`').firstMatch(text);
 
-  final candidates = <RegExpMatch?>[link, bold, italic, code]
-      .whereType<RegExpMatch>()
-      .toList()
-    ..sort((a, b) => a.start.compareTo(b.start));
+  final candidates =
+      <RegExpMatch?>[link, bold, italic, code].whereType<RegExpMatch>().toList()
+        ..sort((a, b) => a.start.compareTo(b.start));
   final first = candidates.isEmpty ? null : candidates.first;
 
   if (first == null) return [TextSpan(text: text, style: style)];
 
   final spans = <InlineSpan>[
-    ..._inline(text.substring(0, first.start), base,
-        player: player, fontFamily: fontFamily),
+    ..._inline(
+      text.substring(0, first.start),
+      base,
+      player: player,
+      fontFamily: fontFamily,
+    ),
   ];
   if (first == link) {
-    spans.add(TextSpan(
-      text: first.group(1) ?? '',
-      style: style.copyWith(
-        color: Colors.cyanAccent,
-        decoration: TextDecoration.underline,
+    spans.add(
+      TextSpan(
+        text: first.group(1) ?? '',
+        style: style.copyWith(
+          color: Colors.cyanAccent,
+          decoration: TextDecoration.underline,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () {
+            final raw = first.group(2) ?? '';
+            final node = _nodeIdFromLink(raw);
+            if (node != null) {
+              player?.loadNode(node);
+            } else {
+              final uri = Uri.tryParse(raw);
+              if (uri != null &&
+                  (uri.scheme == 'http' || uri.scheme == 'https')) {
+                launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            }
+          },
       ),
-      recognizer: TapGestureRecognizer()
-        ..onTap = () {
-          final node = _nodeIdFromLink(first.group(2) ?? '');
-          if (node != null) player?.loadNode(node);
-        },
-    ));
+    );
   } else if (first == bold) {
-    spans.add(TextSpan(
-      text: first.group(1),
-      style: style.copyWith(fontWeight: FontWeight.bold),
-    ));
+    spans.add(
+      TextSpan(
+        text: first.group(1),
+        style: style.copyWith(fontWeight: FontWeight.bold),
+      ),
+    );
   } else if (first == italic) {
-    spans.add(TextSpan(
-      text: first.group(1),
-      style: style.copyWith(fontStyle: FontStyle.italic),
-    ));
+    spans.add(
+      TextSpan(
+        text: first.group(1),
+        style: style.copyWith(fontStyle: FontStyle.italic),
+      ),
+    );
   } else {
-    spans.add(TextSpan(
-      text: first.group(1),
-      style: style.copyWith(fontFamily: 'monospace'),
-    ));
+    spans.add(
+      TextSpan(
+        text: first.group(1),
+        style: style.copyWith(fontFamily: 'monospace'),
+      ),
+    );
   }
   spans.addAll(
-      _inline(text.substring(first.end), base, player: player, fontFamily: fontFamily));
+    _inline(
+      text.substring(first.end),
+      base,
+      player: player,
+      fontFamily: fontFamily,
+    ),
+  );
   return spans;
 }
 
@@ -842,6 +979,23 @@ String _safeId(String value) => value.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
 /// Квест, чьи шрифты сейчас загружены: нужен для тех же имён family, что и у
 /// нативного FontService. Ставит его `PlayScreen` при открытии бандла.
 String currentQuestId = 'web';
+
+List<Shadow> _outlineShadows(Color color, double width) {
+  const directions = <Offset>[
+    Offset(-1, 0),
+    Offset(1, 0),
+    Offset(0, -1),
+    Offset(0, 1),
+    Offset(-0.7, -0.7),
+    Offset(0.7, -0.7),
+    Offset(-0.7, 0.7),
+    Offset(0.7, 0.7),
+  ];
+  return [
+    for (final direction in directions)
+      Shadow(color: color, offset: direction * width, blurRadius: 0),
+  ];
+}
 
 Color? _parseHexColor(String raw) {
   var hex = raw.replaceFirst('#', '');
@@ -922,14 +1076,22 @@ class _ButtonView extends StatelessWidget {
                   ? Alignment.centerRight
                   : Alignment.bottomCenter,
               colors: [
-                config.gradientStartColor.withValues(alpha: config.effectiveFillOpacity),
-                config.gradientEndColor.withValues(alpha: config.effectiveFillOpacity),
+                config.gradientStartColor.withValues(
+                  alpha: config.effectiveFillOpacity,
+                ),
+                config.gradientEndColor.withValues(
+                  alpha: config.effectiveFillOpacity,
+                ),
               ],
             )
           : null,
       color: config == null
           ? Colors.white.withValues(alpha: 0.08)
-          : (config.useGradient ? null : config.fillColor.withValues(alpha: config.effectiveFillOpacity)),
+          : (config.useGradient
+                ? null
+                : config.fillColor.withValues(
+                    alpha: config.effectiveFillOpacity,
+                  )),
       borderRadius: radius,
       border: Border.all(
         color: config?.borderColor ?? Colors.white.withValues(alpha: 0.18),
@@ -937,8 +1099,8 @@ class _ButtonView extends StatelessWidget {
       ),
       boxShadow: [
         BoxShadow(
-          color: (config?.shadowColor ?? Colors.black).withValues(alpha: 
-            config?.effectiveShadowOpacity ?? 0.2,
+          color: (config?.shadowColor ?? Colors.black).withValues(
+            alpha: config?.effectiveShadowOpacity ?? 0.2,
           ),
           blurRadius: config?.effectiveShadowBlur ?? 8,
           offset: Offset(
@@ -1005,7 +1167,8 @@ class _ImageView extends StatelessWidget {
     final bytes = player.imageBytesFor(item);
     if (bytes == null) return const SizedBox.shrink();
 
-    final takesPress = itemHasInteraction(item) ||
+    final takesPress =
+        itemHasInteraction(item) ||
         (item.targetNodeId?.trim().isNotEmpty ?? false) ||
         (item.scriptAssetId?.trim().isNotEmpty ?? false);
 
@@ -1017,10 +1180,7 @@ class _ImageView extends StatelessWidget {
       errorBuilder: (context, error, stack) => const SizedBox.shrink(),
     );
     if (rounded) {
-      image = ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: image,
-      );
+      image = ClipRRect(borderRadius: BorderRadius.circular(12), child: image);
     }
     if (suppress || takesPress) return image;
     return GestureDetector(
@@ -1138,7 +1298,11 @@ class _ContainerViewState extends State<_ContainerView> {
           );
           return child.type == 'spacer'
               ? view
-              : Expanded(key: ValueKey('row_${child.id}'), flex: child.flex, child: view);
+              : Expanded(
+                  key: ValueKey('row_${child.id}'),
+                  flex: child.flex,
+                  child: view,
+                );
         }),
       );
     }
@@ -1154,8 +1318,7 @@ class _ContainerViewState extends State<_ContainerView> {
             _child(
               children[i],
               insideRow: false,
-              bottomPad: customSpacing != null &&
-                      i == children.length - 1
+              bottomPad: customSpacing != null && i == children.length - 1
                   ? 0.0
                   : (customSpacing ?? 8.0),
             ),
@@ -1164,7 +1327,11 @@ class _ContainerViewState extends State<_ContainerView> {
     );
   }
 
-  Widget _child(ContentItem child, {required bool insideRow, double bottomPad = 0}) {
+  Widget _child(
+    ContentItem child, {
+    required bool insideRow,
+    double bottomPad = 0,
+  }) {
     return ItemView(
       key: ValueKey(child.id),
       player: widget.player,
@@ -1257,7 +1424,8 @@ class _StackLayerViewState extends State<StackLayerView> {
 
     Widget canvas = LayoutBuilder(
       builder: (context, constraints) {
-        final available = widget.fixedSize?.width ??
+        final available =
+            widget.fixedSize?.width ??
             (constraints.maxWidth.isFinite
                 ? constraints.maxWidth
                 : designWidth);
@@ -1265,8 +1433,11 @@ class _StackLayerViewState extends State<StackLayerView> {
             ? available
             : (widget.fixedSize?.width ?? available).clamp(1.0, designWidth);
         final scale = w / designWidth;
-        final availableHeight = widget.fixedSize?.height ??
-            (constraints.maxHeight.isFinite ? constraints.maxHeight : double.infinity);
+        final availableHeight =
+            widget.fixedSize?.height ??
+            (constraints.maxHeight.isFinite
+                ? constraints.maxHeight
+                : double.infinity);
         final canvasHeight = widget.stretchHeight && availableHeight.isFinite
             ? (availableHeight / scale).clamp(1.0, 20000.0)
             : designHeight;
@@ -1287,7 +1458,10 @@ class _StackLayerViewState extends State<StackLayerView> {
                   children: [
                     if (bgBytes != null)
                       Positioned.fill(
-                        child: Image.memory(bgBytes, fit: _stackFit(widget.item.stackBackgroundFit)),
+                        child: Image.memory(
+                          bgBytes,
+                          fit: _stackFit(widget.item.stackBackgroundFit),
+                        ),
                       ),
                     for (final child in children)
                       _child(child, designWidth, canvasHeight),
@@ -1477,7 +1651,8 @@ class _InputViewState extends State<_InputView>
       setState(() => _showError = true);
       return;
     }
-    final hasAction = (widget.item.targetNodeId?.isNotEmpty ?? false) ||
+    final hasAction =
+        (widget.item.targetNodeId?.isNotEmpty ?? false) ||
         widget.item.scriptForEvent('onSubmit') != null;
     setState(() => _submitted = text);
     unawaited(widget.player.submitInput(widget.item, text));
@@ -1534,11 +1709,17 @@ class _InputViewState extends State<_InputView>
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _showError ? Colors.redAccent : Colors.white24),
+            border: Border.all(
+              color: _showError ? Colors.redAccent : Colors.white24,
+            ),
           ),
           child: TextField(
             controller: _controller,
-            style: TextStyle(color: Colors.white, fontSize: 16, fontFamily: widget.fontFamily),
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontFamily: widget.fontFamily,
+            ),
             decoration: InputDecoration(
               hintText: widget.item.placeholderText ?? '...',
               hintStyle: const TextStyle(color: Colors.white38),
@@ -1572,7 +1753,11 @@ class _InputViewState extends State<_InputView>
 // ---------------------------------------------------------------------------
 
 class _ChatView extends StatelessWidget {
-  const _ChatView({required this.player, required this.item, required this.fontFamily});
+  const _ChatView({
+    required this.player,
+    required this.item,
+    required this.fontFamily,
+  });
 
   final QuestPlayer player;
   final ContentItem item;
@@ -1586,7 +1771,11 @@ class _ChatView extends StatelessWidget {
         ? 'Отправитель'
         : player.resolveText(rawSender);
     final avatarColor = Color(item.avatarColor ?? 0xFF26C6DA);
-    final style = TextStyle(color: Colors.white, fontSize: 15, fontFamily: fontFamily);
+    final style = TextStyle(
+      color: Colors.white,
+      fontSize: 15,
+      fontFamily: fontFamily,
+    );
 
     final bubble = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1601,9 +1790,7 @@ class _ChatView extends StatelessWidget {
           bottomRight: const Radius.circular(14),
         ),
       ),
-      child: RichText(
-        text: buildInlineSpan(text, style, player: player),
-      ),
+      child: RichText(text: buildInlineSpan(text, style, player: player)),
     );
 
     final avatar = _avatar(avatarColor);
@@ -1620,13 +1807,15 @@ class _ChatView extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(sender,
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: fontFamily,
-                          )),
+                      Text(
+                        sender,
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: fontFamily,
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       bubble,
                     ],
@@ -1641,12 +1830,14 @@ class _ChatView extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(sender,
-                          style: TextStyle(
-                            color: Colors.white54,
-                            fontSize: 11,
-                            fontFamily: fontFamily,
-                          )),
+                      Text(
+                        sender,
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          fontFamily: fontFamily,
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       bubble,
                     ],
@@ -1752,14 +1943,20 @@ class _ModalHostState extends State<_ModalHost> {
       transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (dialogContext, animation, secondaryAnimation) {
         _route ??= ModalRoute.of(dialogContext);
-        final style = TextStyle(fontSize: 15, height: 1.5, fontFamily: widget.fontFamily);
+        final style = TextStyle(
+          fontSize: 15,
+          height: 1.5,
+          fontFamily: widget.fontFamily,
+        );
         return Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: AlertDialog(
               backgroundColor: const Color(0xFF1C1F24),
               title: Text(
-                widget.player.resolveText(widget.item.buttonText ?? 'Уведомление'),
+                widget.player.resolveText(
+                  widget.item.buttonText ?? 'Уведомление',
+                ),
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 20,
@@ -1774,7 +1971,9 @@ class _ModalHostState extends State<_ModalHost> {
                     RichText(
                       text: buildInlineSpan(
                         widget.player.resolveText(widget.item.contentMarkdown!),
-                        style.copyWith(color: Colors.white.withValues(alpha: 0.9)),
+                        style.copyWith(
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
                         player: widget.player,
                       ),
                     ),
@@ -1816,13 +2015,21 @@ class _ModalHostState extends State<_ModalHost> {
             child: OutlinedButton(
               onPressed: () => unawaited(_tapButton(button)),
               style: OutlinedButton.styleFrom(
-                foregroundColor: button.isPrimary ? const Color(0xFF00C853) : Colors.white,
+                foregroundColor: button.isPrimary
+                    ? const Color(0xFF00C853)
+                    : Colors.white,
                 side: BorderSide(
-                  color: (button.isPrimary ? const Color(0xFF00C853) : Colors.white)
-                      .withValues(alpha: 0.4),
+                  color:
+                      (button.isPrimary
+                              ? const Color(0xFF00C853)
+                              : Colors.white)
+                          .withValues(alpha: 0.4),
                 ),
               ),
-              child: Text(widget.player.resolveText(button.text), textAlign: TextAlign.center),
+              child: Text(
+                widget.player.resolveText(button.text),
+                textAlign: TextAlign.center,
+              ),
             ),
           ),
         ),
@@ -1876,7 +2083,11 @@ class _ModalHostState extends State<_ModalHost> {
 // ---------------------------------------------------------------------------
 
 class _TimerView extends StatefulWidget {
-  const _TimerView({required this.player, required this.item, required this.onComplete});
+  const _TimerView({
+    required this.player,
+    required this.item,
+    required this.onComplete,
+  });
 
   final QuestPlayer player;
   final ContentItem item;
@@ -1894,9 +2105,13 @@ class _TimerViewState extends State<_TimerView> {
     super.initState();
     final staticSeconds =
         double.tryParse((widget.item.text ?? '').trim().replaceAll(',', '.')) ??
-            1.0;
+        1.0;
     final seconds = widget.player
-        .numeric(widget.item, 'duration', staticSeconds < 0.1 ? 0.1 : staticSeconds)
+        .numeric(
+          widget.item,
+          'duration',
+          staticSeconds < 0.1 ? 0.1 : staticSeconds,
+        )
         .clamp(0.1, 86400.0);
     _timer = Timer(Duration(milliseconds: (seconds * 1000).round()), () {
       if (mounted) widget.onComplete();
@@ -1928,7 +2143,11 @@ class _MediaPlaceholder extends StatelessWidget {
       if (poster != null) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.memory(poster, fit: BoxFit.cover, width: double.infinity),
+          child: Image.memory(
+            poster,
+            fit: BoxFit.cover,
+            width: double.infinity,
+          ),
         );
       }
     }

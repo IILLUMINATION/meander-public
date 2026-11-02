@@ -85,9 +85,11 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
         });
       } catch (e) {
         if (mounted)
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+            ),
+          );
       }
     } else {
       showDialog(
@@ -273,9 +275,9 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
         await tmpFile.copy(destPath);
       }
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Добавлено: {p0}', {'p0': a.title}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(trf('Добавлено: {p0}', {'p0': a.title}))),
+        );
         if (widget.pickerMode) Navigator.pop(context, destRel);
       }
       try {
@@ -283,9 +285,11 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
       } catch (_) {}
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+          ),
+        );
     }
   }
 
@@ -369,7 +373,9 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      trf('Загрузить {p0}', {'p0': kAssetKindLabels[kind] ?? kind}),
+                      trf('Загрузить {p0}', {
+                        'p0': kAssetKindLabels[kind] ?? kind,
+                      }),
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 16),
@@ -424,15 +430,13 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
                             coverName ?? tr('Превью не выбрано'),
                             overflow: TextOverflow.ellipsis,
                           ),
-                          subtitle: Text(
-                            tr('Необязательно • JPG, PNG, WEBP'),
-                          ),
+                          subtitle: Text(tr('Необязательно • JPG, PNG, WEBP')),
                           trailing: TextButton(
                             onPressed: () async {
                               final r = await FilePicker.pickFiles(
                                 type: FileType.image,
                               );
-                              if (r.isNotEmpty) {
+                              if (r.isNotEmpty && r.first.path != null) {
                                 coverFile = File(r.first.path!);
                                 coverName = p.basename(coverFile!.path);
                                 setS(() {});
@@ -519,9 +523,11 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
         throw Exception('HTTP ${streamed.statusCode}: $respStr');
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -805,7 +811,9 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
                                       children: [
                                         Expanded(
                                           child: Text(
-                                            trf('Лиц: {p0}', {'p0': licenseLabel(a.license)}),
+                                            trf('Лиц: {p0}', {
+                                              'p0': licenseLabel(a.license),
+                                            }),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(

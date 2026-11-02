@@ -1131,6 +1131,8 @@ class _VisualScriptEditorScreenState
         return PauseResumeBlock();
       case 'crossfade':
         return CrossfadeBlock();
+      case BlockTypes.saveOperation:
+        return SaveOperationBlock();
       case 'open_link':
         return OpenLinkBlock();
       case 'http_request':

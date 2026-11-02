@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:markdown_widget/markdown_widget.dart';
+import 'package:mnd_core/models/content_item.dart';
 import 'package:mnd_player/services/font_service.dart';
 
 class ColorTagSyntax extends md.InlineSyntax {
@@ -71,6 +72,60 @@ class FontNode extends ElementNode {
       TextStyle(fontFamily: fontFamily);
 }
 
+/// Фрагментная обводка: `[outline=#RRGGBB]…[/outline]` или с толщиной
+/// `[outline=#RRGGBB:4]…[/outline]`. Рисуется тенями под глифами, поэтому
+/// не конфликтует с item-level штриховым слоем и сохраняет инлайн-цвет.
+class OutlineTagSyntax extends md.InlineSyntax {
+  static const String tag = 'outline';
+
+  OutlineTagSyntax()
+    : super(
+        r'\[outline=(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8})(?::([0-9]+(?:\.[0-9]+)?))?\]([\s\S]*?)\[\/outline\]',
+        startCharacter: 0x5B, // [
+      );
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final content = match.group(3) ?? '';
+    final children = parser.document.parseInline(content);
+    final element = md.Element(tag, children);
+    final color = match.group(1);
+    final width = match.group(2);
+    if (color != null) element.attributes['color'] = color;
+    if (width != null) element.attributes['width'] = width;
+    parser.addNode(element);
+    return true;
+  }
+}
+
+class OutlineNode extends ElementNode {
+  final Color color;
+  final double width;
+  final bool enabled;
+
+  OutlineNode(this.color, this.width, {this.enabled = true});
+
+  @override
+  TextStyle get style {
+    if (!enabled) return parentStyle ?? const TextStyle();
+    final shadows = <Shadow>[
+      for (final direction in const <Offset>[
+        Offset(-1, 0),
+        Offset(1, 0),
+        Offset(0, -1),
+        Offset(0, 1),
+        Offset(-0.7, -0.7),
+        Offset(0.7, -0.7),
+        Offset(-0.7, 0.7),
+        Offset(0.7, 0.7),
+      ])
+        Shadow(color: color, offset: direction * width, blurRadius: 0),
+    ];
+    return parentStyle?.merge(TextStyle(shadows: shadows)) ??
+        TextStyle(shadows: shadows);
+  }
+}
+
 class EmphasisNode extends ElementNode {
   @override
   TextStyle get style =>
@@ -84,9 +139,11 @@ MarkdownGenerator createColorMarkdownGenerator({
   EdgeInsets linesMargin = const EdgeInsets.symmetric(vertical: 2),
   RegExp? splitRegExp,
   String? questId,
+  bool showOutline = true,
 }) {
   return MarkdownGenerator(
     inlineSyntaxList: [
+      OutlineTagSyntax(),
       ColorTagSyntax(),
       // [font=] резолвится в family-имя только зная квест; без questId
       // тег остаётся буквальным текстом (редакторы без игрового контекста).
@@ -95,6 +152,17 @@ MarkdownGenerator createColorMarkdownGenerator({
     linesMargin: linesMargin,
     splitRegExp: splitRegExp,
     generators: [
+      SpanNodeGeneratorWithTag(
+        tag: OutlineTagSyntax.tag,
+        generator: (e, config, visitor) {
+          final color = _parseColor(e.attributes['color'] ?? '');
+          final width =
+              (double.tryParse(e.attributes['width'] ?? '') ??
+                      kTextOutlineWidthDefault)
+                  .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
+          return OutlineNode(color, width, enabled: showOutline);
+        },
+      ),
       SpanNodeGeneratorWithTag(
         tag: ColorTagSyntax.tag,
         generator: (e, config, visitor) {

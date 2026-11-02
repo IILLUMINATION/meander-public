@@ -113,7 +113,23 @@ impl QuestTable {
             .get("data")
             .and_then(Value::as_object)
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                // Legacy-таблицы хранили ключи хранилища на верхнем уровне,
+                // без поля `data`. Без этого движок видел пустую таблицу,
+                // хотя редактор её читал (Dart-модель поддерживала оба вида).
+                let mut map = serde_json::Map::new();
+                for (key, value) in &obj {
+                    if matches!(
+                        key.as_str(),
+                        "name" | "columns" | "rows" | "rowNames" | "row_names" | "data"
+                    ) || key.starts_with("__")
+                    {
+                        continue;
+                    }
+                    map.insert(key.clone(), value.clone());
+                }
+                map
+            });
         Self::with_row_names(name, columns, rows, row_names, data)
     }
 
@@ -291,6 +307,19 @@ mod tests {
                 .cloned()
                 .unwrap(),
         )
+    }
+
+    #[test]
+    fn legacy_top_level_keys_are_read_as_data() {
+        let table = QuestTable::from_json(&serde_json::json!({
+            "name": "лавка",
+            "columns": ["цена"],
+            "rows": [{"цена": 30}],
+            "gold": 5,
+            "__secret": 1
+        }));
+        assert_eq!(table.data.get("gold"), Some(&serde_json::json!(5)));
+        assert!(table.data.get("__secret").is_none());
     }
 
     #[test]

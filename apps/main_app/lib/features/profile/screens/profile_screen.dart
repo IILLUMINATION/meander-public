@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -329,7 +330,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   void _shareProfile() {
     final baseUrl = AppConfig.vpsApiBaseUrl;
     final webUrl = '$baseUrl/share/profile/${widget.userId}';
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       Clipboard.setData(ClipboardData(text: webUrl));
       ScaffoldMessenger.of(
         context,

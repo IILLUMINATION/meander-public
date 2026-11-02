@@ -35,6 +35,7 @@ import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/widgets/catalog_shell.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -257,7 +258,7 @@ class _QuestMarketDetailsScreenState
     final webUrl = '$baseUrl/share/quest/${widget.quest.id}';
     final shareText = '${widget.quest.title}\n$webUrl';
 
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       Clipboard.setData(ClipboardData(text: shareText));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

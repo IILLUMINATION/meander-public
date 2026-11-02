@@ -4,16 +4,22 @@
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enResources = {
   '"{p0}" будет удалён безвозвратно.': '"{p0}" will be permanently deleted.',
-  'Lua-файлы могут выступать обработчиками событий триггеров квеста. onQuestStart движок вызывает у .lua-файлов из папки scripts/ квеста — один раз при запуске игры, до первой ноды; список «глобальных скриптов» в настройках квеста для этого не нужен. onDataChange — диспетчер изменений данных: файл должен объявлять это событие (см. ниже), подписки задаёт визуальный блок «При изменении данных».': 'Lua files can act as event handlers for quest triggers. The engine calls onQuestStart on .lua files from the quest\'s scripts/ folder — once at game start, before the first node; the "global scripts" list in the quest settings is not needed for this. onDataChange is a data-change dispatcher: the file must declare this event (see below), subscriptions are set by the visual block "On data change".',
-  'QuestTable — единое хранилище таблиц со структурой { name, columns, rows, data }. В Lua нелатинские (русские) имена колонок в словарях задаются в скобках [\'имя\'].': 'QuestTable — a single table storage with the structure { name, columns, rows, data }. In Lua, non-Latin (Russian) column names in dictionaries are specified in brackets [\'name\'].',
-  'go_to ведёт на другую ноду по имени, open_link открывает ссылку — оба проверяются движком до исполнения.': 'go_to goes to another node by name, open_link opens a link — both are checked by the engine before execution.',
+  'Lua-файлы могут выступать обработчиками событий триггеров квеста. onQuestStart движок вызывает у .lua-файлов из папки scripts/ квеста — один раз при запуске игры, до первой ноды; список «глобальных скриптов» в настройках квеста для этого не нужен. onDataChange — диспетчер изменений данных: файл должен объявлять это событие (см. ниже), подписки задаёт визуальный блок «При изменении данных».':
+      'Lua files can act as event handlers for quest triggers. The engine calls onQuestStart on .lua files from the quest\'s scripts/ folder — once at game start, before the first node; the "global scripts" list in the quest settings is not needed for this. onDataChange is a data-change dispatcher: the file must declare this event (see below), subscriptions are set by the visual block "On data change".',
+  'QuestTable — единое хранилище таблиц со структурой { name, columns, rows, data }. В Lua нелатинские (русские) имена колонок в словарях задаются в скобках [\'имя\'].':
+      'QuestTable — a single table storage with the structure { name, columns, rows, data }. In Lua, non-Latin (Russian) column names in dictionaries are specified in brackets [\'name\'].',
+  'go_to ведёт на другую ноду по имени, open_link открывает ссылку — оба проверяются движком до исполнения.':
+      'go_to goes to another node by name, open_link opens a link — both are checked by the engine before execution.',
   '{p0} симв/с': '{p0} chars/s',
-  '«{p0}» не добавился: файл недоступен': '"{p0}" was not added: file unavailable',
-  'Аудио из скрипта работает ровно так же, как блоки play_sound / play_music: команды попадают в ту же очередь и переживают сохранение.': 'Audio from a script works exactly like the play_sound / play_music blocks: commands go into the same queue and survive saves.',
+  '«{p0}» не добавился: файл недоступен':
+      '"{p0}" was not added: file unavailable',
+  'Аудио из скрипта работает ровно так же, как блоки play_sound / play_music: команды попадают в ту же очередь и переживают сохранение.':
+      'Audio from a script works exactly like the play_sound / play_music blocks: commands go into the same queue and survive saves.',
   'Библиотека': 'Library',
   'Библиотека музыки': 'Music library',
   'Библиотека пуста': 'Library is empty',
-  'Блок «Данные» и формулы видят только эти ключи. Строки и столбцы сетки — отдельно.': 'The "Data" block and formulas see only these keys. Grid rows and columns are separate.',
+  'Блок «Данные» и формулы видят только эти ключи. Строки и столбцы сетки — отдельно.':
+      'The "Data" block and formulas see only these keys. Grid rows and columns are separate.',
   'Быстрый старт & Функция start()': 'Quick start & start() function',
   'Вернуть': 'Return',
   'Вернуться': 'Go back',
@@ -28,26 +34,32 @@ final Map<String, String> enResources = {
   'Добавить ключ': 'Add key',
   'Добавить столбец': 'Add column',
   'Добавлено из маркета': 'Added from Market',
-  'Добавляйте ассеты из хаба кнопкой "В библиотеку"': 'Add assets from the Hub with the "Add to library" button',
+  'Добавляйте ассеты из хаба кнопкой "В библиотеку"':
+      'Add assets from the Hub with the "Add to library" button',
   'Документация по Lua': 'Lua documentation',
   'Закрыть и сохранить': 'Close and save',
   'Заменить файл': 'Replace file',
   'Зачёркнутый': 'Strikethrough',
-  'Звук и музыка (core.play_sound, stop_sound, play_music, stop_music, pause_resume)': 'Sound and music (core.play_sound, stop_sound, play_music, stop_music, pause_resume)',
+  'Звук и музыка (core.play_sound, stop_sound, play_music, stop_music, pause_resume)':
+      'Sound and music (core.play_sound, stop_sound, play_music, stop_music, pause_resume)',
   'Значение или формула, напр. {gold} + 2': 'Value or formula, e.g. {gold} + 2',
   'Из библиотеки': 'From library',
   'Изменить': 'Edit',
   'Импорт CSV': 'Import CSV',
   'Имя ключа': 'Key name',
-  'Интерфейс работы с переменными квеста. Поддерживает числа, строки и булевы значения.': 'Interface for working with quest variables. Supports numbers, strings, and boolean values.',
-  'Исполнение скриптов строго изолировано в безопасной песочнице Rust-ядра:': 'Script execution is strictly isolated in the safe sandbox of the Rust core:',
+  'Интерфейс работы с переменными квеста. Поддерживает числа, строки и булевы значения.':
+      'Interface for working with quest variables. Supports numbers, strings, and boolean values.',
+  'Исполнение скриптов строго изолировано в безопасной песочнице Rust-ядра:':
+      'Script execution is strictly isolated in the safe sandbox of the Rust core:',
   'Как достать значение': 'How to get a value',
   'Картинки': 'Images',
   'Ключи скриптов · {p0}': 'Script keys · {p0}',
   'Код Lua (inline)': 'Lua code (inline)',
   'Код скопирован в буфер': 'Code copied to clipboard',
-  'Код сохранится прямо в блоке call_lua — отдельный файл не создаётся.': 'The code is saved directly in the call_lua block — no separate file is created.',
-  'Контент ноды (core.set_item_visible, set_item_image, set_volume, set_blur)': 'Node content (core.set_item_visible, set_item_image, set_volume, set_blur)',
+  'Код сохранится прямо в блоке call_lua — отдельный файл не создаётся.':
+      'The code is saved directly in the call_lua block — no separate file is created.',
+  'Контент ноды (core.set_item_visible, set_item_image, set_volume, set_blur)':
+      'Node content (core.set_item_visible, set_item_image, set_volume, set_blur)',
   'Копировать id ресурса': 'Copy resource id',
   'Копировать в другой квест': 'Copy to another quest',
   'Копировать в этот квест': 'Copy to this quest',
@@ -69,15 +81,18 @@ final Map<String, String> enResources = {
   'Отступ Tab': 'Tab indent',
   'Оформление текста': 'Text formatting',
   'Очистить ячейку': 'Clear cell',
-  'Папки будут удалены вместе с содержимым.': 'Folders will be deleted along with their contents.',
+  'Папки будут удалены вместе с содержимым.':
+      'Folders will be deleted along with their contents.',
   'Переименовать столбец': 'Rename column',
-  'Переменные движка (core.get_var / core.set_var)': 'Engine variables (core.get_var / core.set_var)',
+  'Переменные движка (core.get_var / core.set_var)':
+      'Engine variables (core.get_var / core.set_var)',
   'Переместить': 'Move',
   'Переместить влево': 'Move left',
   'Переместить вправо': 'Move right',
   'Переместить выше': 'Move up',
   'Переместить ниже': 'Move down',
-  'Переход и внешняя ссылка (core.go_to, core.open_link)': 'Navigation and external link (core.go_to, core.open_link)',
+  'Переход и внешняя ссылка (core.go_to, core.open_link)':
+      'Navigation and external link (core.go_to, core.open_link)',
   'Песочница и безопасность': 'Sandbox and security',
   'Поиск по API, примерам, таблицам...': 'Search the API, examples, tables...',
   'Поиск файлов...': 'Search files...',
@@ -86,13 +101,17 @@ final Map<String, String> enResources = {
   'Сбросить шрифт блока': 'Reset block font',
   'Сжимать картинки при импорте': 'Compress images on import',
   'Скопировано: {reference}': 'Copied: {reference}',
-  'Скрипт вызывается блоком call_lua или триггером. При вызове исполняется функция, указанная в блоке (по умолчанию start).': 'The script is called by the call_lua block or a trigger. When called, the function specified in the block runs (start by default).',
+  'Скрипт вызывается блоком call_lua или триггером. При вызове исполняется функция, указанная в блоке (по умолчанию start).':
+      'The script is called by the call_lua block or a trigger. When called, the function specified in the block runs (start by default).',
   'Сохранить на устройство': 'Save to device',
   'Сохранить таблицу перед выходом?': 'Save the table before exiting?',
   'Столбец': 'Column',
-  'Таблицы квеста (QuestTable, get_table / set_table)': 'Quest tables (QuestTable, get_table / set_table)',
-  'Тот же язык, что у блоков set_visible, set_image и настроек громкости/блюра, — с теми же значениями.': 'The same language as the set_visible and set_image blocks and the volume/blur settings — with the same values.',
-  'Триггеры событий (onQuestStart, onNodeEnter, onPress, onContentAppear, onDataChange)': 'Event triggers (onQuestStart, onNodeEnter, onPress, onContentAppear, onDataChange)',
+  'Таблицы квеста (QuestTable, get_table / set_table)':
+      'Quest tables (QuestTable, get_table / set_table)',
+  'Тот же язык, что у блоков set_visible, set_image и настроек громкости/блюра, — с теми же значениями.':
+      'The same language as the set_visible and set_image blocks and the volume/blur settings — with the same values.',
+  'Триггеры событий (onQuestStart, onNodeEnter, onPress, onContentAppear, onDataChange)':
+      'Event triggers (onQuestStart, onNodeEnter, onPress, onContentAppear, onDataChange)',
   'Удаление папки': 'Delete folder',
   'Удалить {count} объект(ов)?': 'Delete {count} object(s)?',
   'Удалить всё': 'Delete all',
@@ -102,23 +121,33 @@ final Map<String, String> enResources = {
   'Удалить строку': 'Delete row',
   'Уменьшить отступ': 'Decrease indent',
   'Цвет обводки': 'Outline color',
+  'Цвет обводки выделенного': 'Selected text outline color',
+  'Обводка выделенного текста': 'Selected text outline',
+  'Толщина обводки': 'Outline width',
+  'Вставить': 'Insert',
   'Цитата': 'Quote',
   'Частые промахи': 'Common mistakes',
   'Чего Lua пока не хватает': 'What Lua is still missing',
   'Шрифт выделенного текста': 'Selected text font',
-  'Эффекты и переменные доступны из скрипта полностью; темп сцены — пока нет.': 'Effects and variables are fully available from scripts; scene pacing — not yet.',
-  'как его видит скрипт: gold, opened, items': 'as the script sees it: gold, opened, items',
+  'Эффекты и переменные доступны из скрипта полностью; темп сцены — пока нет.':
+      'Effects and variables are fully available from scripts; scene pacing — not yet.',
+  'как его видит скрипт: gold, opened, items':
+      'as the script sees it: gold, opened, items',
   'полный слепок: сетка и хранилище': 'full snapshot: grid and storage',
   'сетка + отдельный лист «Данные»': 'grid + a separate "Data" sheet',
-  'текст как есть; числа, true/false, списки [1, 2] и словари {"a": 1} понятны': 'text as is; numbers, true/false, lists [1, 2] and dictionaries {"a": 1} are understood',
-  'только сетка: ключи хранилища в файл не пишутся': 'grid only: storage keys are not written to the file',
+  'текст как есть; числа, true/false, списки [1, 2] и словари {"a": 1} понятны':
+      'text as is; numbers, true/false, lists [1, 2] and dictionaries {"a": 1} are understood',
+  'только сетка: ключи хранилища в файл не пишутся':
+      'grid only: storage keys are not written to the file',
   'Подтаблица': 'Subtable',
   'Таблица {p0}×{p1}': 'Table {p0}×{p1}',
   'Вложенная таблица': 'Nested table',
   'Вложенная таблица в ячейке': 'Nested table in this cell',
   'Открыть вложенную таблицу': 'Open nested table',
-  'Заменить значение вложенной таблицей?': 'Replace the value with a nested table?',
-  'В ячейке уже есть значение или формула. Оно будет заменено подтаблицей.': 'This cell already has a value or formula. It will be replaced by a subtable.',
+  'Заменить значение вложенной таблицей?':
+      'Replace the value with a nested table?',
+  'В ячейке уже есть значение или формула. Оно будет заменено подтаблицей.':
+      'This cell already has a value or formula. It will be replaced by a subtable.',
   'Вложенная таблица удалена': 'Nested table deleted',
   'Ячейка {p0}': 'Cell {p0}',
   'Вложенная таблица {p0}×{p1}': 'Nested table {p0}×{p1}',
@@ -146,4 +175,7 @@ final Map<String, String> enResources = {
       'An empty name keeps the numeric row address, as before.',
   'Имя строки {p0} убрано': 'Row name {p0} removed',
   'Строка {p0} теперь «{p1}»': 'Row {p0} is now “{p1}”',
+  'Файл ещё не скачан в библиотеку': 'The file has not been downloaded to the library yet',
+  'Не удалось удалить сохранения: {p0}': 'Could not delete saves: {p0}',
+  'Не удалось удалить сохранение: {p0}': 'Could not delete the save: {p0}',
 };

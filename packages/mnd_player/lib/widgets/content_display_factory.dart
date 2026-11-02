@@ -744,6 +744,14 @@ class TextItemWidget extends ConsumerWidget {
     dotAll: true,
   );
 
+  /// Фрагментная обводка: `[outline=#RRGGBB]…[/outline]` или
+  /// `[outline=#RRGGBB:4]…[/outline]`. Толщина необязательна — без неё
+  /// берётся item-level значение или дефолт.
+  static final RegExp _textOutlineExp = RegExp(
+    r'\[outline=(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8})(?::([0-9]+(?:\.[0-9]+)?))?\](.*?)\[\/outline\]',
+    dotAll: true,
+  );
+
   TextSpan _parseSimpleMarkdown(String text, String? fontFamily) {
     return TextSpan(children: _parseRichSpans(text, fontFamily));
   }
@@ -755,7 +763,49 @@ class TextItemWidget extends ConsumerWidget {
     String text,
     String? fontFamily, {
     Color? color,
+    List<Shadow>? shadows,
   }) {
+    final outlineMatches = _textOutlineExp.allMatches(text).toList();
+    if (outlineMatches.isNotEmpty) {
+      final out = <TextSpan>[];
+      int start = 0;
+      for (final m in outlineMatches) {
+        if (m.start > start) {
+          out.addAll(
+            _parseRichSpans(
+              text.substring(start, m.start),
+              fontFamily,
+              color: color,
+              shadows: shadows,
+            ),
+          );
+        }
+        final outlineColor = _parseColor(m.group(1)!);
+        final width = (double.tryParse(m.group(2) ?? '') ?? kTextOutlineWidthDefault)
+            .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
+        out.addAll(
+          _parseRichSpans(
+            m.group(3)!,
+            fontFamily,
+            color: color,
+            shadows: _outlineShadows(outlineColor, width),
+          ),
+        );
+        start = m.end;
+      }
+      if (start < text.length) {
+        out.addAll(
+          _parseRichSpans(
+            text.substring(start),
+            fontFamily,
+            color: color,
+            shadows: shadows,
+          ),
+        );
+      }
+      return out;
+    }
+
     final fontMatches = FontService.inlineFontTag.allMatches(text).toList();
     if (fontMatches.isNotEmpty) {
       final out = <TextSpan>[];
@@ -767,11 +817,14 @@ class TextItemWidget extends ConsumerWidget {
               text.substring(start, m.start),
               fontFamily,
               color: color,
+              shadows: shadows,
             ),
           );
         }
         final family = FontService.resolveFamily(questId, m.group(1)?.trim());
-        out.addAll(_parseRichSpans(m.group(2)!, family, color: color));
+        out.addAll(
+          _parseRichSpans(m.group(2)!, family, color: color, shadows: shadows),
+        );
         start = m.end;
       }
       if (start < text.length) {
@@ -793,28 +846,42 @@ class TextItemWidget extends ConsumerWidget {
               text.substring(start, m.start),
               fontFamily,
               color: color,
+              shadows: shadows,
             ),
           );
         }
         final c = _parseColor(m.group(1)!);
-        out.addAll(_parseRichSpans(m.group(2)!, fontFamily, color: c));
+        out.addAll(
+          _parseRichSpans(m.group(2)!, fontFamily, color: c, shadows: shadows),
+        );
         start = m.end;
       }
       if (start < text.length) {
         out.addAll(
-          _parseRichSpans(text.substring(start), fontFamily, color: color),
+          _parseRichSpans(
+            text.substring(start),
+            fontFamily,
+            color: color,
+            shadows: shadows,
+          ),
         );
       }
       return out;
     }
 
-    return _parseMarkdownSegment(text, fontFamily, color: color);
+    return _parseMarkdownSegment(
+      text,
+      fontFamily,
+      color: color,
+      shadows: shadows,
+    );
   }
 
   List<TextSpan> _parseMarkdownSegment(
     String segment,
     String? fontFamily, {
     Color? color,
+    List<Shadow>? shadows,
   }) {
     // Инлайн-теги шрифта: [font=res/fonts/x.ttf]текст[/font]. Разворачиваем
     // рекурсивно — работают и внутри [color=...], и с **жирным**/*курсивом*.
@@ -829,11 +896,19 @@ class TextItemWidget extends ConsumerWidget {
               segment.substring(fontStart, m.start),
               fontFamily,
               color: color,
+              shadows: shadows,
             ),
           );
         }
         final family = FontService.resolveFamily(questId, m.group(1)?.trim());
-        out.addAll(_parseMarkdownSegment(m.group(2)!, family, color: color));
+        out.addAll(
+          _parseMarkdownSegment(
+            m.group(2)!,
+            family,
+            color: color,
+            shadows: shadows,
+          ),
+        );
         fontStart = m.end;
       }
       if (fontStart < segment.length) {
@@ -842,6 +917,7 @@ class TextItemWidget extends ConsumerWidget {
             segment.substring(fontStart),
             fontFamily,
             color: color,
+            shadows: shadows,
           ),
         );
       }
@@ -862,6 +938,7 @@ class TextItemWidget extends ConsumerWidget {
               color: defaultColor,
               fontSize: 16,
               fontFamily: fontFamily,
+              shadows: shadows,
             ),
           ),
         );
@@ -875,6 +952,7 @@ class TextItemWidget extends ConsumerWidget {
               fontSize: 16,
               fontWeight: FontWeight.w900,
               fontFamily: fontFamily,
+              shadows: shadows,
             ),
           ),
         );
@@ -887,6 +965,7 @@ class TextItemWidget extends ConsumerWidget {
               fontSize: 16,
               fontStyle: FontStyle.italic,
               fontFamily: fontFamily,
+              shadows: shadows,
             ),
           ),
         );
@@ -901,6 +980,7 @@ class TextItemWidget extends ConsumerWidget {
             color: defaultColor,
             fontSize: 16,
             fontFamily: fontFamily,
+            shadows: shadows,
           ),
         ),
       );
@@ -913,6 +993,7 @@ class TextItemWidget extends ConsumerWidget {
             color: defaultColor,
             fontSize: 16,
             fontFamily: fontFamily,
+            shadows: shadows,
           ),
         ),
       ];
@@ -927,11 +1008,32 @@ class TextItemWidget extends ConsumerWidget {
   TextSpan _asOutlineText(TextSpan span, Paint stroke) {
     return TextSpan(
       text: span.text,
-      style: span.style?.copyWith(foreground: stroke),
+      style: span.style?.copyWith(foreground: stroke, shadows: const []),
       children: span.children
           ?.map((c) => c is TextSpan ? _asOutlineText(c, stroke) : c)
           .toList(),
     );
+  }
+
+  List<Shadow> _outlineShadows(Color color, double width) {
+    const directions = <Offset>[
+      Offset(-1, 0),
+      Offset(1, 0),
+      Offset(0, -1),
+      Offset(0, 1),
+      Offset(-0.7, -0.7),
+      Offset(0.7, -0.7),
+      Offset(-0.7, 0.7),
+      Offset(0.7, 0.7),
+    ];
+    return [
+      for (final direction in directions)
+        Shadow(
+          color: color,
+          offset: direction * width,
+          blurRadius: 0,
+        ),
+    ];
   }
 
   Color _parseColor(String colorStr) {
@@ -1200,11 +1302,6 @@ class TextItemWidget extends ConsumerWidget {
       crossAlign = CrossAxisAlignment.end;
     }
 
-    final markdownGenerator = createColorMarkdownGenerator(
-      linesMargin: const EdgeInsets.symmetric(vertical: 2),
-      questId: questId,
-    );
-
     Widget renderMarkdown(String shown, {Paint? stroke}) => Container(
       width: isInsideRow ? null : double.infinity,
       padding: backgroundColor != null
@@ -1224,7 +1321,13 @@ class TextItemWidget extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: crossAlign,
-          children: markdownGenerator.buildWidgets(
+          children: createColorMarkdownGenerator(
+            linesMargin: const EdgeInsets.symmetric(vertical: 2),
+            questId: questId,
+            // В штриховом слое фрагментные тени уже нарисованы заливкой;
+            // второй раз они дали бы грязный двойной контур.
+            showOutline: stroke == null,
+          ).buildWidgets(
             preserveMarkdownHardLineBreaks(shown),
             config: markdownConfigFor(stroke),
           ),

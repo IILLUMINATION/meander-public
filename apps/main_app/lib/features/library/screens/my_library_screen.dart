@@ -103,9 +103,9 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
       final dest = await MyLibraryService.copyAssetToQuest(item, questId);
       if (!mounted) return;
       if (dest != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Добавлено: {p0}', {'p0': item.title}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(trf('Добавлено: {p0}', {'p0': item.title}))),
+        );
         if (widget.pickerMode) Navigator.pop(context, dest);
       } else {
         ScaffoldMessenger.of(
@@ -114,9 +114,11 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
       }
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)}))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+          ),
+        );
     }
   }
 
@@ -125,7 +127,9 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.pickerMode ? tr('Моя библиотека') : tr('Моя библиотека')),
+        title: Text(
+          widget.pickerMode ? tr('Моя библиотека') : tr('Моя библиотека'),
+        ),
         actions: [
           if (!widget.pickerMode)
             IconButton(
@@ -324,7 +328,9 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
                                       minimumSize: const Size(0, 32),
                                     ),
                                     child: Text(
-                                      widget.pickerMode ? tr('Выбрать') : tr('В квест'),
+                                      widget.pickerMode
+                                          ? tr('Выбрать')
+                                          : tr('В квест'),
                                       style: const TextStyle(fontSize: 11),
                                     ),
                                   ),
@@ -451,16 +457,21 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (widget.pickerMode && widget.questId != null)
+                  if (widget.pickerMode)
                     FilledButton.tonal(
-                      onPressed: () async {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr('Музыка добавляется через библиотеку: пока только ресурсы'),
+                      onPressed: () {
+                        final path = item.localPath;
+                        if (path == null || path.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                tr('Файл ещё не скачан в библиотеку'),
+                              ),
                             ),
-                          ),
-                        );
+                          );
+                          return;
+                        }
+                        Navigator.pop(context, path);
                       },
                       child: Text(tr('Выбрать')),
                     ),
@@ -487,8 +498,16 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
     if (widget.pickerMode && widget.questId != null) {
       await _addToQuest(item);
     } else if (widget.pickerMode) {
-      // No questId, just return MarketAsset?
-      Navigator.pop(context, item.toMarketAsset());
+      final path = item.localPath;
+      if (path == null || path.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(tr('Файл ещё не скачан в библиотеку'))),
+          );
+        }
+        return;
+      }
+      Navigator.pop(context, path);
     } else {
       // Standalone: pick quest to add
       final quests = await ref.read(questsProvider.future);
@@ -523,7 +542,9 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(dest != null ? tr('Добавлено в квест') : tr('Ошибка')),
+              content: Text(
+                dest != null ? tr('Добавлено в квест') : tr('Ошибка'),
+              ),
             ),
           );
       }

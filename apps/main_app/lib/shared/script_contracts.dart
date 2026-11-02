@@ -34,4 +34,5 @@ abstract final class BlockTypes {
   static const crossfade = 'crossfade';
   static const openLink = 'open_link';
   static const httpRequest = 'http_request';
+  static const saveOperation = 'save_operation';
 }

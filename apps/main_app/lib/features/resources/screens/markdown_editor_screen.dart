@@ -443,6 +443,102 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     _focusNode.requestFocus();
   }
 
+  /// Инлайн-обводка выделенного куска: `[outline=#RRGGBB:N]…[/outline]`.
+  /// В отличие от строки «Обводка» ниже, не трогает item-level поля и
+  /// позволяет красить отдельные слова/фразы.
+  Future<void> _insertInlineOutline() async {
+    _focusNode.unfocus();
+    final scheme = Theme.of(context).colorScheme;
+    var picked = _textOutlineColor ?? scheme.onSurface;
+    final color = await showAppDialog<Color>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Цвет обводки выделенного')),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: picked,
+            onColorChanged: (c) => picked = c,
+            colorPickerWidth: 300,
+            pickerAreaHeightPercent: 0.7,
+            enableAlpha: false,
+            displayThumbColor: true,
+            paletteType: PaletteType.hsvWithHue,
+            labelTypes: const [],
+            pickerAreaBorderRadius: const BorderRadius.all(Radius.circular(12)),
+            hexInputBar: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(tr('Отмена')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, picked),
+            child: Text(tr('Применить')),
+          ),
+        ],
+      ),
+    );
+    if (color == null || !mounted) return;
+
+    var width = (_textOutlineWidth ?? kTextOutlineWidthDefault).clamp(
+      1.0,
+      kTextOutlineWidthMax,
+    );
+    final confirmed = await showAppDialog<double>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(tr('Толщина обводки')),
+          content: Row(
+            children: [
+              Expanded(
+                child: Slider(
+                  value: width,
+                  min: 1,
+                  max: kTextOutlineWidthMax,
+                  divisions: kTextOutlineWidthMax.round() - 1,
+                  label: '${width.round()} px',
+                  onChanged: (v) => setLocal(() => width = v),
+                ),
+              ),
+              SizedBox(
+                width: 52,
+                child: Text(
+                  '${width.round()} px',
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(tr('Отмена')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, width),
+              child: Text(tr('Вставить')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == null || !mounted) return;
+    final rgb = color.value & 0x00FFFFFF;
+    final hex = '#${rgb.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+    _insertMarkdown(
+      '[outline=$hex:${confirmed.round()}]',
+      suffix: '[/outline]',
+    );
+    _focusNode.requestFocus();
+  }
+
   // ============================================================
   //  BUILD
   // ============================================================
@@ -723,10 +819,10 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     if (color == null) return null;
     final half =
         (_textOutlineWidth ?? kTextOutlineWidthDefault).clamp(
-              1.0,
-              kTextOutlineWidthMax,
-            ) /
-            2.0;
+          1.0,
+          kTextOutlineWidthMax,
+        ) /
+        2.0;
     return [
       for (final dx in [-half, 0.0, half])
         for (final dy in [-half, 0.0, half])
@@ -868,7 +964,9 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Text(
                   hasFont
-                      ? trf('Шрифт блока: {p0}', {'p0': _fontLabel(_fontFamily!)})
+                      ? trf('Шрифт блока: {p0}', {
+                          'p0': _fontLabel(_fontFamily!),
+                        })
                       : tr('Шрифт блока: как в квесте'),
                   style: TextStyle(
                     color: hasFont ? scheme.primary : scheme.onSurfaceVariant,
@@ -1187,9 +1285,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
             displayThumbColor: true,
             paletteType: PaletteType.hsvWithHue,
             labelTypes: const [],
-            pickerAreaBorderRadius: const BorderRadius.all(
-              Radius.circular(12),
-            ),
+            pickerAreaBorderRadius: const BorderRadius.all(Radius.circular(12)),
             hexInputBar: true,
           ),
         ),
@@ -1264,6 +1360,13 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
               onPressed: _showColorPicker,
               tint: scheme.secondary,
               background: scheme.secondaryContainer,
+            ),
+            _ToolbarIconButton(
+              icon: Icons.border_color_rounded,
+              tooltip: tr('Обводка выделенного текста'),
+              onPressed: _insertInlineOutline,
+              tint: scheme.error,
+              background: scheme.errorContainer,
             ),
             _ToolbarIconButton(
               icon: Icons.font_download_rounded,
