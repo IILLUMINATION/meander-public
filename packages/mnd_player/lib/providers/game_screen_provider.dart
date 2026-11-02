@@ -977,6 +977,13 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       final c = Map<String, dynamic>.from(raw);
       if (c['type'] == 'open_link') {
         await _openExternalLink(c['url'].toString());
+      } else if (const {
+        'save_game',
+        'open_saves',
+        'load_save',
+        'delete_save',
+      }.contains(c['type'])) {
+        _ref.read(saveUiCommandProvider.notifier).state = c;
       }
     }
   }
@@ -1584,9 +1591,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
   /// окно вернёт — см. `PinnedStackLayer`.
   void dismissPinnedStack(String id) {
     if (state.dismissedStacks.contains(id)) return;
-    state = state.copyWith(
-      dismissedStacks: {...state.dismissedStacks, id},
-    );
+    state = state.copyWith(dismissedStacks: {...state.dismissedStacks, id});
   }
 
   /// [fromPresentationId] — презентация, для которой собран виджет-источник
@@ -1665,8 +1670,10 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
             if (target.isNotEmpty) {
               await _paceScriptDelays();
               if (!_alive || gen != _revealGeneration) {
-                _log('⚠️ Переход → $target отброшен: поколение $gen больше не '
-                    'текущее (${_revealGeneration}, alive=$_alive)');
+                _log(
+                  '⚠️ Переход → $target отброшен: поколение $gen больше не '
+                  'текущее (${_revealGeneration}, alive=$_alive)',
+                );
                 return;
               }
               loadNode(target);
@@ -1697,7 +1704,8 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
   /// crash_log. Отброс ушедшей сцены безобиден — только консоль.
   void _discardRevealedItem(String itemId, int gen, String ownerNodeId) {
     final current = _currentNodeId ?? '';
-    final msg = 'Reveal-цикл поколения $gen съел айтем $itemId ноды '
+    final msg =
+        'Reveal-цикл поколения $gen съел айтем $itemId ноды '
         '$ownerNodeId, а сейчас нода $current, поколение '
         '$_revealGeneration, alive=$_alive';
     _log('⚠️ $msg');

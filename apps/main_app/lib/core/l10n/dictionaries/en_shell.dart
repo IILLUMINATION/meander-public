@@ -163,4 +163,20 @@ final Map<String, String> enShell = {
   'Пост': 'Post',
   'Результат поиска': 'Search results',
   'Фильтры': 'Filters',
+  'Создать сохранение': 'Create save',
+  'Открыть сохранения': 'Open saves',
+  'Загрузить сохранение': 'Load save',
+  'Удалить сохранение': 'Delete save',
+  'выберите действие': 'choose an action',
+  'Слот': 'Slot',
+  'пусто — имя по умолчанию': 'empty — default name',
+  'имя слота или {переменная}': 'slot name or {переменная}',
+  'Имя можно собрать формулой: «слот {герой}».':
+      'The name can be a formula: "slot {герой}".',
+  'Таблица «{p0}» уже существует': 'Table "{p0}" already exists',
+  'XLSX сохранён: поместились первые {p0} строк из {p1}. Полный слепок — JSON.':
+      'XLSX saved: only the first {p0} of {p1} rows fit. Use JSON for a full snapshot.',
+  'Имена с «__» служебные: движок не сохранит такой ключ.':
+      'Names starting with "__" are reserved: the engine will not keep such a key.',
+  'Ключ «{p0}» уже есть': 'Key "{p0}" already exists',
 };

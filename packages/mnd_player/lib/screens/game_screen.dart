@@ -1080,6 +1080,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     });
 
+    ref.listen<Map<String, dynamic>?>(saveUiCommandProvider, (_, command) {
+      if (command == null) return;
+      ref.read(saveUiCommandProvider.notifier).state = null;
+      unawaited(_handleSaveUiCommand(command));
+    });
+
     ref.listen(gameScreenProvider(_key).select((s) => s.currentNode), (
       previous,
       next,
@@ -1153,8 +1159,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     // Настройка анимации появляется только там, где автор её действительно
     // включил: шапка не обрастает кнопкой «на всякий случай».
     final revealEnabled = ref.watch(
-      gameScreenProvider(_key)
-          .select((s) => _nodeUsesTextReveal(s.currentNode?.content)),
+      gameScreenProvider(
+        _key,
+      ).select((s) => _nodeUsesTextReveal(s.currentNode?.content)),
     );
 
     return AppBar(
@@ -1495,8 +1502,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       questId: widget.questId,
       onInteract: _onItemInteract,
       onInputSubmitted: _onInputSubmitted,
-      onComplete: () =>
-          notifier.revealNextItem(fromPresentationId: screenState.presentationId),
+      onComplete: () => notifier.revealNextItem(
+        fromPresentationId: screenState.presentationId,
+      ),
       onTransition: (id) => notifier.loadNode(id),
       onNavigateToNode: (id) => notifier.loadNode(id),
       audioVolume: contentVolume,
@@ -1711,6 +1719,64 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final desired = target.clamp(0.0, maxExtent);
     if ((position.pixels - desired).abs() < 0.5) return;
     controller.jumpTo(desired);
+  }
+
+  /// Команда `save_operation` из скрипта: движок не трогает диск и UI, поэтому
+  /// всё выполняется здесь, в уже открытой игровой сессии.
+  Future<void> _handleSaveUiCommand(Map<String, dynamic> command) async {
+    final type = command['type']?.toString() ?? '';
+    final requested = command['slotName']?.toString().trim() ?? '';
+    final notifier = ref.read(gameScreenProvider(_key).notifier);
+    final messenger = ScaffoldMessenger.of(context);
+    switch (type) {
+      case 'save_game':
+        final name = requested.isEmpty ? 'Сохранение' : requested;
+        final ok = await notifier.saveSlot(name);
+        if (!mounted) return;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(ok ? 'Сохранено: $name' : 'Не удалось сохранить'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      case 'open_saves':
+        await _showLoadGame();
+        return;
+      case 'load_save':
+      case 'delete_save':
+        final slots = await ref.read(saveSlotsProvider(widget.questId).future);
+        final slot = slots.where((s) {
+          return requested.isNotEmpty &&
+              (s.id == requested || s.slotName == requested);
+        }).firstOrNull;
+        if (!mounted) return;
+        if (slot == null) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('Сохранение «$requested» не найдено'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        if (type == 'delete_save') {
+          await ref
+              .read(saveGameServiceProvider)
+              .deleteSave(widget.questId, slot.id);
+          ref.invalidate(saveSlotsProvider(widget.questId));
+          if (!mounted) return;
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('Сохранение «${slot.slotName}» удалено'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        await notifier.loadInitialNode(slot.currentNodeId, saveSlot: slot);
+        return;
+    }
   }
 
   Future<void> _showLoadGame() async {
@@ -2053,10 +2119,8 @@ class _BackgroundVideoState extends State<_BackgroundVideo> {
       widget.loop ? PlaylistMode.single : PlaylistMode.none;
 
   /// Шкала media_kit — 0..100, наш множитель 0..1.
-  double _targetVolume() => widget.muted ? 0 : (widget.volume * 100).clamp(
-    0.0,
-    100.0,
-  );
+  double _targetVolume() =>
+      widget.muted ? 0 : (widget.volume * 100).clamp(0.0, 100.0);
 
   @override
   void didUpdateWidget(covariant _BackgroundVideo oldWidget) {
@@ -2071,7 +2135,8 @@ class _BackgroundVideoState extends State<_BackgroundVideo> {
       _player?.setVolume(_targetVolume());
     }
     // `set_blur` посреди ноды меняет сигму — меняем и фильтр mpv.
-    if (oldWidget.path != widget.path || oldWidget.blurValue != widget.blurValue) {
+    if (oldWidget.path != widget.path ||
+        oldWidget.blurValue != widget.blurValue) {
       _applyMpvBlur();
     }
   }

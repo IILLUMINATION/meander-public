@@ -21,3 +21,10 @@ final saveSlotsProvider = FutureProvider.autoDispose
       final service = ref.watch(saveGameServiceProvider);
       return service.getSaveSlots(questId);
     });
+
+/// Команда сохранения из скрипта (`save_operation`). Движок не имеет доступа
+/// к UI и ФС, поэтому выставляет событие, а экран игры открывает диалог/экран
+/// и выполняет операцию через [SaveGameService].
+final saveUiCommandProvider = StateProvider<Map<String, dynamic>?>(
+  (ref) => null,
+);

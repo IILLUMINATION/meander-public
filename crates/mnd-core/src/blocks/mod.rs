@@ -36,6 +36,7 @@ mod for_each;
 mod go_to_node;
 mod http_request;
 mod open_link;
+mod save_operation;
 mod set_blur;
 mod set_image;
 // pub(crate): валидатор скриптов сверяет режим с тем же списком, что и блок.
@@ -291,6 +292,13 @@ fn registry() -> &'static HandlerMap {
             block!("stop_music", "Стоп музыка", &[], Audio, audio::StopMusic),
             block!("pause_resume", "Пауза", &[], Audio, audio::PauseResume),
             block!("crossfade", "Кроссфейд", &[], Audio, crossfade::Crossfade),
+            block!(
+                "save_operation",
+                "Сохранения",
+                &["save", "сохранение"],
+                Data,
+                save_operation::SaveOperation
+            ),
             block!(
                 "open_link",
                 "Открыть ссылку",

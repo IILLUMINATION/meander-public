@@ -10,6 +10,7 @@ import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/go_to_node_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/http_request_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/open_link_block_widget.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/save_operation_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/pause_resume_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/play_music_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/play_sound_block_widget.dart';
@@ -269,6 +270,14 @@ class BlockFactory extends StatelessWidget {
           onDragEnd: onDragEnd,
         );
 
+      case SaveOperationBlock _:
+        return SaveOperationBlockWidget(
+          block: block as SaveOperationBlock,
+          questId: questId,
+          onDelete: isFeedback ? null : onDelete,
+          onMenuAction: menu,
+        );
+
       case OpenLinkBlock _:
         return OpenLinkBlockWidget(
           block: block as OpenLinkBlock,
@@ -338,7 +347,14 @@ class BlockFactory extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  trf('Неизвестный блок{p0} — создан другой версией. Данные сохранятся.', {'p0': unknown.rawType == null ? '' : ' (${unknown.rawType})'}),
+                  trf(
+                    'Неизвестный блок{p0} — создан другой версией. Данные сохранятся.',
+                    {
+                      'p0': unknown.rawType == null
+                          ? ''
+                          : ' (${unknown.rawType})',
+                    },
+                  ),
                   style: TextStyle(
                     fontSize: 12,
                     color: warn,
