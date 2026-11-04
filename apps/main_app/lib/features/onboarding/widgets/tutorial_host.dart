@@ -38,8 +38,27 @@ class _TutorialHostState extends ConsumerState<TutorialHost>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
-    _ticker.start();
+    );
+    // Тикер и пульсацию запускаем только на время активного обучения:
+    // вечно висящий repeat()-контроллер гнал кадры (и ~ядро CPU) даже на
+    // экранах, где туториала нет и подсветка не рисуется вовсе.
+    ref.listenManual(
+      tutorialControllerProvider.select((s) => s.isActive),
+      (previous, next) => _setTutorialActive(next),
+      fireImmediately: true,
+    );
+  }
+
+  void _setTutorialActive(bool active) {
+    if (active) {
+      if (!_pulseController.isAnimating) {
+        _pulseController.repeat(reverse: true);
+      }
+      _ticker.start();
+    } else {
+      _pulseController.stop();
+      _ticker.stop();
+    }
   }
 
   @override
@@ -139,6 +158,10 @@ class _Ticker {
     if (_running) return;
     _running = true;
     WidgetsBinding.instance.addPostFrameCallback(_step);
+  }
+
+  void stop() {
+    _running = false;
   }
 
   void _step(Duration ts) {

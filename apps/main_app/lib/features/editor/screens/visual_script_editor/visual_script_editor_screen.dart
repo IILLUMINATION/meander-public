@@ -359,10 +359,34 @@ class _VisualScriptEditorScreenState
     _checkAutoScroll(globalPosition, screenHeight);
   }
 
-  String get _scriptSignature => jsonEncode({
-    'name': _scriptName,
-    'blocks': _blocks.map((b) => b.toJson()).toList(),
-  });
+  /// Лёгкая сигнатура для сравнения «грязный/чистый»: имя + id блоков в
+  /// порядке обхода дерева (вложенность учитывается). Полный `jsonEncode`
+  /// всех блоков каждую секунду автосейва стоил пропорционально размеру
+  /// скрипта и аллоцировал строку в сотни КБ на большом сценарии.
+  static String _signatureOf({
+    required String name,
+    required List<VisualScriptBlock> blocks,
+  }) {
+    final buf = StringBuffer(name);
+    void walk(List<VisualScriptBlock> list) {
+      for (final b in list) {
+        buf
+          ..write('|')
+          ..write(b.id);
+        for (final nested in b.nestedBlockLists) {
+          walk(nested);
+        }
+      }
+    }
+
+    walk(blocks);
+    return buf.toString();
+  }
+
+  String get _scriptSignature => _signatureOf(
+        name: _scriptName,
+        blocks: _blocks,
+      );
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -531,23 +555,20 @@ class _VisualScriptEditorScreenState
         : internalScriptPath;
 
     try {
-      // Снимок буфера: между сборкой payload и end записи пользователь
+      // Снимок буфера: между сборкой payload и концом записи пользователь
       // может добавить блок. Если после записи сверять сигнатуру с живым
       // `_blocks`, новая правка будет помечена сохранённой, хотя на диске
-      // остался предыдущий кадр, — и при выходе её сотрёт.
+      // остался предыдущий кадр, — и при выходе её сотрёт. Сигнатура
+      // считаем по снимку имени и живым блокам (лёгкая, см. `_scriptSignature`).
       final savedName = _scriptName;
-      final savedBlocks = _blocks.map((block) => block.toJson()).toList();
-      final savedSignature = jsonEncode({
-        'name': savedName,
-        'blocks': savedBlocks,
-      });
+      final savedBlocks = List<VisualScriptBlock>.of(_blocks);
       final scriptData = {
         'id': widget.scriptId,
         'name': savedName,
-        'blocks': savedBlocks,
+        'blocks': savedBlocks.map((block) => block.toJson()).toList(),
       };
       await store.writeJson(finalPath, scriptData);
-      _lastSavedSignature = savedSignature;
+      _lastSavedSignature = _signatureOf(name: savedName, blocks: savedBlocks);
       _docHandle?.markDirty(false);
 
       if (finalPath.contains('/scripts/')) {

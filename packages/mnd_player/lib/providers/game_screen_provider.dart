@@ -20,6 +20,7 @@ import 'package:mnd_player/services/font_service.dart';
 import 'package:mnd_player/plugin/plugin_packages.dart';
 import 'package:mnd_player/plugin/plugin_runtime.dart';
 import 'package:mnd_player/services/save_game_provider.dart';
+import 'package:mnd_player/services/video_cache_service.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 
 // ---------------------------------------------------------------------------
@@ -2083,6 +2084,9 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       _soundEffectPlayerStateSub?.cancel();
       _backgroundAudioPlayer.stop();
       _soundEffectPlayer.stop();
+      // Кэш видео-плееров глобальный (static) и переживает сессию; без
+      // явного сброса до трёх mpv-инстансов живёт до конца приложения.
+      VideoCacheService.clear();
       _backgroundAudioPlayer.dispose();
       _soundEffectPlayer.dispose();
       _disposeEngine();

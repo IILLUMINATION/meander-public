@@ -39,7 +39,13 @@ class SocketService {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
-          .setAuth({'token': token})
+          // Без явного backoff socket.io при недоступном сервере долбит
+          // reconnect-попытками с интервалом по умолчанию (десятки секунд,
+          // каждая — DNS+TCP+TLS): в логе живой сессии это бесконечные
+          // «Connection Error: Failed host lookup». Ограничиваем и ставим
+          // экспоненциальный рост до минуты.
+          .setReconnectionDelay(2000)
+          .setReconnectionDelayMax(60000)
           .build(),
     );
 
