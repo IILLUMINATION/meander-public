@@ -53,4 +53,17 @@ final Map<String, String> enB2Settings = {
   'тёмная': 'dark',
   'Первый запуск': 'First launch',
   'Экран, который видит новый пользователь': 'The screen a new user sees',
+  'Подключение': 'Connection',
+  'Своё зеркало или сервер': 'Custom mirror or server',
+  'Meander — open-source: можно указать свой сервер с квестами или зеркало. Пусто — встроенные зеркала':
+      'Meander is open-source: you can point it at your own quest server or a mirror. Empty — built-in mirrors.',
+  'Проверить': 'Test connection',
+  'Подключение установлено': 'Connection established',
+  'Все зеркала недоступны': 'All mirrors are unreachable',
+  'Использую встроенные зеркала': 'Using built-in mirrors',
+  'Зеркало сохранено': 'Mirror saved',
+  'Некорректный адрес сервера': 'Invalid server address',
+  'Сервер не отвечает — сохранено': 'Server not responding — saved anyway',
+  'Сервер недоступен: возможно, ваш интернет-провайдер ограничивает доступ. Включите «ускоритель интернета» (сервис для улучшения соединения) или задайте своё зеркало в настройках. Разработчик не виноват':
+      'Cannot reach the server: your internet provider may be restricting access. Turn on an internet accelerator (a service that improves connectivity) or set a custom mirror in Settings. The developer is not at fault.',
 };

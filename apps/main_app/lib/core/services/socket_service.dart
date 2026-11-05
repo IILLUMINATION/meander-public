@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -32,6 +33,12 @@ class SocketService {
         shortcutPolicy: ShortcutPolicy.requireCreate,
       );
     }
+
+    // Socket.io долгоживущий: подключаемся к живому зеркалу сразу, чтобы
+    // не гонять reconnect-цикл по заблокированному домену — активное
+    // зеркало MirrorRegistry уже проверено последним REST-запросом или
+    // будет проверено ensureReachable ниже.
+    await MirrorRegistry.instance.ensureReachable();
 
     // Configure socket.io
     _socket = io.io(

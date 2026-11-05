@@ -27,6 +27,7 @@ import 'package:canvas_app/features/settings/providers/notifications_settings_pr
 import 'package:canvas_app/features/settings/screens/theme_settings_screen.dart';
 import 'package:canvas_app/features/settings/widgets/interface_language_dialog.dart';
 import 'package:canvas_app/features/settings/widgets/refresh_rate_card.dart';
+import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/features/shell/screens/admin_screen.dart';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 
@@ -47,7 +48,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _currentUserId;
   bool _tabsEnabled = true;
   bool _autoOpenTab = false;
-
+  final _mirrorUrlController = TextEditingController();
+  String? _mirrorUrlError;
   /// Удаление аккаунта уже запланировано — дата, когда строка уйдёт.
   DateTime? _deletionScheduledAt;
 
@@ -55,7 +57,68 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _loadUser();
+    _loadMirrorUrl();
   }
+
+  @override
+  void dispose() {
+    _mirrorUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadMirrorUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final custom = prefs.getString('mirror_custom_url') ?? '';
+    if (mounted) {
+      _mirrorUrlController.text = custom;
+    }
+  }
+
+  /// Сохранить пользовательское зеркало/свой сервер. Пустая строка — сброс
+  /// на встроенные зеркала. Некорректный адрес не сохраняется.
+  Future<void> _saveMirrorUrl() async {
+    final raw = _mirrorUrlController.text.trim();
+    if (raw.isEmpty) {
+      await MirrorRegistry.instance.setCustomUrl(null);
+      if (mounted) {
+        setState(() => _mirrorUrlError = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('Использую встроенные зеркала'))),
+        );
+      }
+      return;
+    }
+
+    final normalized = MirrorRegistry.normalizeForPreview(raw);
+    if (normalized == null) {
+      if (mounted) {
+        setState(
+          () => _mirrorUrlError = tr('Некорректный адрес сервера'),
+        );
+      }
+      return;
+    }
+
+    final reachable = await MirrorRegistry.instance.probeUrl(normalized);
+    if (!reachable) {
+      if (mounted) {
+        setState(
+          () => _mirrorUrlError = tr('Сервер не отвечает — сохранено'),
+        );
+      }
+    } else {
+      if (mounted) setState(() => _mirrorUrlError = null);
+    }
+
+    await MirrorRegistry.instance.setCustomUrl(normalized);
+    if (mounted) {
+      _mirrorUrlController.text = normalized;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('Зеркало сохранено'))),
+      );
+    }
+  }
+
 
   Future<void> _loadUser() async {
     final prefs = await SharedPreferences.getInstance();
@@ -865,6 +928,97 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               await prefs.setBool('editor_auto_open_tab', v);
                               if (mounted) setState(() => _autoOpenTab = v);
                             },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                _SectionHeader(
+                  title: tr('Подключение'),
+                  icon: Icons.language_rounded,
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(20),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tr('Своё зеркало или сервер'),
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  tr(
+                                    'Meander — open-source: можно указать свой сервер с квестами или зеркало. Пусто — встроенные зеркала',
+                                  ),
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                            child: TextField(
+                              controller: _mirrorUrlController,
+                              decoration: InputDecoration(
+                                hintText: 'https://example.com',
+                                errorText: _mirrorUrlError,
+                                isDense: true,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              keyboardType: TextInputType.url,
+                              onSubmitted: (_) => _saveMirrorUrl(),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            child: Row(
+                              children: [
+                                FilledButton.tonal(
+                                  onPressed: _saveMirrorUrl,
+                                  child: Text(tr('Сохранить')),
+                                ),
+                                const SizedBox(width: 8),
+                                TextButton(
+                                  onPressed: () async {
+                                    final ok =
+                                        await MirrorRegistry
+                                            .instance
+                                            .ensureReachable();
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          ok
+                                              ? tr('Подключение установлено')
+                                              : tr('Все зеркала недоступны'),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: Text(tr('Проверить')),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
