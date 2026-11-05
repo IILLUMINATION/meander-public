@@ -6,7 +6,7 @@
 
 <p align="center">
   An open-source engine for text quests and visual novels.<br>
-  Editor, player and community catalogue — no programming required.
+  Editor, player and community catalogue, no programming required.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white"></a>
   <a href="LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue"></a>
   <a href="https://aur.archlinux.org/packages/meander-bin"><img alt="AUR" src="https://img.shields.io/aur/version/meander-bin?label=AUR"></a>
-  <a href="https://meander.sbs"><img alt="Website" src="https://img.shields.io/badge/meander.sbs-quest%20catalogue-informational"></a>
+  <a href="https://meander.sbs"><img alt="Website" src="https://img.shields.io/badge/meander.sbs-website-2f2f2f"></a>
 </p>
 
 <table>
@@ -35,12 +35,10 @@
 
 | Platform | How |
 |---|---|
-| Android | [Google Play](https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner); APK from source only (the signing key is not in the repository) |
-| Linux | AUR [`meander-bin`](https://aur.archlinux.org/packages/meander-bin) or `Meander-linux-x64.AppImage` from a release |
-| Windows | `Release.Windows.zip` from a release |
-| macOS | `Release.Macos.zip` from a release (Apple Silicon) |
+| Android | [Google Play](https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner). APK is built from source (the signing key is not in the repository) |
+| Linux (Arch) | AUR [`meander-bin`](https://aur.archlinux.org/packages/meander-bin) |
+| Linux, Windows, macOS | build from source, see below |
 | iOS | build from source; no App Store build |
-| Browser | [meander.sbs](https://meander.sbs), quests open at `/play/` |
 
 ## Repository layout
 
@@ -75,7 +73,7 @@ cd apps/main_app && flutter run -d linux
 ```
 
 Melos comes from the root `pubspec.yaml` (6.3.3): versions 7 and 8 do not read
-`melos.yaml`. Restart `flutter run` after rebuilding the Rust core — hot reload
+`melos.yaml`. Restart `flutter run` after rebuilding the Rust core: hot reload
 does not load a new `.so`.
 
 ### OAuth
@@ -171,17 +169,11 @@ no TTY. `analyze:flutter` exits 1 on any issue; this snapshot has no errors.
 Issues and pull requests. Commits follow
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## Security
-
-Report vulnerabilities privately through
-[GitHub Security Advisories](https://github.com/IILLUMINATION/meander-public/security/advisories/new),
-not in a public issue.
-
 ## License
 
-AGPL-3.0-or-later — see [LICENSE](LICENSE). Network use counts as distribution:
+AGPL-3.0-or-later, see [LICENSE](LICENSE). Network use counts as distribution:
 modified versions served over a network must publish their source under the same
-license. Commercial use is not prohibited — the license only constrains
+license. Commercial use is not prohibited: the license only constrains
 distribution of modified versions.
 
 Third-party assets keep their own terms: Noto Sans (SIL OFL 1.1) in

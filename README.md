@@ -6,12 +6,22 @@
 
 <p align="center">
   Открытый движок текстовых квестов и визуальных новелл.<br>
-  Редактор, плеер и каталог сообщества — без программирования.
+  Редактор, плеер и каталог сообщества, без программирования.
 </p>
 
 <p align="center">
   <strong>Русский</strong> · <a href="README.en.md">English</a>
 </p>
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
+        <img alt="Доступно в Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/ru_badge_web_generic.png" height="64">
+      </a>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="#установка"><img alt="Платформы: Android, iOS, Linux, Windows, macOS" src="https://img.shields.io/badge/Android%20%C2%B7%20iOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20macOS-2f2f2f"></a>
@@ -19,7 +29,7 @@
   <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white"></a>
   <a href="LICENSE"><img alt="Лицензия: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue"></a>
   <a href="https://aur.archlinux.org/packages/meander-bin"><img alt="AUR" src="https://img.shields.io/aur/version/meander-bin?label=AUR"></a>
-  <a href="https://meander.sbs"><img alt="Сайт" src="https://img.shields.io/badge/meander.sbs-quest%20catalogue-informational"></a>
+  <a href="https://meander.sbs"><img alt="Сайт" src="https://img.shields.io/badge/meander.sbs-сайт-2f2f2f"></a>
 </p>
 
 <table>
@@ -35,12 +45,11 @@
 
 | Платформа | Способ |
 |---|---|
-| Android | [Google Play](https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner); APK — только своя сборка (ключ подписи в репозиторий не входит) |
-| Linux | AUR [`meander-bin`](https://aur.archlinux.org/packages/meander-bin) или `Meander-linux-x64.AppImage` из релиза |
-| Windows | `Release.Windows.zip` из релиза |
-| macOS | `Release.Macos.zip` из релиза (Apple Silicon) |
-| iOS | из исходников; в App Store сборки нет |
-| Браузер | [meander.sbs](https://meander.sbs), квесты открываются на `/play/` |
+| Android | [Google Play](https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner). APK собирается из исходников, ключ подписи в репозиторий не входит |
+| Linux (Arch) | AUR [`meander-bin`](https://aur.archlinux.org/packages/meander-bin) |
+| Linux, Windows, macOS | сборка из исходников, раздел ниже |
+| iOS | из исходников, в App Store сборки нет |
+
 
 ## Структура репозитория
 
@@ -74,7 +83,7 @@ cd apps/main_app && flutter run -d linux
 ```
 
 Melos берётся из корневого `pubspec.yaml` (6.3.3): версии 7 и 8 не читают
-`melos.yaml`. После пересборки Rust-ядра `flutter run` нужно перезапускать —
+`melos.yaml`. После пересборки Rust-ядра `flutter run` нужно перезапускать:
 hot reload не подхватывает новую `.so`.
 
 ### OAuth
@@ -84,7 +93,7 @@ hot reload не подхватывает новую `.so`.
 и `apps/main_app/ios/Flutter/OAuthDefaults.xcconfig`, поэтому вход работает с
 чистого клона без `.env` и без локальных файлов.
 
-Переопределения (свой OAuth-проект) — через `apps/main_app/.env`:
+Переопределения (свой OAuth-проект): через `apps/main_app/.env`.
 
 ```bash
 cd apps/main_app
@@ -175,20 +184,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Участие
 
-Issues и pull requests. Коммиты — [Conventional Commits](https://www.conventionalcommits.org/).
-
-## Безопасность
-
-Уязвимости — приватно через
-[GitHub Security Advisories](https://github.com/IILLUMINATION/meander-public/security/advisories/new),
-не публичным issue.
+Issues и pull requests. Коммиты по [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## Лицензия
 
-AGPL-3.0-or-later — см. [LICENSE](LICENSE). Сетевое использование считается
+AGPL-3.0-or-later, см. [LICENSE](LICENSE). Сетевое использование считается
 распространением: изменённые версии, доступные по сети, обязаны публиковать
-исходники под той же лицензией. Коммерческое использование не запрещено —
+исходники под той же лицензией. Коммерческое использование не запрещено:
 лицензия ограничивает только распространение изменённых версий.
 
-Сторонние ассеты — по своим лицензиям: Noto Sans (SIL OFL 1.1) в
+Сторонние ассеты по своим лицензиям: Noto Sans (SIL OFL 1.1) в
 `apps/main_app/assets/fonts/`, Rust- и Dart-зависимости.
