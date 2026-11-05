@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -21,7 +22,17 @@ class MirrorRegistry {
   static final MirrorRegistry instance = MirrorRegistry._();
 
   static const _activeUrlKey = 'mirror_active_url';
-  static const _customUrlKey = 'mirror_custom_url';
+  static const _customUrlsKey = 'mirror_custom_urls';
+  // Старый формат одиночного зеркала; читаем один раз для миграции.
+  static const _legacyCustomUrlKey = 'mirror_custom_url';
+
+  /// Сброс singleton-состояния (только тесты: книга перечитывается).
+  @visibleForTesting
+  void resetForTests() {
+    _loaded = false;
+    _activeUrl = null;
+    _customUrls = [];
+  }
 
   /// Фейк для тестов: `null` — реальные сетевые зонды, `true`/`false` —
   /// результат зонда, не трогая сеть.
@@ -35,17 +46,41 @@ class MirrorRegistry {
   String get activeUrl => _activeUrl ?? AppConfig.vpsApiBaseUrl;
   String? _activeUrl;
 
-  /// Пользовательское зеркало/свой сервер из настроек.
-  String? _customUrl;
-  String? get customUrl => _customUrl;
+  /// Пользовательские зеркала/свои серверы из настроек (в порядке
+  /// добавления, дубликаты нормализуются и отсеиваются).
+  List<String> _customUrls = [];
+  List<String> get customUrls => List.unmodifiable(_customUrls);
 
-  /// Загружена ли адресная книга (int активное-зеркало).
+  /// Загружена ли адресная книга.
   bool _loaded = false;
+
+  /// Загрузить адресную книгу (идемпотентно). Публично — для экрана
+  /// настроек, которому нужен список до первого зонда.
+  Future<void> ensureLoaded() => _ensureLoaded();
 
   Future<void> _ensureLoaded() async {
     if (_loaded) return;
     final prefs = await SharedPreferences.getInstance();
-    _customUrl = prefs.getString(_customUrlKey);
+    final stored = prefs.getString(_customUrlsKey);
+    if (stored != null && stored.isNotEmpty) {
+      _customUrls = (jsonDecode(stored) as List)
+          .map((e) => e as String)
+          .where((u) => u.isNotEmpty)
+          .toList();
+    }
+    // Миграция со старого одиночного зеркала (первый запуск после
+    // обновления с прошлой версии).
+    final legacy = prefs.getString(_legacyCustomUrlKey);
+    if (legacy != null && legacy.isNotEmpty) {
+      if (!_customUrls.contains(legacy)) {
+        _customUrls = [..._customUrls, legacy];
+      }
+      await prefs.remove(_legacyCustomUrlKey);
+      await prefs.setString(
+        _customUrlsKey,
+        jsonEncode(_customUrls),
+      );
+    }
     _activeUrl = prefs.getString(_activeUrlKey);
     if (_activeUrl == null || !allUrls.contains(_activeUrl)) {
       _activeUrl = allUrls.first;
@@ -58,9 +93,8 @@ class MirrorRegistry {
   /// активного, чтобы быстрее дойти до него при рабочем зеркале.
   List<String> get allUrls {
     final list = <String>[...AppConfig.defaultMirrorUrls];
-    final custom = _customUrl;
-    if (custom != null && custom.isNotEmpty && !list.contains(custom)) {
-      list.insert(custom == _activeUrl ? 0 : 1, custom);
+    for (final url in _customUrls) {
+      if (!list.contains(url)) list.add(url);
     }
     final active = _activeUrl;
     if (active != null && list.contains(active)) {
@@ -71,22 +105,46 @@ class MirrorRegistry {
     return list;
   }
 
-  /// Установить пользовательское зеркало/сервер. Пустая строка/`null` —
-  /// сброс. Смена пользовательского адреса убивает кэш здоровья активного
-  /// зеркала и проверяет его первым.
-  Future<void> setCustomUrl(String? url) async {
-    var normalized = _normalize(url);
-    if (normalized == AppConfig.vpsApiBaseUrl ||
-        normalized == '') {
-      normalized = null;
+  /// Дефолтные зеркала, идущие с приложением.
+  List<String> get defaultUrls => List.unmodifiable(AppConfig.defaultMirrorUrls);
+
+  /// Добавить пользовательское зеркало/сервер. Возвращает normalized URL
+  /// или `null`, если адрес не парсится; дубликат — no-op.
+  Future<String?> addCustomUrl(String url) async {
+    await _ensureLoaded();
+    final normalized = _normalize(url);
+    if (normalized == null) return null;
+    if (!_customUrls.contains(normalized) &&
+        !AppConfig.defaultMirrorUrls.contains(normalized)) {
+      _customUrls = [..._customUrls, normalized];
+      await _saveCustomUrls();
     }
-    _customUrl = normalized;
-    _activeUrl = normalized ?? AppConfig.vpsApiBaseUrl;
-    _loaded = true;
+    return normalized;
+  }
+
+  /// Удалить пользовательское зеркало. Активное после удаления возвращается
+  /// к основному домену.
+  Future<void> removeCustomUrl(String url) async {
+    await _ensureLoaded();
+    _customUrls = _customUrls.where((u) => u != url).toList();
+    await _saveCustomUrls();
+    if (_activeUrl == url) {
+      _activeUrl = AppConfig.defaultMirrorUrls.first;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_activeUrlKey, _activeUrl!);
+    }
+  }
+
+  Future<void> _saveCustomUrls() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_customUrlKey, normalized ?? '');
-    await prefs.setString(_activeUrlKey, _activeUrl!);
-    debugPrint('[Mirror] custom=$normalized active=$_activeUrl');
+    await prefs.setString(_customUrlsKey, jsonEncode(_customUrls));
+  }
+
+  /// Выбрать зеркало вручную (тап по строке списка).
+  Future<void> setActiveUrl(String url) async {
+    await _ensureLoaded();
+    if (!allUrls.contains(url)) return;
+    await _persistActive(url);
   }
 
   /// Сохранить активное зеркало после успешной проверки.
@@ -96,25 +154,38 @@ class MirrorRegistry {
     await prefs.setString(_activeUrlKey, url);
   }
 
-  /// Проверить доступность URL. Считаем живым любой HTTP-ответ бэкенда:
-  /// даже 404/500 на случайный GET значит, что хост резолвится, TLS
-  /// поднимается и фильтрация его не режет. Это быстрее и надёжнее
-  /// отдельного /health, которого на старых бэкендах нет.
-  Future<bool> _probe(String url) async {
-    if (probeOverride != null) return probeOverride!;
-    if (skipRealNetwork) return true;
+  /// Результат зонда: `pingMs == null` — зеркало недоступно.
+  /// Пинг меряем по полному рукопожатию HEAD (DNS+TCP+TLS+HTTP): это
+  /// честная «стоимость» первого запроса к зеркалу, а не ICMP-RTT,
+  /// который к HTTPS-зеркалам всё равно не пробить.
+  ///
+  /// Таймауты щедрые (8с): на медленном старте первое рукопожатие
+  /// занимает 3-5с из-за холодного DNS/TLS, и более короткий лимит
+  /// отмечал живое зеркало как мёртвое. Холодный зонд получает один
+  /// ретрай — единичное молчание ещё не «сервер лежит».
+  Future<int?> _probe(String url) async {
+    if (probeOverride != null) return probeOverride! ? 1 : null;
+    if (skipRealNetwork) return 1;
+    final ms = await _probeOnce(url);
+    if (ms != null) return ms;
+    return _probeOnce(url);
+  }
+
+  Future<int?> _probeOnce(String url) async {
+    final sw = Stopwatch()..start();
     try {
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
       final request = await client
           .headUrl(Uri.parse('$url/'))
-          .timeout(const Duration(seconds: 5));
-      await request.close().timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 8));
+      await request.close().timeout(const Duration(seconds: 8));
       client.close();
-      debugPrint('[Mirror] probe OK: $url');
-      return true;
+      final ms = sw.elapsedMilliseconds;
+      debugPrint('[Mirror] probe OK: $url (${ms}ms)');
+      return ms;
     } catch (e) {
       debugPrint('[Mirror] probe FAIL: $url ($e)');
-      return false;
+      return null;
     }
   }
 
@@ -125,7 +196,7 @@ class MirrorRegistry {
       await _ensureLoaded();
     } catch (_) {}
     for (final url in allUrls) {
-      if (await _probe(url)) return url;
+      if (await _probe(url) != null) return url;
     }
     return null;
   }
@@ -137,7 +208,7 @@ class MirrorRegistry {
     try {
       await _ensureLoaded();
     } catch (_) {}
-    if (await _probe(activeUrl)) return true;
+    if (await _probe(activeUrl) != null) return true;
     final next = await _findReachable();
     if (next == null) return false;
     await _persistActive(next);
@@ -145,20 +216,34 @@ class MirrorRegistry {
     return true;
   }
 
-  /// Перебор всех зеркал с проверкой: для экрана настроек (кнопка
-  /// «Проверить подключение»).
-  Future<List<(String, bool)>> probeAll() async {
+  /// Пинг/статус одного зеркала: `pingMs == null` — недоступно.
+  Future<int?> probeUrl(String url) => _probe(url);
+
+  /// Померить все зеркала параллельно: для списка в настройках.
+  /// Возвращает URL → пинг (null = недоступно).
+  Future<Map<String, int?>> probeAll() async {
     try {
       await _ensureLoaded();
     } catch (_) {}
-    final results = <(String, bool)>[];
-    for (final url in allUrls) {
-      results.add((url, await _probe(url)));
-    }
-    return results;
+    final urls = allUrls;
+    final pings = await Future.wait(urls.map(_probe));
+    return {
+      for (var i = 0; i < urls.length; i++) urls[i]: pings[i],
+    };
   }
-  /// Публичная проверка одного URL (для настроек/тестов).
-  Future<bool> probeUrl(String url) => _probe(url);
+
+  /// Автовыбор: переключиться на живое зеркало с минимальным пингом.
+  /// Возвращает выбранный URL или `null`, если живых нет.
+  Future<String?> autoSelectFastest() async {
+    final pings = await probeAll();
+    final alive = pings.entries
+        .where((e) => e.value != null)
+        .toList()
+      ..sort((a, b) => a.value!.compareTo(b.value!));
+    if (alive.isEmpty) return null;
+    await _persistActive(alive.first.key);
+    return alive.first.key;
+  }
 
   /// Публичная нормализация URL: без схемы → https, без хвостовых `/`.
   /// `null` — если адрес не парсится.

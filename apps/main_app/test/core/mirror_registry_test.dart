@@ -1,5 +1,6 @@
-// Тесты перебора зеркал: нормализация адреса, порядок зеркал,
-// пользовательское зеркало, маркер все-зеркала-недоступны и текст ошибки.
+// Тесты книги зеркал: нормализация адреса, порядок зеркал, добавление и
+// удаление пользовательских серверов, миграция старого одиночного зеркала,
+// маркер все-зеркала-недоступны и текст ошибки.
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -10,9 +11,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
-    // SharedPreferences.setMockInitialValues чистит хранилище перед
-    // каждым тестом: активное зеркало каждого теста начинает с дефолта.
     SharedPreferences.setMockInitialValues({});
+    MirrorRegistry.skipRealNetwork = false;
+    MirrorRegistry.probeOverride = null;
+    MirrorRegistry.instance.resetForTests();
   });
 
   test('normalizeForPreview: добавляет https, срезает хвостовые слэши',
@@ -34,11 +36,13 @@ void main() {
     expect(AppConfig.apiUrl, AppConfig.vpsApiBaseUrl);
   });
 
-  test('своё зеркало попадает в список первым', () async {
-    await MirrorRegistry.instance.setCustomUrl('https://my.server');
+  test('несколько своих серверов попадают в книгу после дефолтов', () async {
+    await MirrorRegistry.instance.ensureLoaded();
+    await MirrorRegistry.instance.addCustomUrl('https://a.server');
+    await MirrorRegistry.instance.addCustomUrl('https://b.server');
     final urls = MirrorRegistry.instance.allUrls;
-    expect(urls.first, 'https://my.server',
-        reason: 'пользовательское зеркало приоритетнее после установки');
+    expect(urls, containsAll(['https://a.server', 'https://b.server']),
+        reason: 'все пользовательские серверы в переборе');
     expect(
       urls,
       containsAll([
@@ -49,27 +53,72 @@ void main() {
     );
   });
 
-  test(
-      'все зеркала недоступны, но срок жив: ensureReachable с выключенным '
-      'зондом считает их живыми и сохраняет активным',
-      () async {
-    MirrorRegistry.skipRealNetwork = true;
-    addTearDown(() => MirrorRegistry.skipRealNetwork = false);
-    final ok = await MirrorRegistry.instance.ensureReachable();
-    expect(ok, isTrue);
+  test('дубликат и дефолтный URL не добавляются дважды', () async {
+    await MirrorRegistry.instance.ensureLoaded();
+    final first = await MirrorRegistry.instance
+        .addCustomUrl('https://a.server');
+    final dup = await MirrorRegistry.instance
+        .addCustomUrl('https://a.server/');
+    final def = await MirrorRegistry.instance
+        .addCustomUrl(AppConfig.vpsApiBaseUrl);
+    expect(first, 'https://a.server');
+    expect(dup, 'https://a.server');
+    expect(def, AppConfig.vpsApiBaseUrl);
+    expect(
+      MirrorRegistry.instance.customUrls.where((u) => u == first).length,
+      1,
+      reason: 'дубликат не расширяет книгу',
+    );
+    expect(MirrorRegistry.instance.customUrls, isNot(contains(def)),
+        reason: 'дефолтное зеркало уже в книге отдельной строкой');
   });
 
-  test('сброс своего зеркала возвращает активным основной домен',
+  test('удаление своего сервера возвращает активным основной домен',
       () async {
-    await MirrorRegistry.instance.setCustomUrl('https://my.server');
-    await MirrorRegistry.instance.setCustomUrl(null);
+    await MirrorRegistry.instance.ensureLoaded();
+    await MirrorRegistry.instance.addCustomUrl('https://my.server');
+    await MirrorRegistry.instance.setActiveUrl('https://my.server');
+    await MirrorRegistry.instance.removeCustomUrl('https://my.server');
     expect(MirrorRegistry.instance.activeUrl, AppConfig.vpsApiBaseUrl);
+    expect(MirrorRegistry.instance.customUrls, isEmpty);
+  });
+
+  test('пинг от probe — число; probeOverride=false убивает все зеркала',
+      () async {
+    await MirrorRegistry.instance.ensureLoaded();
+    MirrorRegistry.probeOverride = true;
+    expect(await MirrorRegistry.instance.probeUrl('https://x'), 1);
+    MirrorRegistry.probeOverride = false;
+    expect(await MirrorRegistry.instance.probeUrl('https://x'), isNull);
+    final pings = await MirrorRegistry.instance.probeAll();
+    expect(pings.values, everyElement(isNull));
+    expect(await MirrorRegistry.instance.autoSelectFastest(), isNull);
+  });
+
+  test('автовыбор при живых зеркалах переключает активное', () async {
+    await MirrorRegistry.instance.ensureLoaded();
+    MirrorRegistry.probeOverride = true; // все зеркала «живые», пинг 1ms
+    final chosen = await MirrorRegistry.instance.autoSelectFastest();
+    expect(chosen, isNotNull,
+        reason: 'при живых зеркалах автовыбор обязан выбрать что-то');
+    expect(MirrorRegistry.instance.activeUrl, chosen);
+  });
+
+  test('миграция: старый одиночный custom url переезжает в книгу', () async {
+    SharedPreferences.setMockInitialValues({
+      'mirror_custom_url': 'https://legacy.server',
+    });
+    await MirrorRegistry.instance.ensureLoaded();
+    expect(
+      MirrorRegistry.instance.customUrls,
+      contains('https://legacy.server'),
+      reason: 'зеркало из прошлой версии не теряется',
+    );
   });
 
   test(
       'все зеркала недоступны — friendlyError формулирует через '
-      '«ускоритель интернета», без запрещённых терминов',
-      () async {
+      '«ускоритель интернета», без запрещённых терминов', () async {
     final text = friendlyError(
       Exception(MirrorRegistry.allMirrorsDownMarker),
     );

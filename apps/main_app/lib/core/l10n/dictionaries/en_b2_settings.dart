@@ -54,16 +54,24 @@ final Map<String, String> enB2Settings = {
   'Первый запуск': 'First launch',
   'Экран, который видит новый пользователь': 'The screen a new user sees',
   'Подключение': 'Connection',
-  'Своё зеркало или сервер': 'Custom mirror or server',
-  'Meander — open-source: можно указать свой сервер с квестами или зеркало. Пусто — встроенные зеркала':
-      'Meander is open-source: you can point it at your own quest server or a mirror. Empty — built-in mirrors.',
-  'Проверить': 'Test connection',
+  'Зеркала и серверы': 'Mirrors and servers',
+  'Meander — open-source': 'Meander is open-source',
+  'Исходный код открыт: github.com/IILLUMINATION/meander-public — бэкенд, конструктор квестов, плеер':
+      'The source code is open: github.com/IILLUMINATION/meander-public — backend, quest builder, player',
+  'Meander — open-source: можно указать свои серверы с квестами или зеркала. Можно добавить несколько и переключаться':
+      'Meander is open-source: you can point it at your own quest servers or mirrors. Add several and switch between them.',
+  'Тест пинга': 'Ping test',
+  'Автовыбор': 'Auto-select',
+  'Активное зеркало': 'Active mirror',
+  'Ваш сервер': 'Your server',
+  'Встроенное зеркало': 'Built-in mirror',
+  'Нет ответа': 'No response',
+  'Поле пустое — зеркало не добавлено': 'The field is empty — no mirror added',
+  'Сервер не отвечает': 'Server not responding',
+  'Зеркало добавлено': 'Mirror added',
   'Подключение установлено': 'Connection established',
   'Все зеркала недоступны': 'All mirrors are unreachable',
-  'Использую встроенные зеркала': 'Using built-in mirrors',
-  'Зеркало сохранено': 'Mirror saved',
   'Некорректный адрес сервера': 'Invalid server address',
-  'Сервер не отвечает — сохранено': 'Server not responding — saved anyway',
   'Сервер недоступен: возможно, ваш интернет-провайдер ограничивает доступ. Включите «ускоритель интернета» (сервис для улучшения соединения) или задайте своё зеркало в настройках. Разработчик не виноват':
       'Cannot reach the server: your internet provider may be restricting access. Turn on an internet accelerator (a service that improves connectivity) or set a custom mirror in Settings. The developer is not at fault.',
 };
