@@ -13,15 +13,11 @@
   <strong>Русский</strong> · <a href="README.en.md">English</a>
 </p>
 
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
-        <img alt="Доступно в Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/ru_badge_web_generic.png" height="64">
-      </a>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
+    <img alt="Доступно в Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/ru_badge_web_generic.png" height="72">
+  </a>
+</p>
 
 <p align="center">
   <a href="#установка"><img alt="Платформы: Android, iOS, Linux, Windows, macOS" src="https://img.shields.io/badge/Android%20%C2%B7%20iOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20macOS-2f2f2f"></a>
