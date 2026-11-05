@@ -254,6 +254,7 @@ impl ScriptExecutor {
     }
 
     pub(crate) fn log(&self, message: &str) {
+
         let msg = format!("[Rust/mnd-core] {message}");
         if let Some(logger) = &self.logger {
             logger(&msg);
@@ -2348,11 +2349,13 @@ impl ScriptExecutor {
             .get("name")
             .map(value_to_string)
             .unwrap_or_else(|| "безымянный".into());
-        self.log(&format!(
-            "=== START: {script_name} [Req: {}] === (mnd-core v{})",
-            event_type.name(),
-            env!("CARGO_PKG_VERSION")
-        ));
+        if self.debug_logs_enabled {
+            self.log(&format!(
+                "=== START: {script_name} [Req: {}] === (mnd-core v{})",
+                event_type.name(),
+                env!("CARGO_PKG_VERSION")
+            ));
+        }
 
         let all_blocks = script_data
             .get("blocks")
@@ -2369,10 +2372,12 @@ impl ScriptExecutor {
             allow_target_mismatch_fallback,
         );
         if filtered.is_empty() {
-            self.log(&format!(
-                "=== SKIPPED: {script_name}: no blocks for event {} ===",
-                event_type.name()
-            ));
+            if self.debug_logs_enabled {
+                self.log(&format!(
+                    "=== SKIPPED: {script_name}: no blocks for event {} ===",
+                    event_type.name()
+                ));
+            }
             return Ok(None);
         }
 
@@ -2395,10 +2400,12 @@ impl ScriptExecutor {
             }
         }
 
-        self.log(&match &transition_node_id {
-            Some(node) => format!("=== END: {script_name} === transition → {node}"),
-            None => format!("=== END: {script_name} === (no transition)"),
-        });
+        if self.debug_logs_enabled {
+            self.log(&match &transition_node_id {
+                Some(node) => format!("=== END: {script_name} === transition → {node}"),
+                None => format!("=== END: {script_name} === (no transition)"),
+            });
+        }
 
         Ok(transition_node_id)
     }

@@ -230,17 +230,26 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Future<void> _startGameSession() async {
     if (!mounted) return;
 
+    final sessionStart = DateTime.now();
+    void stageLog(String stage) => debugPrint(
+          '[Perf][Game] $stage: '
+          '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
+        );
+
     // Префлайт (safety-аудит, проверка плагинов) — main_app передаёт колбэк.
     final canStart = await widget.preflight?.call() ?? true;
+    stageLog('preflight');
     if (!canStart || !mounted) return;
 
     final notifier = ref.read(gameScreenProvider(_key).notifier);
     await notifier.initializeGameSession();
+    stageLog('session init (audio+font)');
     if (!mounted) return;
     await notifier.loadInitialNode(
       widget.startNodeId,
       saveSlot: widget.saveSlot,
     );
+    stageLog('initial node total');
     ref
         .read(gameScreenHooksProvider)
         .onGameSessionStarted
