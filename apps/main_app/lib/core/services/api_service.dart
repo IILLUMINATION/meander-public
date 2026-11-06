@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/session_service.dart';
@@ -26,6 +27,37 @@ class ApiService {
     : _client = client ?? http.Client(),
       _requestTimeout = requestTimeout ?? defaultRequestTimeout;
 
+  /// Выполнить запрос с перебором зеркал бэкенда.
+  ///
+  /// Основной домен может быть заблокирован в сети пользователя (РКН):
+  /// тогда сетевой отказ на активном зеркале триггерит поиск живого
+  /// ([MirrorRegistry.ensureReachable]) и один повтор запроса уже на
+  /// новом зеркале. Если живых нет вовсе — маркер [MirrorRegistry.allMirrorsDownMarker],
+  /// который UI разворачивает в подсказку про «ускоритель интернета».
+  /// Ошибки протокола (403/404/401) ретраев не дают — это ответ бэкенда,
+  /// значит зеркало живое.
+  Future<T> _withMirrorFallback<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on Exception catch (e) {
+      if (e.toString().contains('SERVER_MAINTENANCE')) {
+        final ok = await MirrorRegistry.instance.ensureReachable();
+        if (!ok) {
+          throw Exception(MirrorRegistry.allMirrorsDownMarker);
+        }
+        return await action();
+      }
+      rethrow;
+    } catch (e) {
+      // TimeoutException и транспортные ошибки — тоже кандидат на
+      // заблокированное зеркало.
+      final ok = await MirrorRegistry.instance.ensureReachable();
+      if (!ok) {
+        throw Exception(MirrorRegistry.allMirrorsDownMarker);
+      }
+      return await action();
+    }
+  }
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -143,192 +175,201 @@ class ApiService {
   Future<dynamic> get(
     String endpoint, {
     Map<String, String>? queryParams,
-  }) async {
-    final baseUrl = AppConfig.apiUrl;
-    final url = Uri.parse(
-      '$baseUrl/$endpoint',
-    ).replace(queryParameters: queryParams);
-    final headers = await _getHeaders();
+  }) {
+    return _withMirrorFallback(() async {
+      final baseUrl = AppConfig.apiUrl;
+      final url = Uri.parse(
+        '$baseUrl/$endpoint',
+      ).replace(queryParameters: queryParams);
+      final headers = await _getHeaders();
 
-    try {
-      final response = await _client
-          .get(url, headers: headers)
-          .timeout(_requestTimeout);
-      _checkStatusCode(response);
+      try {
+        final response = await _client
+            .get(url, headers: headers)
+            .timeout(_requestTimeout);
+        _checkStatusCode(response);
 
-      final deadSession = await _handleDeadSession(response);
-      if (deadSession != null) throw deadSession;
+        final deadSession = await _handleDeadSession(response);
+        if (deadSession != null) throw deadSession;
 
-      if (response.statusCode == 403) {
-        // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
-        // сессия цела: показываем текст бэкенда вместо разлогина. Код
-        // оставляем в начале — на него смотрят `_friendlyError` в UI.
-        throw Exception(
-          '403 ${_failureDetail(response)}',
-        );
+        if (response.statusCode == 403) {
+          // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
+          // сессия цела: показываем текст бэкенда вместо разлогина. Код
+          // оставляем в начале — на него смотрит `_friendlyError` в UI.
+          throw Exception(
+            '403 ${_failureDetail(response)}',
+          );
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return jsonDecode(utf8.decode(response.bodyBytes));
+        } else {
+          throw _failure('Failed to load data', response);
+        }
+      } catch (e) {
+        _checkMaintenanceError(e);
+        rethrow;
       }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw _failure('Failed to load data', response);
-      }
-    } catch (e) {
-      _checkMaintenanceError(e);
-      rethrow;
-    }
+    });
   }
 
-  Future<dynamic> post(String endpoint, {Map<String, dynamic>? body}) async {
-    final baseUrl = AppConfig.apiUrl;
-    final url = Uri.parse('$baseUrl/$endpoint');
-    final headers = await _getHeaders();
+  Future<dynamic> post(String endpoint, {Map<String, dynamic>? body}) {
+    return _withMirrorFallback(() async {
+      final baseUrl = AppConfig.apiUrl;
+      final url = Uri.parse('$baseUrl/$endpoint');
+      final headers = await _getHeaders();
 
-    try {
-      final response = await _client
-          .post(url, headers: headers, body: jsonEncode(body ?? {}))
-          .timeout(_requestTimeout);
+      try {
+        final response = await _client
+            .post(url, headers: headers, body: jsonEncode(body ?? {}))
+            .timeout(_requestTimeout);
 
-      _checkStatusCode(response);
+        _checkStatusCode(response);
 
-      final deadSession = await _handleDeadSession(response);
-      if (deadSession != null) throw deadSession;
+        final deadSession = await _handleDeadSession(response);
+        if (deadSession != null) throw deadSession;
 
-      if (response.statusCode == 403) {
-        // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
-        // сессия цела: показываем текст бэкенда вместо разлогина. Код
-        // оставляем в начале — на него смотрят `_friendlyError` в UI.
-        throw Exception(
-          '403 ${_failureDetail(response)}',
-        );
+        if (response.statusCode == 403) {
+          // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
+          // сессия цела: показываем текст бэкенда вместо разлогина. Код
+          // оставляем в начале — на него смотрит `_friendlyError` в UI.
+          throw Exception(
+            '403 ${_failureDetail(response)}',
+          );
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          if (response.body.isEmpty) return null;
+          return jsonDecode(utf8.decode(response.bodyBytes));
+        } else {
+          throw _failure('Failed to post data', response);
+        }
+      } catch (e) {
+        _checkMaintenanceError(e);
+        rethrow;
       }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        if (response.body.isEmpty) return null;
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw _failure('Failed to post data', response);
-      }
-    } catch (e) {
-      _checkMaintenanceError(e);
-      rethrow;
-    }
+    });
   }
 
-  Future<dynamic> put(String endpoint, {Map<String, dynamic>? body}) async {
-    final baseUrl = AppConfig.apiUrl;
-    final url = Uri.parse('$baseUrl/$endpoint');
-    final headers = await _getHeaders();
+  Future<dynamic> put(String endpoint, {Map<String, dynamic>? body}) {
+    return _withMirrorFallback(() async {
+      final baseUrl = AppConfig.apiUrl;
+      final url = Uri.parse('$baseUrl/$endpoint');
+      final headers = await _getHeaders();
 
-    try {
-      final response = await _client
-          .put(url, headers: headers, body: jsonEncode(body ?? {}))
-          .timeout(_requestTimeout);
+      try {
+        final response = await _client
+            .put(url, headers: headers, body: jsonEncode(body ?? {}))
+            .timeout(_requestTimeout);
 
-      _checkStatusCode(response);
+        _checkStatusCode(response);
 
-      final deadSession = await _handleDeadSession(response);
-      if (deadSession != null) throw deadSession;
+        final deadSession = await _handleDeadSession(response);
+        if (deadSession != null) throw deadSession;
 
-      if (response.statusCode == 403) {
-        // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
-        // сессия цела: показываем текст бэкенда вместо разлогина. Код
-        // оставляем в начале — на него смотрят `_friendlyError` в UI.
-        throw Exception(
-          '403 ${_failureDetail(response)}',
-        );
+        if (response.statusCode == 403) {
+          // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
+          // сессия цела: показываем текст бэкенда вместо разлогина. Код
+          // оставляем в начале — на него смотрит `_friendlyError` в UI.
+          throw Exception(
+            '403 ${_failureDetail(response)}',
+          );
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          if (response.body.isEmpty) return null;
+          return jsonDecode(utf8.decode(response.bodyBytes));
+        } else {
+          throw _failure('Failed to put data', response);
+        }
+      } catch (e) {
+        throw Exception('Failed to put data: $e');
       }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        if (response.body.isEmpty) return null;
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw _failure('Failed to put data', response);
-      }
-    } catch (e) {
-      throw Exception('Failed to put data: $e');
-    }
+    });
   }
 
   /// Частичное обновление. Им пользуется лобби форума: правит название,
   /// описание и «пишут только участники», не затыкая пустотой остальные
   /// колонки.
-  Future<dynamic> patch(String endpoint, {Map<String, dynamic>? body}) async {
-    final baseUrl = AppConfig.apiUrl;
-    final url = Uri.parse('$baseUrl/$endpoint');
-    final headers = await _getHeaders();
+  Future<dynamic> patch(String endpoint, {Map<String, dynamic>? body}) {
+    return _withMirrorFallback(() async {
+      final baseUrl = AppConfig.apiUrl;
+      final url = Uri.parse('$baseUrl/$endpoint');
+      final headers = await _getHeaders();
 
-    try {
-      final response = await _client
-          .patch(url, headers: headers, body: jsonEncode(body ?? {}))
-          .timeout(_requestTimeout);
+      try {
+        final response = await _client
+            .patch(url, headers: headers, body: jsonEncode(body ?? {}))
+            .timeout(_requestTimeout);
 
-      _checkStatusCode(response);
+        _checkStatusCode(response);
 
-      final deadSession = await _handleDeadSession(response);
-      if (deadSession != null) throw deadSession;
+        final deadSession = await _handleDeadSession(response);
+        if (deadSession != null) throw deadSession;
 
-      if (response.statusCode == 403) {
-        // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
-        // сессия цела: показываем текст бэкенда вместо разлогина. Код
-        // оставляем в начале — на него смотрят `_friendlyError` в UI.
-        throw Exception(
-          '403 ${_failureDetail(response)}',
-        );
+        if (response.statusCode == 403) {
+          // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
+          // сессия цела: показываем текст бэкенда вместо разлогина. Код
+          // оставляем в начале — на него смотрит `_friendlyError` в UI.
+          throw Exception(
+            '403 ${_failureDetail(response)}',
+          );
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          if (response.body.isEmpty) return null;
+          return jsonDecode(utf8.decode(response.bodyBytes));
+        } else {
+          throw _failure('Failed to patch data', response);
+        }
+      } catch (e) {
+        _checkMaintenanceError(e);
+        rethrow;
       }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        if (response.body.isEmpty) return null;
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw _failure('Failed to patch data', response);
-      }
-    } catch (e) {
-      _checkMaintenanceError(e);
-      rethrow;
-    }
+    });
   }
-
   Future<dynamic> delete(
     String endpoint, {
     Map<String, dynamic>? body,
-  }) async {
-    final baseUrl = AppConfig.apiUrl;
-    final url = Uri.parse('$baseUrl/$endpoint');
-    final headers = await _getHeaders();
+  }) {
+    return _withMirrorFallback(() async {
+      final baseUrl = AppConfig.apiUrl;
+      final url = Uri.parse('$baseUrl/$endpoint');
+      final headers = await _getHeaders();
 
-    try {
-      final response = await _client
-          .delete(
-            url,
-            headers: headers,
-            body: body == null ? null : jsonEncode(body),
-          )
-          .timeout(_requestTimeout);
-      _checkStatusCode(response);
+      try {
+        final response = await _client
+            .delete(
+              url,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(_requestTimeout);
+        _checkStatusCode(response);
 
-      final deadSession = await _handleDeadSession(response);
-      if (deadSession != null) throw deadSession;
+        final deadSession = await _handleDeadSession(response);
+        if (deadSession != null) throw deadSession;
 
-      if (response.statusCode == 403) {
-        // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
-        // сессия цела: показываем текст бэкенда вместо разлогина. Код
-        // оставляем в начале — на него смотрят `_friendlyError` в UI.
-        throw Exception(
-          '403 ${_failureDetail(response)}',
-        );
+        if (response.statusCode == 403) {
+          // 403 — отказ по правилу (квота, «только автор», «не опубликовано»),
+          // сессия цела: показываем текст бэкенда вместо разлогина. Код
+          // оставляем в начале — на него смотрит `_friendlyError` в UI.
+          throw Exception(
+            '403 ${_failureDetail(response)}',
+          );
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          if (response.body.isEmpty) return null;
+          return jsonDecode(utf8.decode(response.bodyBytes));
+        } else {
+          throw _failure('Failed to delete', response);
+        }
+      } catch (e) {
+        _checkMaintenanceError(e);
+        rethrow;
       }
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        if (response.body.isEmpty) return null;
-        return jsonDecode(utf8.decode(response.bodyBytes));
-      } else {
-        throw _failure('Failed to delete', response);
-      }
-    } catch (e) {
-      _checkMaintenanceError(e);
-      rethrow;
-    }
+    });
   }
 }
 

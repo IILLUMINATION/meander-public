@@ -41,15 +41,39 @@ class GameState {
     );
   }
 
+  /// Сравнение состояний: сперва дешёвое структурное (кол-во ключей и
+  /// ссылки на значения), и только при подозрении — глубокое.
+  ///
+  /// Прежняя версия гоняла полное `_deepEquals` по всем переменным и
+  /// таблицам на каждую эмиссию. В длинной сессии переменные копятся
+  /// (`_SYS_HISTORY` и др.), таблицы растут, и каждая мутация стоила всё
+  /// дороже — это и был источник «постепенных лагов».
+  ///
+  /// Теперь: если значение переменной — тот же объект, что в прошлом
+  /// состоянии, сравнивать его глубоко не нужно (Map копируется целиком
+  /// при каждой мутации, но сами значения передаются по ссылке). То же
+  /// для таблиц: `QuestTable` пересоздаётся при каждой правке, поэтому
+  /// сравнение по ссылке отсекает почти все проверки.
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     if (other is! GameState) return false;
-    if (!_deepEquals(variables, other.variables)) return false;
+    if (variables.length != other.variables.length) return false;
+    for (final entry in variables.entries) {
+      final otherValue = other.variables[entry.key];
+      if (otherValue == null && !other.variables.containsKey(entry.key)) {
+        return false;
+      }
+      if (!identical(entry.value, otherValue) &&
+          !_deepEquals(entry.value, otherValue)) {
+        return false;
+      }
+    }
     if (tables.length != other.tables.length) return false;
     for (final entry in tables.entries) {
       final otherTable = other.tables[entry.key];
       if (otherTable == null) return false;
+      if (identical(entry.value, otherTable)) continue;
       if (entry.value.name != otherTable.name) return false;
       if (!_deepEquals(entry.value.columns, otherTable.columns)) return false;
       if (!_deepEquals(entry.value.rows, otherTable.rows)) return false;
@@ -60,21 +84,9 @@ class GameState {
 
   @override
   int get hashCode => Object.hash(
-    _hashOf(variables),
-    Object.hashAll(tables.entries.map((e) => Object.hash(e.key, e.value.name))),
+    variables.length,
+    tables.length,
   );
-
-  static int _hashOf(dynamic value) {
-    if (value is Map) {
-      return Object.hashAll(
-        value.entries.map((e) => Object.hash(e.key, _hashOf(e.value))),
-      );
-    }
-    if (value is List) {
-      return Object.hashAll(value.map(_hashOf));
-    }
-    return value.hashCode;
-  }
 }
 
 class GameStateNotifier extends StateNotifier<GameState>

@@ -90,20 +90,25 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     // Предупреждение показываем только в настоящем игровом режиме. Тестовый
     // запуск из редактора и debug-сессии не должны блокироваться модалками.
     if (!widget.isTesting) {
+      final preflightStart = DateTime.now();
+      void stageLog(String stage) => debugPrint(
+            '[Perf][Preflight] $stage: '
+            '${DateTime.now().difference(preflightStart).inMilliseconds}ms',
+          );
       try {
         final quest = await ref.read(questProvider(widget.questId).future);
         if (!mounted) return false;
-        HangWatchdog.mark('game init: quest loaded');
+        stageLog('quest loaded');
         if (quest != null) {
           final report = await const QuestSafetyService().inspect(
             quest: quest,
             api: ref.read(apiServiceProvider),
           );
           if (!mounted) return false;
-          HangWatchdog.mark('game init: safety inspected');
+          stageLog('safety inspected');
           await showQuestSafetyWarning(context, quest: quest, report: report);
           if (!mounted) return false;
-          HangWatchdog.mark('game init: safety dialog closed');
+          stageLog('safety dialog closed');
         }
       } catch (error, stack) {
         // Safety-аудит не должен блокировать запуск локального квеста:

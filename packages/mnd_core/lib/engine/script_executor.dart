@@ -139,38 +139,65 @@ class ScriptExecutor {
   ///
   /// Где применять: перед [substitutePlaceholders], иначе токен захватывает
   /// лишнюю `{` и подстановка пропадает.
+  ///
+  /// Внутри кавычек скобки — данные, а не разметка: имя строки/колонки может
+  /// содержать `{{`, `}}` и экранированную кавычку. Скан учитывает строковые
+  /// литералы (кавычки — только внутри `[...]`) и `\`-экранирование — тот же
+  /// паритет, что у Rust `normalize_placeholder_braces`.
   static String collapseDoubleBraces(String text) {
     if (!text.contains('{{') && !text.contains('}}')) return text;
-    var s = text;
-
-    while (true) {
-      final pos = s.indexOf('{{');
-      if (pos == -1) break;
-      if (pos + 2 < s.length && s[pos + 2] == '}') {
-        break; // `{}` inside — маркер, не трогаем
-      }
-      s = s.substring(0, pos) + s.substring(pos + 1);
-    }
-
     final sb = StringBuffer();
     var i = 0;
-    while (i < s.length) {
-      if (s[i] == '}' &&
-          i + 1 < s.length &&
-          s[i + 1] == '}' &&
-          (i + 2 >= s.length ||
-              s[i + 2] == '{' ||
-              s[i + 2] == ' ' ||
-              s[i + 2] == '\n' ||
-              s[i + 2] == '\t')) {
-        sb.write('}');
-        i += 2; // второй `}` отброшен
-      } else {
-        sb.write(s[i]);
+    int? quote; // code unit открывшей кавычки, null — вне строкового литерала
+    var brackets = 0;
+    while (i < text.length) {
+      final c = text.codeUnitAt(i);
+      if (quote != null) {
+        sb.writeCharCode(c);
+        if (c == 0x5C && i + 1 < text.length) {
+          sb.writeCharCode(text.codeUnitAt(i + 1));
+          i += 2;
+          continue;
+        }
+        if (c == quote) quote = null;
         i++;
+        continue;
       }
+      if ((c == 0x22 || c == 0x27) && brackets > 0) {
+        quote = c;
+        sb.writeCharCode(c);
+        i++;
+        continue;
+      }
+      if (c == 0x5B) {
+        brackets++;
+      } else if (c == 0x5D && brackets > 0) {
+        brackets--;
+      }
+      if (c == 0x7B && i + 1 < text.length && text.codeUnitAt(i + 1) == 0x7B) {
+        final after = i + 2 < text.length ? text.codeUnitAt(i + 2) : -1;
+        if (after != 0x7D) {
+          sb.writeCharCode(0x7B);
+          i += 2;
+          continue;
+        }
+      }
+      if (c == 0x7D && i + 1 < text.length && text.codeUnitAt(i + 1) == 0x7D) {
+        final after = i + 2 < text.length ? text.codeUnitAt(i + 2) : -1;
+        final isBoundary = after == -1 ||
+            after == 0x7B ||
+            after == 0x20 ||
+            after == 0x0A ||
+            after == 0x09;
+        if (isBoundary) {
+          sb.writeCharCode(0x7D);
+          i += 2;
+          continue;
+        }
+      }
+      sb.writeCharCode(c);
+      i++;
     }
-
     return sb.toString();
   }
 
@@ -178,6 +205,10 @@ class ScriptExecutor {
   /// `\{([^}]+)\}`: токен имеет право сам содержать `{…}` —
   /// `{лавка[{ключ}][1]}` читается целиком, а регулярка рвала его на
   /// `{лавка[{ключ}`, и мусор `][1]}` оставался в тексте.
+  ///
+  /// Кавычки внутри токена — данные: `{т["кол"]["a}b"]}` — имя строки `a}b`,
+  /// а не закрытие маркера. `\`-экранирование тоже учитывается (паритет с
+  /// Rust `resolve_inline_placeholders`).
   ///
   /// [resolve] вызывается для содержимого токена. Пустой токен и незакрытая
   /// скобка остаются в тексте как есть.
@@ -192,9 +223,22 @@ class ScriptExecutor {
     while (start >= 0) {
       var depth = 0;
       var end = -1;
+      var inQuote = false;
+      var quoteChar = -1;
       for (var i = start; i < text.length; i++) {
         final c = text.codeUnitAt(i);
-        if (c == 0x7B) {
+        if (inQuote) {
+          if (c == 0x5C) {
+            i++; // экранированный символ (кавычка или обратный слеш)
+            continue;
+          }
+          if (c == quoteChar) inQuote = false;
+          continue;
+        }
+        if (c == 0x22 || c == 0x27) {
+          inQuote = true;
+          quoteChar = c;
+        } else if (c == 0x7B) {
           depth++;
         } else if (c == 0x7D && --depth == 0) {
           end = i;

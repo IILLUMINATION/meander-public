@@ -28,6 +28,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:telegram_login/telegram_login.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:yandex_login_sdk/yandex_login_sdk.dart';
@@ -921,6 +922,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   }
 
   Future<void> _authenticateWithBackend(String idToken) async {
+    // Вход может быть первым сетевым действием сессии: проверяем зеркала
+    // до запроса, чтобы не падать на заблокированном домене.
+    await MirrorRegistry.instance.ensureReachable();
     final response = await http.post(
       Uri.parse('${AppConfig.apiUrl}/auth/google/token'),
       headers: {'Content-Type': 'application/json'},
@@ -948,6 +952,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   }
 
   Future<void> _authenticateWithBackendYandex(String yandexToken) async {
+    await MirrorRegistry.instance.ensureReachable();
     final response = await http.post(
       Uri.parse('${AppConfig.apiUrl}/auth/yandex/token'),
       headers: {'Content-Type': 'application/json'},
@@ -971,6 +976,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   }
 
   Future<void> _authenticateWithBackendTelegram(String idToken) async {
+    await MirrorRegistry.instance.ensureReachable();
     final response = await http.post(
       Uri.parse('${AppConfig.apiUrl}/auth/telegram/token'),
       headers: {'Content-Type': 'application/json'},
@@ -999,6 +1005,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
     String? firstName,
     String? lastName,
   }) async {
+    await MirrorRegistry.instance.ensureReachable();
     final response = await http.post(
       Uri.parse('${AppConfig.apiUrl}/auth/apple/token'),
       headers: {'Content-Type': 'application/json'},

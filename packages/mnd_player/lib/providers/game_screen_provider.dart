@@ -20,6 +20,7 @@ import 'package:mnd_player/services/font_service.dart';
 import 'package:mnd_player/plugin/plugin_packages.dart';
 import 'package:mnd_player/plugin/plugin_runtime.dart';
 import 'package:mnd_player/services/save_game_provider.dart';
+import 'package:mnd_player/services/video_cache_service.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 
 // ---------------------------------------------------------------------------
@@ -1277,9 +1278,19 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     _pacingHeldVars = const {};
     _pacingHeldTables = const {};
     _step('loadInitialNode');
+    final perfStart = DateTime.now();
+    void perfLog(String stage) {
+      // Виден в терминале `flutter run` и в логах без DevTools: измеряем
+      // долгую загрузку сцен прямо на живой сессии.
+      debugPrint(
+        '[Perf][Game] $stage: ${(DateTime.now().difference(perfStart).inMilliseconds)}ms',
+      );
+    }
+
     try {
       state = state.copyWith(isLoading: true, clearError: true);
       final engine = await _createEngine();
+      perfLog('engine created');
       if (engine == null) throw Exception('Не удалось создать движок.');
       _engine = engine;
 
@@ -1297,6 +1308,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
           () => engine.startNew(startNodeId: startNodeId),
         );
       }
+      perfLog('start node loaded');
 
       if (view == null) {
         throw Exception(
@@ -1341,6 +1353,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       if (pacingSteps.isNotEmpty) {
         unawaited(_paceNodeEnterInBackground(pacingSteps, enteredNodeId));
       }
+      perfLog('scene ready');
       _log('✅ loadInitialNode complete');
     } catch (e, stack) {
       _log('❌ Error in loadInitialNode: $e\n$stack');
@@ -1536,9 +1549,14 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       // протекли бы в состояние этой.
       await _releasePacingHold();
 
+      final nodeLoadStart = DateTime.now();
       final view = await _engineCall(
         'loadNode: engine',
         () => engine.loadNode(nodeId),
+      );
+      debugPrint(
+        '[Perf][Game] node "$nodeId": '
+        '${DateTime.now().difference(nodeLoadStart).inMilliseconds}ms',
       );
       if (view == null) {
         throw Exception('Нода «$nodeId» не найдена — квест повреждён.');
@@ -2083,6 +2101,9 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       _soundEffectPlayerStateSub?.cancel();
       _backgroundAudioPlayer.stop();
       _soundEffectPlayer.stop();
+      // Кэш видео-плееров глобальный (static) и переживает сессию; без
+      // явного сброса до трёх mpv-инстансов живёт до конца приложения.
+      VideoCacheService.clear();
       _backgroundAudioPlayer.dispose();
       _soundEffectPlayer.dispose();
       _disposeEngine();

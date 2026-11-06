@@ -18,6 +18,26 @@ class ImportService {
   static final _zipHeader = utf8.encode('MND_ZIP_');
   static const _headerLength = 8;
 
+  /// Относительный путь записи архива, безопасный для join под корнем, или
+  /// `null`, если запись пытается выйти за пределы каталога (Защита от
+  /// Zip Slip). Чистая функция — доступна для unit-тестов.
+  ///
+  /// Отбрасывает абсолютные пути (POSIX и Windows-диски), сегменты `..` и
+  /// нормализует `.`/пустые сегменты.
+  static String? sanitizeArchiveEntryPath(String rawName) {
+    final normalized = rawName.replaceAll('\\', '/');
+    if (normalized.startsWith('/')) return null;
+    if (RegExp(r'^[A-Za-z]:').hasMatch(normalized)) return null;
+    final clean = <String>[];
+    for (final seg in normalized.split('/')) {
+      if (seg.isEmpty || seg == '.') continue;
+      if (seg == '..') return null;
+      clean.add(seg);
+    }
+    if (clean.isEmpty) return null;
+    return clean.join('/');
+  }
+
   static Future<String?> pickAndImportQuest() async {
     try {
       final files = await FilePicker.pickFiles(type: FileType.any);
@@ -133,7 +153,15 @@ class ImportService {
       }
 
       for (final file in archive) {
-        final filename = p.join(tempDir.path, file.name.replaceAll('\\', '/'));
+        final relative = sanitizeArchiveEntryPath(file.name);
+        if (relative == null) {
+          throw Exception(
+            tr(
+              'Архив содержит недопустимый путь файла (zip-slip). Импорт отменён.',
+            ),
+          );
+        }
+        final filename = p.join(tempDir.path, relative);
         if (file.isFile) {
           final data = file.content as List<int>;
           final outFile = File(filename);
@@ -169,6 +197,13 @@ class ImportService {
 
       if (originalQuestId == null || originalQuestId.isEmpty) {
         throw Exception(tr('ID квеста не найден в config.json.'));
+      }
+      if (!QuestPaths.isSafeQuestId(originalQuestId)) {
+        throw Exception(
+          tr(
+            'ID квеста недопустим: "$originalQuestId". Архив повреждён или опасен.',
+          ),
+        );
       }
       print('✨ [Import] Обнаружен ID квеста в архиве: $originalQuestId');
 

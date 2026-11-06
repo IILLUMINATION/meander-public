@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
+
 
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:mnd_core/models/quest_descriptor.dart';
@@ -159,15 +161,37 @@ class QuestSafetyReport {
 }
 
 /// Анализирует локальный квест до запуска игровой сессии.
+///
+/// Отчёт кэшируется по отпечатку квеста (mtime `config.json` + mtime и
+/// размер списков `scripts/` и `_internal_scripts/`): повторный запуск
+/// того же квеста не перечитывает сотни файлов с диска. Любая правка в
+/// редакторе меняет mtime — отпечаток меняется — кэш инвалидируется.
 class QuestSafetyService {
   const QuestSafetyService();
+
+  /// questId → (отпечаток, отчёт). Readonly-кэш в памяти процесса.
+  static final Map<String, (String, QuestSafetyReport)> _reportCache = {};
 
   Future<QuestSafetyReport> inspect({
     required Quest quest,
     required ApiService api,
   }) async {
+    final inspectStart = DateTime.now();
+    void stageLog(String stage) => debugPrint(
+          '[Perf][Safety] $stage: '
+          '${DateTime.now().difference(inspectStart).inMilliseconds}ms',
+        );
+
+    final fingerprint = await _questFingerprint(quest.id);
+    final cached = _reportCache[quest.id];
+    if (cached != null && cached.$1 == fingerprint) {
+      stageLog('cache hit');
+      return cached.$2;
+    }
+
     final documents = <Map<String, dynamic>>[];
     final config = await _readJsonIfExists(QuestPaths.config(quest.id));
+    stageLog('config');
     if (config != null) documents.add(config);
 
     for (final path in [
@@ -177,6 +201,7 @@ class QuestSafetyService {
       final nodes = await _readJsonIfExists(path);
       if (nodes != null) documents.add(nodes);
     }
+    stageLog('nodes');
 
     for (final folder in const ['scripts', '_internal_scripts']) {
       final files = await _listJsonFiles(
@@ -189,6 +214,7 @@ class QuestSafetyService {
         if (script != null) documents.add(script);
       }
     }
+    stageLog('scripts loaded (${documents.length} docs)');
 
     var internetBlocks = 0;
     var blockedUrls = 0;
@@ -197,10 +223,13 @@ class QuestSafetyService {
       internetBlocks += counts.$1;
       blockedUrls += counts.$2;
     }
+    stageLog('visited: internetBlocks=$internetBlocks');
 
     final verified = internetBlocks > 0
         ? await _resolveAuthorVerification(quest, api)
         : false;
+    stageLog('verification resolved: $verified');
+
     final configDate = _parseDate(
       config?['marketUpdatedAt'] ??
           config?['market_updated_at'] ??
@@ -213,7 +242,7 @@ class QuestSafetyService {
           config?['created_at'],
     );
 
-    return QuestSafetyReport(
+    final report = QuestSafetyReport(
       internetBlockCount: internetBlocks,
       blockedUrlCount: blockedUrls,
       // Для локальных квестов серверной даты нет: дата создания —
@@ -226,6 +255,63 @@ class QuestSafetyService {
       questVersion: quest.marketVersion ?? quest.version,
       authorIsVerified: verified,
     );
+    // Проверенный по отпечатку отчёт годен до следующей правки квеста.
+    if (fingerprint != null) {
+      _reportCache[quest.id] = (fingerprint, report);
+    }
+    return report;
+  }
+
+  /// Отпечаток состояния квеста на диске: mtime/size `config.json`,
+  /// mtime/size/состав каталогов `scripts` и `_internal_scripts`.
+  /// `null` — если каталога квеста нет (кэш не используем).
+  Future<String?> _questFingerprint(String questId) async {
+    try {
+      final parts = <String>[];
+      final configPath = await FileStorage.getFilePath(
+        QuestPaths.config(questId),
+      );
+      final configFile = File(configPath);
+      if (await configFile.exists()) {
+        final stat = await configFile.stat();
+        parts.add('config:${stat.modified.millisecondsSinceEpoch}:${stat.size}');
+      } else {
+        return null;
+      }
+      for (final folder in const ['scripts', '_internal_scripts']) {
+        final folderStat =
+            await _dirStat(await FileStorage.getFilePath(
+          QuestPaths.questFile(questId, folder),
+        ));
+        parts.add('$folder:${folderStat ?? 'missing'}');
+      }
+      return parts.join('|');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// mtime каталога + отсортированный (имя, mtime, size) его .json-файлов.
+  /// Точечные правки файлов видны без чтения содержимого.
+  Future<String?> _dirStat(String path) async {
+    try {
+      final dir = Directory(path);
+      if (!await dir.exists()) return null;
+      final dirStat = await dir.stat();
+      final entries = <String>[];
+      await for (final entity in dir.list()) {
+        if (entity is! File || !entity.path.endsWith('.json')) continue;
+        final stat = await entity.stat();
+        entries.add(
+          '${entity.uri.pathSegments.last}'
+          ':${stat.modified.millisecondsSinceEpoch}:${stat.size}',
+        );
+      }
+      return '${dirStat.modified.millisecondsSinceEpoch};'
+          '${entries.length};${entries.join(',')}';
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> _readJsonIfExists(String path) async {

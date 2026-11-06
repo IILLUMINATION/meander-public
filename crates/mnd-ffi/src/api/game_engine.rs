@@ -325,7 +325,6 @@ pub fn game_engine_new(init: GameEngineInit) -> u32 {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(handle, Arc::new(Mutex::new(engine)));
-        eprintln!("[RUST] game_engine_new: created handle {handle}");
         handle
     }));
     match result {
@@ -367,14 +366,8 @@ pub fn game_engine_dispose(handle: u32) {
 /// `onNodeEnter` не держит `Mutex<GameEngine>` — FRB-воркер и UI не фризятся.
 pub fn game_engine_start_new(handle: u32, start_node_id: Option<String>) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] start_new: entering, handle={handle}");
     match with_engine_detached(handle, |engine| engine.start_new(start_node_id.as_deref())) {
-        Ok(Some(view)) => {
-            eprintln!("[RUST] start_new: done, serializing");
-            let result = Some(node_view_to_json(&view));
-            eprintln!("[RUST] start_new: serialized");
-            result
-        }
+        Ok(Some(view)) => Some(node_view_to_json(&view)),
         Ok(None) => None,
         Err(EngineError::Poisoned | EngineError::Panicked) => Some(POISON_MARKER.to_string()),
         Err(EngineError::NotFound) => Some(NOT_FOUND_MARKER.to_string()),
@@ -384,7 +377,6 @@ pub fn game_engine_start_new(handle: u32, start_node_id: Option<String>) -> Opti
 /// Запустить из сейва (JSON SaveSlot). Возвращает JSON `NodeView` либо null.
 pub fn game_engine_start_from_save(handle: u32, save_json: String) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] start_from_save: entering");
     match with_engine_detached(handle, |engine| {
         let save = SaveSlot::from_json(&serde_json::from_str(&save_json).unwrap_or_default());
         engine
@@ -400,7 +392,6 @@ pub fn game_engine_start_from_save(handle: u32, save_json: String) -> Option<Str
 /// Загрузить ноду напрямую. Возвращает JSON `NodeView` либо null.
 pub fn game_engine_load_node(handle: u32, node_id: String) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] load_node: entering, node_id={node_id}");
     match with_engine_detached(handle, |engine| {
         engine
             .load_node(&node_id)
@@ -435,7 +426,6 @@ pub fn game_engine_snapshot(handle: u32) -> String {
 /// `SaveSlot` либо null (нет хранилища/игра не начата).
 pub fn game_engine_save_slot(handle: u32, slot_name: String) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] save_slot: entering, slot={slot_name}");
     match with_engine(handle, |engine| {
         engine
             .save_current_slot(&slot_name)
@@ -459,7 +449,6 @@ pub fn game_engine_to_save_slot(
     current_node_id: String,
 ) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] to_save_slot: entering");
     match with_engine(handle, |engine| {
         let slot = if current_node_id.is_empty() {
             engine.to_save_slot(&slot_name)?
@@ -477,7 +466,6 @@ pub fn game_engine_to_save_slot(
 /// Автосохранение: перезаписывает слот `_autosave`. Возвращает JSON `SaveSlot` либо null.
 pub fn game_engine_perform_autosave(handle: u32) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] perform_autosave: entering");
     match with_engine(handle, |engine| {
         engine.perform_autosave().map(|s| s.to_json().to_string())
     }) {
@@ -490,7 +478,6 @@ pub fn game_engine_perform_autosave(handle: u32) -> Option<String> {
 /// Список сейв-слотов квеста: JSON-массив `SaveSlot`.
 pub fn game_engine_list_saves(handle: u32) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] list_saves: entering");
     match with_engine(handle, |engine| {
         serde_json::json!(engine
             .list_saves()
@@ -508,7 +495,6 @@ pub fn game_engine_list_saves(handle: u32) -> String {
 /// Прочитать конкретный слот: JSON `SaveSlot` либо null.
 pub fn game_engine_read_save(handle: u32, slot_id: String) -> Option<String> {
     ensure_panic_hook();
-    eprintln!("[RUST] read_save: entering");
     match with_engine(handle, |engine| {
         engine.read_save(&slot_id).map(|s| s.to_json().to_string())
     }) {
@@ -522,7 +508,6 @@ pub fn game_engine_read_save(handle: u32, slot_id: String) -> Option<String> {
 /// `{variables, tables}` (как в `game_engine_snapshot`, но только изменённое).
 pub fn game_engine_drain_state_delta(handle: u32) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] drain_state_delta: entering");
     match with_engine(handle, |engine| {
         let delta = engine.drain_state_delta();
         serde_json::json!({
@@ -544,7 +529,6 @@ pub fn game_engine_drain_state_delta(handle: u32) -> String {
 /// за одно исполнение скрипта больше не теряются.
 pub fn game_engine_drain_audio(handle: u32) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] drain_audio: entering");
     match with_engine(handle, |engine| {
         let delta = engine.drain_audio_commands();
         serde_json::json!({"commands": delta.commands}).to_string()
@@ -560,7 +544,6 @@ pub fn game_engine_drain_audio(handle: u32) -> String {
 /// клиент (например, открытие ссылки через url_launcher).
 pub fn game_engine_drain_external(handle: u32) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] drain_external: entering");
     match with_engine(handle, |engine| {
         let commands = engine.drain_external_commands();
         serde_json::json!({"commands": commands}).to_string()
@@ -579,7 +562,6 @@ pub fn game_engine_drain_external(handle: u32) -> String {
 /// Команды без снапшотов (старые записи) приходят с пустыми полями.
 pub fn game_engine_drain_delay_queue(handle: u32) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] drain_delay_queue: entering");
     match with_engine(handle, |engine| {
         let steps = engine.drain_delay_steps();
         serde_json::to_string(&steps).unwrap_or_else(|e| {
@@ -605,7 +587,6 @@ pub fn game_engine_drain_delay_queue(handle: u32) -> String {
 /// FRB-воркер на 15с.
 pub fn game_engine_next_item(handle: u32) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] next_item: entering");
     match with_engine_detached(handle, |engine| match engine.next_item() {
         NextStep::Item(item) => {
             serde_json::json!({"kind": "item", "item": (*item).to_json()}).to_string()
@@ -632,7 +613,6 @@ pub fn game_engine_evaluate_visibility(
     allow_mutation: bool,
 ) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] evaluate_visibility: entering, allow_mutation={allow_mutation}");
     match with_engine(handle, |engine| {
         let item = mnd_core::models::ContentItem::from_json(
             &serde_json::from_str(&item_json).unwrap_or_default(),
@@ -717,7 +697,6 @@ pub fn game_engine_take_pending_transition(handle: u32) -> String {
 /// `http_request` (15с) — UI не фризится при нажатии.
 pub fn game_engine_execute_behaviour(handle: u32, item_json: String, event: String) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] execute_behaviour: event={event}");
     match with_engine_detached(handle, |engine| {
         let item = mnd_core::models::ContentItem::from_json(
             &serde_json::from_str(&item_json).unwrap_or_default(),
@@ -741,7 +720,6 @@ pub fn game_engine_handle_interaction(
     trigger_ref: String,
 ) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] handle_interaction: entering");
     match with_engine_detached(handle, |engine| {
         let item = mnd_core::models::ContentItem::from_json(
             &serde_json::from_str(&item_json).unwrap_or_default(),
@@ -787,7 +765,6 @@ pub fn game_engine_evaluate(handle: u32, input_json: String) -> String {
 /// Async + detached: таймерный скрипт может содержать `http_request`.
 pub fn game_engine_run_scheduled_timer(handle: u32, script_path: String, entry: String) -> String {
     ensure_panic_hook();
-    eprintln!("[RUST] run_scheduled_timer: entering");
     match with_engine_detached(handle, |engine| {
         let pending = engine
             .pending_timers()
@@ -810,7 +787,6 @@ pub fn game_engine_run_scheduled_timer(handle: u32, script_path: String, entry: 
 #[frb(sync)]
 pub fn game_engine_delete_save(handle: u32, slot_id: String) {
     ensure_panic_hook();
-    eprintln!("[RUST] delete_save: entering");
     // Возврат void: ошибку poison логируем, но не можем доставить в Dart.
     if let Err(error) = with_engine(handle, |engine| engine.delete_save(&slot_id)) {
         match error {

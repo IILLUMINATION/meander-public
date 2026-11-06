@@ -24,6 +24,23 @@ import 'package:mnd_player/utils/file_storage.dart';
 class QuestImageSource {
   QuestImageSource._();
 
+  /// Кэш резолва «источник → относительный путь». Не растёт: ключей ровно
+  /// столько, сколько уникальных источников встретилось в квесте, а null
+  /// хранится через отдельное множество, чтобы отсутствие файла тоже не
+  /// перечитывалось с диска на каждой пересборке.
+  ///
+  /// Раньше каждый резолв (каждая карточка в сетке ресурсов, каждый айтем
+  /// в редакторе) заново читал metadata.json и стучался в ФС — на сотне
+  /// картинок это сотни чтений JSON на один скролл.
+  static final Map<String, String?> _resolvedCache = {};
+  static final Set<String> _resolvedNegative = {};
+
+  /// Сбросить кэш: контент квеста изменился (файл переименован/удалён).
+  static void invalidate() {
+    _resolvedCache.clear();
+    _resolvedNegative.clear();
+  }
+
   /// Файл ресурса для [source] или null, если ничего не нашлось.
   static Future<File?> resolve(String questId, String? source) async {
     final relative = await resolveRelative(questId, source);
@@ -46,6 +63,21 @@ class QuestImageSource {
     final trimmed = _withoutQuestPrefix(questId, source);
     if (trimmed.isEmpty) return null;
 
+    final cacheKey = '$questId|$trimmed';
+    if (_resolvedNegative.contains(cacheKey)) return null;
+    final cached = _resolvedCache[cacheKey];
+    if (cached != null) return cached;
+
+    final resolved = await _resolveUncached(questId, trimmed);
+    if (resolved == null) {
+      _resolvedNegative.add(cacheKey);
+    } else {
+      _resolvedCache[cacheKey] = resolved;
+    }
+    return resolved;
+  }
+
+  static Future<String?> _resolveUncached(String questId, String trimmed) async {
     // То, что не требует метаданных: путь или голое имя файла с расширением.
     for (final candidate in directResourceCandidates(trimmed)) {
       if (await _existing(questId, candidate) != null) return candidate;

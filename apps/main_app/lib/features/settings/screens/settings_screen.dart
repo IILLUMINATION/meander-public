@@ -27,6 +27,8 @@ import 'package:canvas_app/features/settings/providers/notifications_settings_pr
 import 'package:canvas_app/features/settings/screens/theme_settings_screen.dart';
 import 'package:canvas_app/features/settings/widgets/interface_language_dialog.dart';
 import 'package:canvas_app/features/settings/widgets/refresh_rate_card.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/features/shell/screens/admin_screen.dart';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 
@@ -47,6 +49,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _currentUserId;
   bool _tabsEnabled = true;
   bool _autoOpenTab = false;
+  final _mirrorUrlController = TextEditingController();
+  String? _mirrorUrlError;
+
+  /// Список зеркал для секции «Подключение»: URL → пинг в мс
+  /// (`null` — не отвечен, ещё не проверен).
+  List<String> _mirrorList = [];
+  Map<String, int?> _mirrorPings = {};
+  bool _mirrorProbing = false;
 
   /// Удаление аккаунта уже запланировано — дата, когда строка уйдёт.
   DateTime? _deletionScheduledAt;
@@ -55,7 +65,103 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _loadUser();
+    _loadMirrorUrl();
   }
+  /// Показать текущую адресную книгу зеркал; после загрузки сразу
+  /// пингануть все — пользователь видит статусы по открытии секции.
+  Future<void> _loadMirrorUrl() async {
+    await MirrorRegistry.instance.ensureLoaded();
+    if (!mounted) return;
+    setState(() {
+      _mirrorList = MirrorRegistry.instance.allUrls;
+      _mirrorUrlController.text =
+          MirrorRegistry.instance.customUrls.isEmpty
+          ? ''
+          : MirrorRegistry.instance.customUrls.last;
+    });
+    _probeMirrors();
+  }
+
+  /// Померить пинги всех зеркал и перерисовать список.
+  Future<void> _probeMirrors() async {
+    setState(() => _mirrorProbing = true);
+    final pings = await MirrorRegistry.instance.probeAll();
+    if (!mounted) return;
+    setState(() {
+      _mirrorPings = pings;
+      _mirrorProbing = false;
+    });
+  }
+
+  /// Добавить пользовательское зеркало/сервер. Некорректный адрес не
+  /// сохраняется; живость проверяем сразу и показываем пинг.
+  Future<void> _saveMirrorUrl() async {
+    final raw = _mirrorUrlController.text.trim();
+    if (raw.isEmpty) {
+      setState(() => _mirrorUrlError = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('Поле пустое — зеркало не добавлено'))),
+      );
+      return;
+    }
+
+    final normalized = MirrorRegistry.normalizeForPreview(raw);
+    if (normalized == null) {
+      setState(() => _mirrorUrlError = tr('Некорректный адрес сервера'));
+      return;
+    }
+
+    await MirrorRegistry.instance.addCustomUrl(normalized);
+    final ping = await MirrorRegistry.instance.probeUrl(normalized);
+    if (!mounted) return;
+    setState(() {
+      _mirrorUrlError = ping == null ? tr('Сервер не отвечает') : null;
+      _mirrorUrlController.text = '';
+      _mirrorList = MirrorRegistry.instance.allUrls;
+      _mirrorPings[normalized] = ping;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tr('Зеркало добавлено'))),
+    );
+  }
+
+  /// Снять пользовательское зеркало с книги.
+  Future<void> _removeMirror(String url) async {
+    await MirrorRegistry.instance.removeCustomUrl(url);
+    if (!mounted) return;
+    setState(() => _mirrorList = MirrorRegistry.instance.allUrls);
+  }
+
+  /// Переключиться на зеркало по тапу строки.
+  Future<void> _selectMirror(String url) async {
+    await MirrorRegistry.instance.setActiveUrl(url);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tr('Подключение установлено'))),
+    );
+  }
+
+  /// Автовыбор: живое зеркало с минимальным пингом.
+  Future<void> _autoSelectMirror() async {
+    setState(() => _mirrorProbing = true);
+    final chosen = await MirrorRegistry.instance.autoSelectFastest();
+    if (!mounted) return;
+    setState(() => _mirrorProbing = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          chosen == null ? tr('Все зеркала недоступны') : tr('Подключение установлено'),
+        ),
+      ),
+    );
+  }
+
+  void dispose() {
+    _mirrorUrlController.dispose();
+    super.dispose();
+  }
+
 
   Future<void> _loadUser() async {
     final prefs = await SharedPreferences.getInstance();
@@ -864,6 +970,245 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   await SharedPreferences.getInstance();
                               await prefs.setBool('editor_auto_open_tab', v);
                               if (mounted) setState(() => _autoOpenTab = v);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Material(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(20),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => launchUrl(
+                          Uri.parse(
+                            'https://github.com/IILLUMINATION/meander-public',
+                          ),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.code_rounded,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      tr('Meander — open-source'),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleSmall?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      tr(
+                                        'Исходный код открыт: github.com/IILLUMINATION/meander-public — бэкенд, конструктор квестов, плеер',
+                                      ),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.open_in_new_rounded,
+                                size: 18,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                _SectionHeader(
+                  title: tr('Подключение'),
+                  icon: Icons.language_rounded,
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(20),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tr('Зеркала и серверы'),
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  tr(
+                                    'Meander — open-source: можно указать свои серверы с квестами или зеркала. Можно добавить несколько и переключаться',
+                                  ),
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                            child: TextField(
+                              controller: _mirrorUrlController,
+                              decoration: InputDecoration(
+                                hintText: 'https://example.com',
+                                errorText: _mirrorUrlError,
+                                isDense: true,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              keyboardType: TextInputType.url,
+                              onSubmitted: (_) => _saveMirrorUrl(),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                FilledButton.tonal(
+                                  onPressed: _mirrorProbing
+                                      ? null
+                                      : _saveMirrorUrl,
+                                  child: Text(tr('Добавить')),
+                                ),
+                                TextButton(
+                                  onPressed: _mirrorProbing
+                                      ? null
+                                      : _probeMirrors,
+                                  child: Text(tr('Тест пинга')),
+                                ),
+                                TextButton(
+                                  onPressed: _mirrorProbing
+                                      ? null
+                                      : _autoSelectMirror,
+                                  child: Text(tr('Автовыбор')),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_mirrorProbing)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: LinearProgressIndicator(minHeight: 2),
+                            ),
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(bottom: 8),
+                            itemCount: _mirrorList.length,
+                            itemBuilder: (context, index) {
+                              final url = _mirrorList[index];
+                              final ping = _mirrorPings[url];
+                              final isActive =
+                                  url == MirrorRegistry.instance.activeUrl;
+                              final isCustom = MirrorRegistry
+                                  .instance
+                                  .customUrls
+                                  .contains(url);
+                              return ListTile(
+                                dense: true,
+                                onTap: () => _selectMirror(url),
+                                leading: Icon(
+                                  isActive
+                                      ? Icons.check_circle_rounded
+                                      : Icons.radio_button_unchecked_rounded,
+                                  color: isActive
+                                      ? Theme.of(context).colorScheme.primary
+                                      : null,
+                                ),
+                                title: Text(url),
+                                subtitle: Text(
+                                  isActive
+                                      ? tr('Активное зеркало')
+                                      : (isCustom
+                                            ? tr('Ваш сервер')
+                                            : tr('Встроенное зеркало')),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_mirrorProbing)
+                                      const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    else if (ping == null)
+                                      Text(
+                                        tr('Нет ответа'),
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                        ),
+                                      )
+                                    else
+                                      Text(
+                                        '$ping ms',
+                                        style: TextStyle(
+                                          color: ping < 300
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.primary
+                                              : null,
+                                        ),
+                                      ),
+                                    if (isCustom)
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          size: 18,
+                                        ),
+                                        tooltip: tr('Убрать'),
+                                        onPressed: () => _removeMirror(url),
+                                      ),
+                                  ],
+                                ),
+                              );
                             },
                           ),
                         ],

@@ -139,6 +139,18 @@ class QuestPaths {
   /// true, если путь уже относительный к корню документов (`quests/...`).
   static bool isQuestPath(String path) => path.startsWith('quests/');
 
+  /// Допустим ли [id] как имя каталога квеста (`quests/<id>/...`).
+  ///
+  /// Импорт читает `id` из чужого `config.json` и подставляет его в путь без
+  /// проверки: `id` вида `"../"` резолвится в `quests/../` — то есть в корень
+  /// документов, и `Directory(...).delete(recursive: true)` стирает всё вне
+  /// `quests/`. Допускаем только символы, которые не могут выйти из каталога
+  /// (без `/`, `\`, `.`, пробелов) — тот же класс, что у серверного
+  /// `safeQuestId` в `backend/src/services/cloud_sync_storage.ts`.
+  static final RegExp _safeQuestIdRe = RegExp(r'^[A-Za-z0-9_-]{1,128}$');
+
+  static bool isSafeQuestId(String id) => _safeQuestIdRe.hasMatch(id);
+
   static String _withJson(String name) =>
       name.endsWith('.json') ? name : '$name.json';
 }

@@ -10,6 +10,8 @@
 /// остаётся первая строка, длина ограничена.
 library;
 
+import 'package:canvas_app/core/services/mirror_registry.dart';
+
 import 'package:canvas_app/core/l10n/l10n.dart';
 
 /// Префикс класса: `Exception: `, `FormatException: `, `HttpException: `.
@@ -20,6 +22,14 @@ final _httpCode = RegExp(r'^(40[134])(?:\s+(.*))?$');
 
 String friendlyError(Object error) {
   final raw = error.toString();
+  if (raw.contains(MirrorRegistry.allMirrorsDownMarker)) {
+    // Все зеркала недоступны. Формулировка без запрещённых в РФ терминов:
+    // предлагаем «ускоритель интернета», объясняем причину (РКН) и снимаем
+    // blame с разработчика — блокировка на стороне провайдера, не баг.
+    return tr(
+      'Сервер недоступен: возможно, ваш интернет-провайдер ограничивает доступ. Включите «ускоритель интернета» (сервис для улучшения соединения) или задайте своё зеркало в настройках. Разработчик не виноват',
+    );
+  }
   if (raw.contains('SERVER_MAINTENANCE')) return tr('Сервер на обслуживании');
   if (raw.contains('SocketException') || raw.contains('ClientException')) {
     return tr('Нет соединения с сервером');
