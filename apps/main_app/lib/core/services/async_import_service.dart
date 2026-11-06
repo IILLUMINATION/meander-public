@@ -135,6 +135,13 @@ class AsyncImportService {
       if (effectiveId.isEmpty) {
         throw Exception(tr('ID квеста не найден в config.json.'));
       }
+      if (!QuestPaths.isSafeQuestId(effectiveId)) {
+        throw Exception(
+          tr(
+            'ID квеста недопустим: "$effectiveId". Архив повреждён или опасен.',
+          ),
+        );
+      }
       // Дальше используем effectiveId
       final importId = effectiveId;
 
