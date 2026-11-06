@@ -996,6 +996,29 @@ pub fn evaluate_expression(
         return composite;
     }
 
+    // Чистый адрес таблицы/переменной без внешних скобок — ровно то, что
+    // клиент отдаёт после `substitutePlaceholders`: `t["колонка"]["{имя}"]`.
+    // Внутри кавычек фигурные скобки — данные (имя строки), а не плейсхолдер,
+    // поэтому адрес резолвим целиком до текстовой подстановки: она скобок не
+    // различает и превратила бы ключ `{имя}` в значение переменной `имя`
+    // (адрес не находится → null → пустой текст).
+    if expr.contains('[') && is_pure_address_expr(&expr) {
+        let base = expr
+            .split(['[', '.'])
+            .next()
+            .map(str::trim)
+            .unwrap_or_default();
+        if !base.is_empty()
+            && (game_state.get_table(base).is_some()
+                || game_state.all_variables().contains_key(base))
+        {
+            let deep = manual_deep_lookup(&expr, game_state);
+            if deep != Value::Null {
+                return deep;
+            }
+        }
+    }
+
     if expr.contains('{') {
         expr = resolve_inline_placeholders(&expr, game_state);
         let lowered = expr.to_lowercase();
@@ -1052,6 +1075,62 @@ pub fn evaluate_expression(
     }
 
     Value::String(expr)
+}
+
+/// Чистый адрес `имя["ключ"]["ключ"]` / `имя.поле[1]` — без операторов и
+/// текста вокруг. Только такой адрес можно отдать `manual_deep_lookup`
+/// целиком: любые скобки внутри кавычек там данные, а не плейсхолдер.
+///
+/// Всё, что содержит пробелы/операторы вне индексов (`t["цена"][1] > 5`,
+/// `Монет: {t["цена"][1]}`), сюда не проходит и уходит по обычному пути.
+fn is_pure_address_expr(expr: &str) -> bool {
+    let chars: Vec<char> = expr.trim().chars().collect();
+    if chars.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    // База: до первого `[` или `.`. Кавычек и операторов в имени быть не может
+    // (пробел — тоже: это уже текст, а не адрес).
+    while i < chars.len() && chars[i] != '[' && chars[i] != '.' {
+        let c = chars[i];
+        if c.is_whitespace() || c == '"' || c == '\'' || "+-*/<>=!&|,()?".contains(c) {
+            return false;
+        }
+        i += 1;
+    }
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '[' => depth += 1,
+            ']' => {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+            }
+            '"' | '\'' if depth > 0 => quote = Some(c),
+            '.' if depth == 0 => {}
+            // Внутри индекса — любое выражение; снаружи только имя поля.
+            _ if depth > 0 => {}
+            c if c.is_alphanumeric() || c == '_' => {}
+            _ => return false,
+        }
+        i += 1;
+    }
+    depth == 0 && quote.is_none()
 }
 
 fn exact_placeholder(expr: &str) -> Option<String> {
@@ -1880,9 +1959,16 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
                 }
                 Value::Array(arr) => {
                     if let Ok(index) = content.parse::<i64>() {
-                        if table_array && index >= 1 && (index as usize - 1) < arr.len() {
-                            table_array = false;
-                            arr[index as usize - 1].clone()
+                        // Колонка/`rows` — номера строк строго с 1 (паритет с
+                        // `table_cell`/`row_index`). Индекс 0 — промах, иначе
+                        // `t["цена"][0]` молча выдавал бы первую строку.
+                        if table_array {
+                            if index >= 1 && index <= arr.len() as i64 {
+                                table_array = false;
+                                arr[index as usize - 1].clone()
+                            } else {
+                                return Value::Null;
+                            }
                         } else if index >= 0 && (index as usize) < arr.len() {
                             arr[index as usize].clone()
                         } else {
@@ -3484,6 +3570,40 @@ mod tests {
             evaluate_expression(Some(json!("{лавка[\"цена\"][lower(\"ЩИТ\")]}")), &mut s),
             json!(60),
             "формула в позиции имени строки"
+        );
+    }
+
+    /// Клиент (`resolveTextVariables`) снимает внешние скобки и отдаёт движку
+    /// голый токен: `лавка["цена"]["{тест}"]`. Скобки внутри кавычек там —
+    /// имя строки, а не плейсхолдер; подстановка до адреса их ломала и нода
+    /// печатала пустоту (квест 496e8377).
+    #[test]
+    fn bare_address_with_braces_in_row_name_resolves() {
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into()],
+            vec![
+                json!({"цена": "проверка"}).as_object().cloned().unwrap(),
+                json!({"цена": "вторая"}).as_object().cloned().unwrap(),
+            ],
+            Map::new(),
+        );
+        table.set_row_names(&["{тест}".into(), "a}b".into()]);
+        s.set_table("лавка", table);
+        // Переменные с теми же именами, что и скобки в адресе: без фикса
+        // подстановка превращала ключ в их значение и адрес не находился.
+        s.set_variable("тест", json!("тест"));
+        s.set_variable("a", json!("a"));
+
+        assert_eq!(
+            evaluate_expression(Some(json!("лавка[\"цена\"][\"{тест}\"]")), &mut s),
+            json!("проверка"),
+            "голый адрес: скобки в кавычках — данные"
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("лавка[\"цена\"][\"a}b\"]")), &mut s),
+            json!("вторая")
         );
     }
 
