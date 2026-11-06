@@ -178,6 +178,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 `--no-select` обязателен: без него melos спрашивает пакет и падает без TTY.
 `analyze:flutter` возвращает 1 при любом замечании; ошибок в снимке нет.
 
+## Документация
+
+- [Таблицы](docs/tables.md) — формат JSON, адресация, кавычки и скобки в
+  именах, функции, что возвращает и в каком виде печатается.
+
 ## Участие
 
 Issues и pull requests. Коммиты по [Conventional Commits](https://www.conventionalcommits.org/).
