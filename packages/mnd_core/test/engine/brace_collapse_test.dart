@@ -58,6 +58,24 @@ void main() {
           'Просто текст');
       expect(ScriptExecutor.collapseDoubleBraces('a {b} c'), 'a {b} c');
     });
+
+    test('`{{`/`}}` внутри кавычек — данные, не схлопываются', () {
+      // Имя строки/колонки внутри `[...]` может содержать двойные скобки.
+      expect(
+        ScriptExecutor.collapseDoubleBraces('{{rfd["a{{b"]}}'),
+        '{rfd["a{{b"]}',
+      );
+      expect(
+        ScriptExecutor.collapseDoubleBraces('{{rfd["a}}b"]}}'),
+        '{rfd["a}}b"]}',
+      );
+    });
+
+    test('апостроф в обычном тексте не выключает нормализацию', () {
+      // `'` вне `[...]` — проза, а не строковый литерал адреса.
+      expect(ScriptExecutor.collapseDoubleBraces("It's {{rfd['ыа']1}}"),
+          "It's {rfd['ыа']1}");
+    });
   });
 
   group('Rust-ядро (FFI) терпит двойную обёртку', skip: _soPath == null, () {
