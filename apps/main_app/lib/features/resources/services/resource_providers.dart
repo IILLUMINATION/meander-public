@@ -43,3 +43,12 @@ final questResourceNamesProvider =
 final resourcesFolderProvider = StateProvider.family<String, String>(
   (ref, questId) => '/',
 );
+
+/// Позиция прокрутки списка ресурсов квеста.
+///
+/// Тот же сценарий, что и у папки: экран пересоздаётся при возврате из
+/// скрипта, и без сохранённой позиции автор, долиставший до конца библиотеки,
+/// оказывался в её начале.
+final resourcesScrollOffsetProvider = StateProvider.family<double, String>(
+  (ref, questId) => 0,
+);
