@@ -75,9 +75,22 @@ const getPublicDownloadUrl = (questId: string) => {
     return `${baseUrl}/quests/${questId}/file`;
 };
 
-const withPublicDownloadUrl = (row: any) => {
+// moderator_comment — служебное поле модерации. В публичных ответах его нет;
+// автор и стафф получают его через privileged=true.
+const withPublicDownloadUrl = (row: any, privileged = false) => {
     if (!row || !row.id) return row;
-    return { ...row, download_url: getPublicDownloadUrl(row.id) };
+    const result: any = { ...row, download_url: getPublicDownloadUrl(row.id) };
+    if (!privileged) delete result.moderator_comment;
+    return result;
+};
+
+// Неопубликованный квест не должен утекать через отзывы и скриншоты: id
+// угадывается, а эти маршруты раньше не проверяли статус.
+const canViewQuest = async (req: AuthRequest, questId: string): Promise<boolean> => {
+    const r = await pool.query('SELECT status, author_id FROM quests WHERE id = $1', [questId]);
+    if (r.rows.length === 0) return false;
+    if (r.rows[0].status === 'published') return true;
+    return canSeeUnpublished(req, r.rows[0].author_id);
 };
 
 const allowedImageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
@@ -693,7 +706,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res: Response) 
 
     try {
         const r = await pool.query(q, p);
-        res.json(r.rows.map(withPublicDownloadUrl));
+        res.json(r.rows.map((row) => withPublicDownloadUrl(row)));
     } catch (e) { 
         console.error("GET /quests Search failed:", e);
         res.status(500).json({ error: "Search failed" }); 
@@ -764,7 +777,7 @@ router.get('/featured', optionalAuthMiddleware, async (req: AuthRequest, res: Re
         }
 
         const r = await pool.query(q, params);
-        res.json(r.rows.map(withPublicDownloadUrl));
+        res.json(r.rows.map((row) => withPublicDownloadUrl(row)));
     } catch (e) { 
         console.error("GET /quests/featured failed:", e);
         res.status(500).json({ error: 'Failed to load featured quests' }); 
@@ -1110,7 +1123,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Respons
             );
             if (raw.rows.length > 0) {
                 if (await canSeeUnpublished(req, raw.rows[0].author_id)) {
-                    return res.json(withPublicDownloadUrl(raw.rows[0]));
+                    return res.json(withPublicDownloadUrl(raw.rows[0], true));
                 }
             }
             return res.status(404).json({ error: "Quest not found or access denied" });
@@ -1127,17 +1140,19 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Respons
             return res.status(404).json({ error: "Quest not found or access denied" });
         }
 
-        res.json(withPublicDownloadUrl(quest));
+        res.json(withPublicDownloadUrl(quest, isPrivileged));
     } catch (e) { res.status(500).json({ error: 'Failed to load quest details' }); }
 });
 
 router.get('/:id/reviews', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
-    if (!uuidValidate(req.params.id)) return res.status(400).json({ error: "Invalid ID format" }); 
+    if (!uuidValidate(req.params.id)) return res.status(400).json({ error: "Invalid ID format" });
+    if (!(await canViewQuest(req, req.params.id))) return res.status(404).json({ error: "Quest not found" });
     try { const r = await pool.query(`SELECT r.*, p.full_name as author_name, p.avatar_url as author_avatar_url, p.cosmetics->>'name_style' as author_name_style, p.cosmetics AS author_cosmetics, rt.rating as rating FROM reviews r JOIN profiles p ON r.author_id = p.id LEFT JOIN ratings rt ON (r.quest_id = rt.quest_id AND r.author_id = rt.user_id) WHERE r.quest_id = $1 AND r.status = 'approved' ORDER BY r.created_at DESC`, [req.params.id]); res.json(r.rows); } catch (e) { res.status(500).json({ error: 'Failed to load reviews' }); }
 });
 
 router.get('/:id/screenshots', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
-    if (!uuidValidate(req.params.id)) return res.status(400).json({ error: "Invalid ID format" }); 
+    if (!uuidValidate(req.params.id)) return res.status(400).json({ error: "Invalid ID format" });
+    if (!(await canViewQuest(req, req.params.id))) return res.status(404).json({ error: "Quest not found" });
     try { const r = await pool.query("SELECT * FROM quest_screenshots WHERE quest_id = $1 ORDER BY sort_order", [req.params.id]); res.json(r.rows); } catch (e) { res.status(500).json({ error: 'Failed to load screenshots' }); }
 });
 
