@@ -1,13 +1,29 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import jwt from 'jsonwebtoken';
+import pool from '../config/database';
+import { validate as uuidValidate } from 'uuid';
 
 let io: SocketIOServer | null = null;
 
 export const initSocket = (server: HttpServer): SocketIOServer => {
+  const allowedOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
   io = new SocketIOServer(server, {
     cors: {
-      origin: '*', // Adjust for production if needed, matching express cors
+      // Native clients send no Origin; browser clients must match the same
+      // allowlist as the HTTP API (SEC-03).
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+          return callback(null, true);
+        }
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error('Not allowed by CORS'));
+      },
       methods: ['GET', 'POST'],
     },
   });
@@ -42,10 +58,23 @@ export const initSocket = (server: HttpServer): SocketIOServer => {
     // Join personal room for personal notifications
     socket.join(`user_${userId}`);
 
-    socket.on('join_post', (postId: string) => {
-      if (postId && typeof postId === 'string') {
+    socket.on('join_post', async (postId: string) => {
+      if (!postId || typeof postId !== 'string' || !uuidValidate(postId)) return;
+      try {
+        const post = await pool.query(
+          'SELECT author_id, is_active FROM author_posts WHERE id = $1',
+          [postId],
+        );
+        if (post.rows.length === 0 || post.rows[0].is_active !== true) return;
+        const blocked = await pool.query(
+          'SELECT 1 FROM user_blocks WHERE user_id = $1 AND blocked_id = $2',
+          [userId, post.rows[0].author_id],
+        );
+        if (blocked.rows.length > 0) return;
         socket.join(`post_${postId}`);
         console.log(`[Socket] User ${userId} joined post_${postId}`);
+      } catch (err) {
+        console.error('[Socket] join_post authorization failed:', err);
       }
     });
 
