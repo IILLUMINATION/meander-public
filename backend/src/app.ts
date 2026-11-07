@@ -240,6 +240,20 @@ app.get('/static/downloads/:fileName', downloadLimiter, optionalAuthMiddleware, 
         return res.status(500).json({ error: 'Failed to serve quest file' });
     }
 });
+// SEC-LIVE-03: контакт для ответственного раскрытия уязвимостей и правила
+// обхода. Явные маршруты выше static, чтобы файл не зависел от public/,
+// который исключён из деплоя (там runtime-загрузки).
+app.get('/.well-known/security.txt', (_req: Request, res: Response) => {
+  res.type('text/plain').send(
+    'Contact: https://github.com/IILLUMINATION/meander-public/security/advisories/new\n' +
+    'Expires: 2027-11-07T00:00:00.000Z\n' +
+    'Preferred-Languages: ru, en\n' +
+    'Canonical: https://backend.meander.sbs/.well-known/security.txt\n'
+  );
+});
+app.get('/robots.txt', (_req: Request, res: Response) => {
+  res.type('text/plain').send('User-agent: *\nDisallow: /\nAllow: /share/\n');
+});
 app.use('/.well-known', express.static(path.join(publicDir, '.well-known')));
 
 
@@ -257,8 +271,9 @@ if (!isProduction && process.env.ENABLE_DEBUG_ROUTES === 'true') {
     });
 }
 
-app.get('/', (req: Request, res: Response) => {
-  res.send('Server is running!');
+app.get('/', (_req: Request, res: Response) => {
+  // LIVE-03: не подтверждаем стек и версию на корне; health-check умеет 204.
+  res.status(204).end();
 });
 
 app.use('/auth', authLimiter, authRoutes);
