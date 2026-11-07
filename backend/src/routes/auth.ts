@@ -82,7 +82,7 @@ router.post('/google/token', async (req: Request, res: Response) => {
         
         // 4. Создаем НАШ собственный JWT токен для API
         const appToken = jwt.sign(
-            { id: user.id, role: user.role }, 
+            { id: user.id, role: user.role, tv: user.token_version ?? 0 }, 
             jwtSecret, 
             { expiresIn: '7d' }
         );

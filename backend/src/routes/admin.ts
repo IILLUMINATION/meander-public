@@ -222,7 +222,7 @@ router.post('/users/:id/unblock', async (req: AuthRequest, res: Response) => {
     if (!uuidValidate(id)) return res.status(400).json({ error: 'Invalid ID format' });
 
     try {
-        const result = await pool.query('UPDATE profiles SET is_blocked = FALSE WHERE id = $1 RETURNING *', [id]);
+        const result = await pool.query('UPDATE profiles SET is_blocked = FALSE, token_version = token_version + 1 WHERE id = $1 RETURNING *', [id]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });

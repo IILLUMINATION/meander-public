@@ -39,35 +39,55 @@ const getBearerToken = (authHeader?: string): string | null => {
   return token;
 };
 
-// In-memory кэш статуса блокировки с коротким TTL (SEC-01). Без кэша каждый
-// запрос бил бы в БД; с ним — один SELECT на пользователя раз в TTL, а блок
-// вступает в силу максимум через TTL после того, как его поставили.
-const BLOCK_CACHE_TTL_MS = 30 * 1000;
-const _blockStatusCache = new Map<string, { blocked: boolean; fetchedAt: number }>();
+// In-memory кэш состояния аккаунта (SEC-01, SEC-02). Без кэша каждый запрос
+// бил бы в БД; с ним — один SELECT на пользователя раз в TTL, а блокировка и
+// отзыв токена вступают в силу максимум через TTL.
+const ACCOUNT_CACHE_TTL_MS = 30 * 1000;
+const _accountCache = new Map<string, { blocked: boolean; tokenVersion: number | null; fetchedAt: number }>();
 
-async function isBlocked(userId?: string): Promise<boolean> {
-  if (!userId) return false;
-  const cached = _blockStatusCache.get(userId);
-  if (cached && Date.now() - cached.fetchedAt < BLOCK_CACHE_TTL_MS) {
-    return cached.blocked;
+async function getAccountState(userId?: string): Promise<{ blocked: boolean; tokenVersion: number | null }> {
+  if (!userId) return { blocked: false, tokenVersion: null };
+  const cached = _accountCache.get(userId);
+  if (cached && Date.now() - cached.fetchedAt < ACCOUNT_CACHE_TTL_MS) {
+    return cached;
   }
   try {
     const result = await pool.query(
-      'SELECT is_blocked FROM profiles WHERE id = $1',
+      'SELECT is_blocked, token_version FROM profiles WHERE id = $1',
       [userId],
     );
     // Строки нет (пользователь удалён) — считаем незаблокированным: дальше по
     // коду запрос просто не найдёт владельца.
-    const blocked = result.rows[0]?.is_blocked === true;
-    _blockStatusCache.set(userId, { blocked, fetchedAt: Date.now() });
-    return blocked;
-  } catch (e) {
+    const state = {
+      blocked: result.rows[0]?.is_blocked === true,
+      tokenVersion: result.rows[0]?.token_version ?? 0,
+    };
+    _accountCache.set(userId, { ...state, fetchedAt: Date.now() });
+    return state;
+  } catch (e: any) {
+    // Миграция token_version могла ещё не приехать: не блокируем всех из-за
+    // отсутствующей колонки, проверяем хотя бы is_blocked.
+    if (e?.code === '42703') {
+      try {
+        const result = await pool.query('SELECT is_blocked FROM profiles WHERE id = $1', [userId]);
+        const state = { blocked: result.rows[0]?.is_blocked === true, tokenVersion: null };
+        _accountCache.set(userId, { ...state, fetchedAt: Date.now() });
+        return state;
+      } catch (e2) {
+        console.error('[auth] block status check failed', e2);
+        return { blocked: false, tokenVersion: null };
+      }
+    }
     // Best-effort, как touchLastSeen: если БД недоступна, большинство запросов
     // всё равно упадёт дальше; здесь не превращаем это в блокировку всех.
-    console.error('[auth] block status check failed', e);
-    return false;
+    console.error('[auth] account state check failed', e);
+    return { blocked: false, tokenVersion: null };
   }
 }
+
+/** Отозван ли токен: `tv` в JWT должен совпадать с profiles.token_version. */
+const isTokenCurrent = (payload: jwt.JwtPayload, state: { tokenVersion: number | null }): boolean =>
+  state.tokenVersion === null || Number(payload.tv ?? 0) === state.tokenVersion;
 
 const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const token = getBearerToken(req.headers['authorization']);
@@ -102,8 +122,14 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
   // SEC-01: заблокированным закрываем все защищённые endpoint'ы сразу в
   // middleware, а не в отдельных route'ах. 403 здесь — отказ по правилу, и
   // клиент его корректно не путает с мёртвым токеном.
-  if (await isBlocked(user.id)) {
+  const state = await getAccountState(user.id);
+  if (state.blocked) {
     return res.status(403).json({ error: 'Your account is blocked', code: 'ACCOUNT_BLOCKED' });
+  }
+  // SEC-02: бан/смена роли/восстановление инкрементируют token_version, и все
+  // ранее выданные токены перестают проходить проверку.
+  if (!isTokenCurrent(user, state)) {
+    return res.status(401).json({ error: 'Token is not valid', code: 'TOKEN_REVOKED' });
   }
 
   req.user = user;
@@ -124,10 +150,17 @@ export const optionalAuthMiddleware = (
     return;
   }
 
-  jwt.verify(token, secret, { algorithms: ['HS256'] }, (err: any, user: any) => {
-    if (!err) {
-      req.user = user;
-      touchLastSeen(user?.id);
+  jwt.verify(token, secret, { algorithms: ['HS256'] }, async (err: any, user: any) => {
+    try {
+      if (!err && user && typeof user !== 'string') {
+        const state = await getAccountState(user.id);
+        if (!state.blocked && isTokenCurrent(user as jwt.JwtPayload, state)) {
+          req.user = user;
+          touchLastSeen(user.id);
+        }
+      }
+    } catch (e) {
+      console.error('[auth] optional token check failed', e);
     }
     next();
   });

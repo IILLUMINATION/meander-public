@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     google_id TEXT UNIQUE,
     email TEXT UNIQUE,
     last_published_at TIMESTAMPTZ,
-    is_blocked BOOLEAN DEFAULT FALSE
+    is_blocked BOOLEAN DEFAULT FALSE,
+    token_version INTEGER NOT NULL DEFAULT 0
 );
 
 -- 3. Таблица квестов

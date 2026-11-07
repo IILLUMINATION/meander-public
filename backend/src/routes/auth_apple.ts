@@ -192,7 +192,7 @@ router.post('/apple/token', async (req: Request, res: Response) => {
       console.log('User signed in via Sign in with Apple:', user.full_name);
     }
 
-    const appToken = jwt.sign({ id: user.id, role: user.role }, jwtSecret, { expiresIn: '7d' });
+    const appToken = jwt.sign({ id: user.id, role: user.role, tv: user.token_version ?? 0 }, jwtSecret, { expiresIn: '7d' });
 
     res.json({ token: appToken, user });
   } catch (error: any) {

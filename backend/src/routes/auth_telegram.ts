@@ -81,7 +81,7 @@ router.post('/telegram/token', async (req: Request, res: Response) => {
       console.log('User sign-in via Telegram:', telegramId, username);
     }
 
-    const appToken = jwt.sign({ id: user.id, role: user.role }, jwtSecret, { expiresIn: '7d' });
+    const appToken = jwt.sign({ id: user.id, role: user.role, tv: user.token_version ?? 0 }, jwtSecret, { expiresIn: '7d' });
     res.json({ token: appToken, user });
   } catch (error: any) {
     if (error.status === 401) return res.status(401).json({ error: error.message || 'Invalid Telegram token' });
@@ -126,7 +126,7 @@ async function handleTelegramWidgetAuth(req: Request, res: Response) {
   } else {
     user = userResult.rows[0];
   }
-  const token = jwt.sign({ id: user.id, role: user.role }, jwtSecret as string, { expiresIn: '7d' });
+  const token = jwt.sign({ id: user.id, role: user.role, tv: user.token_version ?? 0 }, jwtSecret as string, { expiresIn: '7d' });
   return res.json({ token, user });
 }
 

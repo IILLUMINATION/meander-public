@@ -313,7 +313,7 @@ router.post('/admin/:id/resolve', authMiddleware, adminAuth, async (req: AuthReq
 
             // Если нужно заблокировать пользователя
             if (block_user && userIdToBlock) {
-                await pool.query('UPDATE profiles SET is_blocked = TRUE WHERE id = $1', [userIdToBlock]);
+                await pool.query('UPDATE profiles SET is_blocked = TRUE, token_version = token_version + 1 WHERE id = $1', [userIdToBlock]);
                 console.log(`🚫 Blocked user: ${userIdToBlock}`);
             }
         }

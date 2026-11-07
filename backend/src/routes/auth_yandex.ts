@@ -113,7 +113,7 @@ router.post('/yandex/token', async (req: Request, res: Response) => {
       console.log('User signed in via Yandex:', user.full_name, yandexLogin);
     }
 
-    const appToken = jwt.sign({ id: user.id, role: user.role }, jwtSecret, { expiresIn: '7d' });
+    const appToken = jwt.sign({ id: user.id, role: user.role, tv: user.token_version ?? 0 }, jwtSecret, { expiresIn: '7d' });
 
     res.json({ token: appToken, user });
   } catch (error: any) {
