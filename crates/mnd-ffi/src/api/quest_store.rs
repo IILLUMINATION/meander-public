@@ -77,6 +77,33 @@ pub async fn quest_store_list_files(
     store(&root).list_files(&rel_dir, extension.as_deref())
 }
 
+/// Массовый снимок каталога для библиотеки ресурсов: имена, размеры, mtime,
+/// а для JSON — имя из содержимого и число блоков-действий. Один переход
+/// через мост и один обход каталога вместо N чтений из Dart.
+///
+/// Возвращает JSON-массив `[{file,size,mtimeMs,name,blocks}]`.
+pub async fn quest_store_scan_files(
+    root: String,
+    rel_dir: String,
+    extension: Option<String>,
+    parse_json: bool,
+) -> String {
+    let facts = store(&root).scan_files(&rel_dir, extension.as_deref(), parse_json);
+    let items: Vec<Value> = facts
+        .into_iter()
+        .map(|f| {
+            serde_json::json!({
+                "file": f.file_name,
+                "size": f.size_bytes,
+                "mtimeMs": f.modified_ms,
+                "name": f.json_name,
+                "blocks": f.block_count,
+            })
+        })
+        .collect();
+    serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+}
+
 /// Многофайловая транзакция. ops_json:
 /// [{"op":"write_json","path":"…","value":…} |
 ///  {"op":"write_text","path":"…","text":"…"} |

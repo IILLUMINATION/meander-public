@@ -72,13 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash =>
-      // Веб-сборка использует закреплённый wasm с worker pool; нативный .so
-      // собирается из текущего Rust. Хеши обязаны совпадать с конкретной
-      // библиотекой, иначе FRB отказывается запускать движок.
-      const bool.fromEnvironment('dart.library.js_interop')
-          ? -1560931752
-          : 810672878;
+  int get rustContentHash => 85235653;
 
   static const kDefaultExternalLibraryLoaderConfig = ExternalLibraryLoaderConfig(
     stem: 'mnd_ffi',
@@ -370,6 +364,13 @@ abstract class RustLibApi extends BaseApi {
   Future<String?> crateApiQuestStoreQuestStoreReadJson({required String root, required String relPath});
 
   Future<String?> crateApiQuestStoreQuestStoreReadText({required String root, required String relPath});
+
+  Future<String> crateApiQuestStoreQuestStoreScanFiles({
+    required String root,
+    required String relDir,
+    String? extension_,
+    required bool parseJson,
+  });
 
   Future<String> crateApiQuestStoreQuestStoreTransact({required String root, required String opsJson});
 
@@ -2262,6 +2263,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "quest_store_read_text", argNames: ["root", "relPath"]);
 
   @override
+  Future<String> crateApiQuestStoreQuestStoreScanFiles({
+    required String root,
+    required String relDir,
+    String? extension_,
+    required bool parseJson,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(root, serializer);
+          sse_encode_String(relDir, serializer);
+          sse_encode_opt_String(extension_, serializer);
+          sse_encode_bool(parseJson, serializer);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 78, port: port_);
+        },
+        codec: SseCodec(decodeSuccessData: sse_decode_String, decodeErrorData: null),
+        constMeta: kCrateApiQuestStoreQuestStoreScanFilesConstMeta,
+        argValues: [root, relDir, extension_, parseJson],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiQuestStoreQuestStoreScanFilesConstMeta =>
+      const TaskConstMeta(debugName: "quest_store_scan_files", argNames: ["root", "relDir", "extension_", "parseJson"]);
+
+  @override
   Future<String> crateApiQuestStoreQuestStoreTransact({required String root, required String opsJson}) {
     return handler.executeNormal(
       NormalTask(
@@ -2269,7 +2298,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(root, serializer);
           sse_encode_String(opsJson, serializer);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 78, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 79, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_String, decodeErrorData: null),
         constMeta: kCrateApiQuestStoreQuestStoreTransactConstMeta,
@@ -2295,7 +2324,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(root, serializer);
           sse_encode_String(relPath, serializer);
           sse_encode_String(json, serializer);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 79, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 80, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_String, decodeErrorData: null),
         constMeta: kCrateApiQuestStoreQuestStoreWriteJsonConstMeta,
@@ -2321,7 +2350,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(root, serializer);
           sse_encode_String(relPath, serializer);
           sse_encode_String(text, serializer);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 80, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 81, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_String, decodeErrorData: null),
         constMeta: kCrateApiQuestStoreQuestStoreWriteTextConstMeta,
@@ -2340,7 +2369,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 81, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 82, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_u_32, decodeErrorData: null),
         constMeta: kCrateApiValidationQuestValidationSchemaVersionConstMeta,
@@ -2361,7 +2390,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(questId, serializer);
           sse_encode_String(questRoot, serializer);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 82, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 83, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_String, decodeErrorData: null),
         constMeta: kCrateApiValidationRunQuestValidationConstMeta,
@@ -2381,7 +2410,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(scriptJson, serializer);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 83, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 84, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_String, decodeErrorData: null),
         constMeta: kCrateApiScriptExecutorValidateScriptJsonConstMeta,
@@ -2402,7 +2431,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(leftJson, serializer);
           sse_encode_String(rightJson, serializer);
-          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 84, port: port_);
+          pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 85, port: port_);
         },
         codec: SseCodec(decodeSuccessData: sse_decode_bool, decodeErrorData: null),
         constMeta: kCrateApiScriptExecutorValuesEqualConstMeta,

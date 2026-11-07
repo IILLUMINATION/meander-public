@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mnd_core/utils/quest_paths.dart';
 
+import 'package:canvas_app/features/resources/models/resource_file.dart';
 import 'package:canvas_app/features/resources/services/quest_storage.dart';
 import 'package:canvas_app/features/resources/services/resource_service.dart';
 
@@ -80,6 +82,42 @@ class InMemoryStorageAdapter implements StorageAdapter {
   @override
   Future<void> writeText(String relativePath, String content) async {
     textFiles[relativePath] = content;
+  }
+
+  // Тест-адаптер без массового снимка: сервис идёт пофайловым путём.
+  @override
+  Future<List<ResourceFileFacts>?> scanFiles(
+    String relativePath, {
+    String? extension,
+    bool parseJson = false,
+  }) async => null;
+}
+
+/// Адаптер с массовым снимком ядра: сервис не должен трогать файлы
+/// пофайлово, когда снимок есть.
+class ScanFactsStorageAdapter extends InMemoryStorageAdapter {
+  ScanFactsStorageAdapter(this.facts);
+
+  final Map<String, List<ResourceFileFacts>> facts;
+
+  @override
+  Future<List<ResourceFileFacts>?> scanFiles(
+    String relativePath, {
+    String? extension,
+    bool parseJson = false,
+  }) async => facts[relativePath] ?? const [];
+
+  @override
+  Future<Map<String, dynamic>> readJsonFile(String relativePath) async {
+    if (relativePath.contains('/scripts/')) {
+      throw StateError('снимок ядра должен отменить чтение $relativePath');
+    }
+    return super.readJsonFile(relativePath);
+  }
+
+  @override
+  Future<String> getFilePath(String relativePath) async {
+    throw StateError('снимок ядра должен отменить stat $relativePath');
   }
 }
 
@@ -387,6 +425,52 @@ void main() {
         'quests/q1/res/metadata.json',
       );
       expect(migratedMeta['c.lua']['resourceId'], lua.stableId);
+    });
+
+    test('снимок ядра: метаданные + имя и блоки из содержимого', () async {
+      final adapter = ScanFactsStorageAdapter({
+        QuestPaths.scriptsDir('q1'): const [
+          ResourceFileFacts(
+            fileName: 'a.json',
+            sizeBytes: 1234,
+            modifiedAt: null,
+            jsonName: 'Из JSON',
+            blockCount: 7,
+          ),
+          ResourceFileFacts(
+            fileName: 'b.json',
+            sizeBytes: 42,
+            modifiedAt: null,
+            jsonName: 'Имя из файла',
+            blockCount: 2,
+          ),
+        ],
+      });
+      adapter.jsonFiles[QuestPaths.metadata('q1')] = {
+        '__folders__': ['/Глава 1'],
+        'a.json': {
+          'name': 'Из metadata',
+          'folder': '/Глава 1',
+          'scriptType': 'condition',
+        },
+      };
+
+      final data = await ResourceService(
+        storage: QuestStorage(questId: 'q1', adapter: adapter),
+      ).loadResources();
+
+      final a = data.resources.firstWhere((r) => r.name == 'a.json');
+      expect(a.friendlyName, 'Из metadata', reason: 'metadata приоритетнее');
+      expect(a.folder, '/Глава 1');
+      expect(a.scriptType, ScriptType.condition);
+      expect(a.blockCount, 7);
+      expect(a.sizeBytes, 1234);
+      expect(a.stableId, 'a.json');
+
+      final b = data.resources.firstWhere((r) => r.name == 'b.json');
+      expect(b.friendlyName, 'Имя из файла', reason: 'имя из содержимого');
+      expect(b.blockCount, 2);
+      expect(b.sizeBytes, 42);
     });
 
     test('имя скрипта берётся из JSON, если metadata пустое', () async {

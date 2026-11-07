@@ -76,6 +76,14 @@ class _MemoryStorageAdapter implements StorageAdapter {
   Future<void> writeText(String relativePath, String content) async {
     textFiles[relativePath] = content;
   }
+
+  // Тест-адаптер без массового снимка: сервис идёт пофайловым путём.
+  @override
+  Future<List<ResourceFileFacts>?> scanFiles(
+    String relativePath, {
+    String? extension,
+    bool parseJson = false,
+  }) async => null;
 }
 
 const String _questId = 'quest-folders';

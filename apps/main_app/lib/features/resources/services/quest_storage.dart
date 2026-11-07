@@ -1,9 +1,32 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
+
+/// Факты о файле для библиотеки ресурсов: то, что экран показывает на
+/// карточке, — без чтения самого файла в Dart.
+class ResourceFileFacts {
+  final String fileName;
+  final int sizeBytes;
+  final DateTime? modifiedAt;
+
+  /// `name` из JSON-скрипта (null — нет или не просили разбирать).
+  final String? jsonName;
+
+  /// Число блоков-действий (только для скриптов при `parseJson`).
+  final int blockCount;
+
+  const ResourceFileFacts({
+    required this.fileName,
+    required this.sizeBytes,
+    required this.modifiedAt,
+    this.jsonName,
+    this.blockCount = 0,
+  });
+}
 
 /// Абстракция файлового хранилища: все операции, через которые редактор
 /// читает и пишет файлы квеста. В приложении используется
@@ -23,6 +46,17 @@ abstract class StorageAdapter {
 
   /// Абсолютный путь файла (для прямого File API там, где он необходим).
   Future<String> getFilePath(String relativePath);
+
+  /// Массовый снимок каталога: имя файла, размер, mtime и — при
+  /// `parseJson` — имя из содержимого и число блоков-действий. Один обход
+  /// каталога вместо N вызовов на файл.
+  ///
+  /// `null` — адаптер так не умеет (тесты, веб); вызывающий идёт пофайлово.
+  Future<List<ResourceFileFacts>?> scanFiles(
+    String relativePath, {
+    String? extension,
+    bool parseJson = false,
+  }) async => null;
 
   /// Читает произвольный текстовый файл (Lua и т.п.).
   Future<String> readText(String relativePath) async {
@@ -53,6 +87,35 @@ class QuestStoreAdapter implements StorageAdapter {
   @override
   Future<Map<String, dynamic>> readJsonFile(String relativePath) async =>
       await (await _store()).readJson(relativePath) ?? <String, dynamic>{};
+
+  @override
+  Future<List<ResourceFileFacts>?> scanFiles(
+    String relativePath, {
+    String? extension,
+    bool parseJson = false,
+  }) async {
+    final raw = await (await _store()).scanFiles(
+      relativePath,
+      extension: extension,
+      parseJson: parseJson,
+    );
+    if (raw == null) return null;
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return null;
+    return [
+      for (final item in decoded.whereType<Map>())
+        ResourceFileFacts(
+          fileName: item['file']?.toString() ?? '',
+          sizeBytes: (item['size'] as num?)?.toInt() ?? 0,
+          modifiedAt: switch (item['mtimeMs']) {
+            final num ms => DateTime.fromMillisecondsSinceEpoch(ms.toInt()),
+            _ => null,
+          },
+          jsonName: item['name']?.toString(),
+          blockCount: (item['blocks'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
 
   @override
   Future<void> writeJsonFile(
@@ -174,6 +237,16 @@ class QuestStorage {
     String relativePath, {
     String? extension,
   }) async => adapter.listFiles(relativePath, extension: extension);
+
+  Future<List<ResourceFileFacts>?> scanFiles(
+    String relativePath, {
+    String? extension,
+    bool parseJson = false,
+  }) async => adapter.scanFiles(
+    relativePath,
+    extension: extension,
+    parseJson: parseJson,
+  );
 
   Future<List<String>> listFolders(String relativePath) =>
       adapter.listFolders(relativePath);

@@ -99,6 +99,23 @@ pub struct FsQuestStore {
     root: PathBuf,
 }
 
+/// Факты о файле каталога для библиотеки ресурсов.
+///
+/// Библиотека показывает сотни скриптов: имя, размер, дата, число блоков.
+/// Ядро собирает это одним обходом каталога, вместо N отдельных переходов
+/// через мост и N `stat` из Dart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileFacts {
+    pub file_name: String,
+    pub size_bytes: u64,
+    /// mtime в миллисекундах Unix-эпохи (None — платформа не отдала).
+    pub modified_ms: Option<u64>,
+    /// `name` из JSON-файла (только при `parse_json`).
+    pub json_name: Option<String>,
+    /// Число блоков-действий (только при `parse_json` и для скриптов).
+    pub block_count: u32,
+}
+
 impl FsQuestStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
@@ -165,6 +182,78 @@ impl FsQuestStore {
             .filter_map(|e| e.file_name().to_str().map(String::from))
             .collect();
         out.sort();
+        out
+    }
+
+    /// Снимок каталога: имя, размер, mtime и — при `parse_json` — имя из
+    /// содержимого и число блоков-действий. Порядок — по имени файла,
+    /// как у `list_files`.
+    pub fn scan_files(
+        &self,
+        rel_dir: &str,
+        extension: Option<&str>,
+        parse_json: bool,
+    ) -> Vec<FileFacts> {
+        let dir = match self.resolve(rel_dir) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let ext_norm = extension.map(|e| e.trim_start_matches('.').to_lowercase());
+        let mut out: Vec<FileFacts> = entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .filter(|p| match &ext_norm {
+                Some(ext) => p
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|x| x.to_lowercase() == *ext),
+                None => true,
+            })
+            .filter_map(|path| {
+                let file_name = path.file_name()?.to_str()?.to_string();
+                let meta = std::fs::metadata(&path).ok()?;
+                let modified_ms = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64);
+                let mut json_name = None;
+                let mut block_count = 0;
+                if parse_json {
+                    let rel = if rel_dir.is_empty() {
+                        file_name.clone()
+                    } else {
+                        format!("{rel_dir}/{file_name}")
+                    };
+                    if let Some(value) = self.read_json(&rel)
+                        && let Some(map) = value.as_object()
+                    {
+                        json_name = map
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(String::from);
+                        if let Some(Value::Array(blocks)) = map.get("blocks") {
+                            block_count =
+                                crate::script_format::count_action_blocks(blocks) as u32;
+                        }
+                    }
+                }
+                Some(FileFacts {
+                    file_name,
+                    size_bytes: meta.len(),
+                    modified_ms,
+                    json_name,
+                    block_count,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| a.file_name.cmp(&b.file_name));
         out
     }
 
@@ -592,6 +681,42 @@ mod tests {
                 )
                 .is_err()
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn scan_files_reports_size_mtime_name_and_blocks() {
+        let root = temp_root("scan");
+        let store = FsQuestStore::new(&root);
+        store
+            .write_json(
+                "scripts/s1.json",
+                &json!({
+                    "name": "Скрипт 1",
+                    "blocks": [
+                        {"type": "event", "children": [{"type": "wait"}]},
+                        {"type": "go_to_node"}
+                    ]
+                }),
+            )
+            .unwrap();
+        store.write_text("scripts/notes.txt", "x").unwrap();
+
+        let facts = store.scan_files("scripts", Some(".json"), true);
+        assert_eq!(facts.len(), 1);
+        let f = &facts[0];
+        assert_eq!(f.file_name, "s1.json");
+        assert_eq!(f.json_name.as_deref(), Some("Скрипт 1"));
+        assert_eq!(f.block_count, 2);
+        assert!(f.size_bytes > 0);
+        assert!(f.modified_ms.is_some());
+
+        // Без разбора JSON — только файловые факты, весь каталог.
+        let plain = store.scan_files("scripts", None, false);
+        assert_eq!(plain.len(), 2);
+        assert!(plain
+            .iter()
+            .all(|f| f.json_name.is_none() && f.block_count == 0));
         let _ = std::fs::remove_dir_all(&root);
     }
 

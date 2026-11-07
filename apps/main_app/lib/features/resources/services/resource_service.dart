@@ -75,6 +75,12 @@ class ResourceService {
   final Map<String, String> _nameCache = {};
   Map<String, String> get nameCache => Map.unmodifiable(_nameCache);
 
+  /// Последний снимок [loadResources]. Экран библиотеки показывает его сразу
+  /// при повторном открытии (возврат из скрипта, смена вкладки), не дожидаясь
+  /// обхода диска; свежие данные подтягиваются фоном.
+  ResourcesData? _lastData;
+  ResourcesData? get lastLoaded => _lastData;
+
   // --- Нормализация путей (единая реализация) ---
 
   static String normalizeFolderPath(String path) =>
@@ -134,9 +140,24 @@ class ResourceService {
         'lua' => '.lua',
         _ => null,
       };
-      final files = await storage.listFiles(folderPath, extension: extension);
 
-      for (final fileName in files) {
+      // Ядро отдаёт снимок каталога одним вызовом (имена, размеры, mtime,
+      // для скриптов — имя и число блоков); без моста (тесты, веб) идём
+      // пофайлово, как раньше.
+      final scanned = await storage.scanFiles(
+        folderPath,
+        extension: extension,
+        parseJson: type == 'script',
+      );
+      final List<(String, ResourceFileFacts?)> entries;
+      if (scanned != null) {
+        entries = [for (final facts in scanned) (facts.fileName, facts)];
+      } else {
+        final files = await storage.listFiles(folderPath, extension: extension);
+        entries = [for (final fileName in files) (fileName, null)];
+      }
+
+      for (final (fileName, facts) in entries) {
         var friendlyName = fileName;
         var folder = '/';
         var scriptType = ScriptType.generic;
@@ -174,29 +195,41 @@ class ResourceService {
 
         var blockCount = 0;
         if (type == 'script') {
-          try {
-            final content = await storage.readJson(relativePath);
-            final jsonName = content['name']?.toString().trim();
+          if (facts != null) {
+            final jsonName = facts.jsonName;
             if (friendlyName == fileName &&
                 jsonName != null &&
                 jsonName.isNotEmpty) {
               friendlyName = jsonName;
             }
-            final blocks = content['blocks'];
-            if (blocks is List) blockCount = countActionBlocks(blocks);
-          } catch (_) {}
+            blockCount = facts.blockCount;
+          } else {
+            try {
+              final content = await storage.readJson(relativePath);
+              final jsonName = content['name']?.toString().trim();
+              if (friendlyName == fileName &&
+                  jsonName != null &&
+                  jsonName.isNotEmpty) {
+                friendlyName = jsonName;
+              }
+              final blocks = content['blocks'];
+              if (blocks is List) blockCount = countActionBlocks(blocks);
+            } catch (_) {}
+          }
         }
 
         _nameCache[fileName] = friendlyName;
 
-        int sizeBytes = 0;
-        DateTime? modifiedAt;
-        try {
-          final absolute = await storage.absolutePath(relativePath);
-          final stat = await File(absolute).stat();
-          sizeBytes = stat.size;
-          modifiedAt = stat.modified;
-        } catch (_) {}
+        var sizeBytes = facts?.sizeBytes ?? 0;
+        DateTime? modifiedAt = facts?.modifiedAt;
+        if (facts == null) {
+          try {
+            final absolute = await storage.absolutePath(relativePath);
+            final stat = await File(absolute).stat();
+            sizeBytes = stat.size;
+            modifiedAt = stat.modified;
+          } catch (_) {}
+        }
 
         resources.add(
           ResourceFile(
@@ -220,10 +253,12 @@ class ResourceService {
       await storage.writeMetadata(metadata);
     }
 
-    return ResourcesData(
+    final data = ResourcesData(
       resources: resources,
       explicitFolders: explicitFolders,
     );
+    _lastData = data;
+    return data;
   }
 
   /// Лёгкое наполнение кэша имён (без сканирования ресурсов).
