@@ -33,3 +33,13 @@ final questResourceNamesProvider =
       }
       return Map.unmodifiable(svc.nameCache);
     });
+
+/// Текущая папка библиотеки ресурсов квеста.
+///
+/// Живёт вне `ResourcesScreen`: при выключенном «открывать в новой вкладке»
+/// воркспейс заменяет вкладку библиотеки документом, и при возврате из
+/// скрипта экран пересоздаётся с чистым состоянием. Без этого «Назад»
+/// выбрасывал автора в корень библиотеки вместо папки со скриптом.
+final resourcesFolderProvider = StateProvider.family<String, String>(
+  (ref, questId) => '/',
+);

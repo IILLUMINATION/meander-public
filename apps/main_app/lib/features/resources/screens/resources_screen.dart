@@ -62,6 +62,10 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
   @override
   void initState() {
     super.initState();
+    // Папка переживает пересоздание экрана: воркспейс может заменить вкладку
+    // библиотеки скриптом (авто-вкладки выключены) и открыть её заново при
+    // возврате.
+    _currentFolder = ref.read(resourcesFolderProvider(widget.questId));
     try {
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
@@ -113,6 +117,13 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
           _explicitFolders = data.explicitFolders;
           _resources = data.resources;
           _isLoading = false;
+          // Папку могли удалить/переименовать, пока экран был закрыт.
+          if (_currentFolder != '/' &&
+              !_allFolders.contains(_normalizeFolderPath(_currentFolder))) {
+            _currentFolder = '/';
+            ref.read(resourcesFolderProvider(widget.questId).notifier).state =
+                '/';
+          }
           _selectedItems.removeWhere((id) {
             final isFile = data.resources.any((r) => r.id == id);
             if (isFile) return false;
@@ -142,6 +153,8 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
 
   void _changeFolder(String newPath) {
     setState(() => _currentFolder = newPath);
+    ref.read(resourcesFolderProvider(widget.questId).notifier).state =
+        _currentFolder;
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
