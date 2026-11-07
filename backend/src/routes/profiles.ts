@@ -9,6 +9,7 @@ import { createNotification } from '../services/notifications';
 import { validate as uuidValidate, v4 as uuidv4 } from 'uuid';
 import { decryptToken, encryptToken } from '../services/sync_settings_crypto';
 import { awardAchievement } from '../services/achievements';
+import { isStaff } from '../services/visibility';
 import { grantDueRewards, rewardProgress } from '../services/rewards';
 import { uploadImage, UnsupportedImageError, acceptsImagePartMime } from '../services/image_host';
 import {
@@ -324,7 +325,7 @@ router.get('/cosmetics/mine', authMiddleware, async (req: AuthRequest, res: Resp
 });
 
 // GET /profiles/:id (Обновленный SQL запрос)
-router.get('/:id', async (req, res: Response) => {
+router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     if (!uuidValidate(id)) return res.status(400).json({ error: "Invalid ID format" });
 
@@ -351,7 +352,26 @@ router.get('/:id', async (req, res: Response) => {
         if (profile.rows.length === 0) {
             return res.status(404).json({ error: 'Profile not found' });
         }
-        res.json(profile.rows[0]);
+        const row = profile.rows[0];
+        // Своя карточка и стафф видят полный профиль; остальным отдаём только
+        // публичные поля — без роли, приватности, последней активности и playtime.
+        if (req.user?.id === id || (await isStaff(req))) {
+            return res.json(row);
+        }
+        const publicProfile: any = { ...row };
+        for (const field of [
+            'role',
+            'last_seen_at',
+            'timezone_offset',
+            'quiet_hours_enabled',
+            'show_nsfw',
+            'ad_free_until',
+            'total_playtime_seconds',
+            'total_quests_playtime_seconds',
+        ]) {
+            delete publicProfile[field];
+        }
+        return res.json(publicProfile);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error getting profile' });
