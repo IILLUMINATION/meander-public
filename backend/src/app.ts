@@ -9,7 +9,7 @@ import fs from 'fs';
 import helmet from 'helmet';
 import compression from 'compression';
 import hpp from 'hpp';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import pool from './config/database';
 
 import authRoutes from './routes/auth';
@@ -41,6 +41,7 @@ import { startAccountDeletionSweep } from './services/account_deletion';
 import { startCosmeticExpirySweep } from './services/cosmetics';
 import { startRewardSweep } from './services/rewards';
 import { initSocket } from './services/socket';
+import { clientIp } from './services/client_ip';
 
 dotenv.config();
 
@@ -53,8 +54,9 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .map((o) => o.trim())
   .filter(Boolean);
 
-// === ИЗМЕНЕНИЕ 1: Ставим true, чтобы доверять любому числу прокси (пока не отладим) ===
-app.set('trust proxy', 1);
+// nginx is the only trusted proxy hop; forwarded headers from direct clients
+// must not influence req.ip or rate limits (SEC-07).
+app.set('trust proxy', 'loopback');
 
 // --- 1. БЕЗОПАСНОСТЬ ---
 app.use(helmet({
@@ -90,6 +92,7 @@ app.use(cors({
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 1000, 
+    keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests' }
@@ -98,6 +101,7 @@ const generalLimiter = rateLimit({
 const authLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 100,
+    keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
     message: { error: 'Too many login attempts.' }
 });
 
@@ -110,13 +114,14 @@ const uploadLimiter = rateLimit({
     message: { error: 'Публиковать можно не чаще 5 раз в час. Попробуй позже.' },
     keyGenerator: (req) => {
         const userId = (req as AuthRequest).user?.id;
-        return userId ? `pub_${userId}` : `pub_ip_${req.ip}`;
+        return userId ? `pub_${userId}` : `pub_ip_${ipKeyGenerator(clientIp(req))}`;
     }
 });
 
 // Умный лимитер для квестов: авторизованные — мягко, анонимы — жёстко
 const publicQuestLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
+    keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
     max: (req) => {
         const authHeader = req.headers.authorization;
         return authHeader ? 600 : 60; // 600/15мин для авторизованных, 60/15мин для анонимов
@@ -139,7 +144,7 @@ const downloadLimiter = rateLimit({
     keyGenerator: (req) => {
         // Используем IP + авторизованный user_id для более точного ключа
         const userId = (req as any).user?.id;
-        return userId ? `dl_${userId}` : `dl_${req.ip}`;
+        return userId ? `dl_${userId}` : `dl_${ipKeyGenerator(clientIp(req))}`;
     }
 });
 
@@ -231,8 +236,8 @@ app.use(passport.initialize());
 if (!isProduction && process.env.ENABLE_DEBUG_ROUTES === 'true') {
     app.get('/test-ip', (req: Request, res: Response) => {
         res.json({
-            ip: req.ip,
-            ips: req.ips,
+            ip: clientIp(req),
+            ips: [clientIp(req)],
             headers: req.headers['x-forwarded-for']
         });
     });

@@ -4,6 +4,7 @@ import { validate as uuidValidate } from 'uuid';
 import pool from '../config/database';
 import authMiddleware, { AuthRequest } from '../middleware/auth';
 import { getIO } from '../services/socket';
+import { clientIp } from '../services/client_ip';
 import { createNotification } from '../services/notifications';
 import {
     DM_RULES,
@@ -21,7 +22,7 @@ const router = Router();
 
 // Отправка сообщения — действие человека, а не приложения: полсотни в час хватает
 // на живой разговор и не дают развернуться рассылке.
-const keyByUser = (req: AuthRequest): string => req.user?.id || req.ip || 'anon';
+const keyByUser = (req: AuthRequest): string => req.user?.id || clientIp(req) || 'anon';
 const limitSend = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 120,

@@ -18,6 +18,7 @@ import {
     sha256Hex,
 } from '../services/cloud_sync_storage';
 import { runCloudSyncCleanup } from '../services/cloud_sync_cleanup';
+import { clientIp } from '../services/client_ip';
 
 const router = Router();
 
@@ -27,7 +28,7 @@ const router = Router();
 
 // Если юзер не аутентифицирован, фолбэк на IP с корректной IPv6 обработкой.
 const userKey = (req: AuthRequest, res: Response): string =>
-    req.user?.id || ipKeyGenerator(req.ip || '');
+    req.user?.id || ipKeyGenerator(clientIp(req));
 
 const limitQuotaGet = rateLimit({
     windowMs: 60 * 60 * 1000,
