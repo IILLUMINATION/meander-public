@@ -104,6 +104,7 @@ dependencies:
   # единственный релиз media_kit_video с починенным h/w-рендером на Linux.
   media_kit: ^1.2.3
   media_kit_video: ^2.0.1
+  flutter_svg: ^2.3.2
 
 # Значки платформ. Android и Windows здесь ВЫКЛЮЧЕНЫ намеренно: их делает
 # tool/build_icons.py из assets/icon/logo.svg — адаптивный VectorDrawable
@@ -162,3 +163,7 @@ flutter:
     - assets/guides/create_quest/
     - assets/guides/market/
     - assets/guides/hub/
+    # Символические иконки Adwaita (GNOME). Пакет adwaita_icons с pub не
+    # собирается на Dart 3 (sdk <3.0.0), поэтому SVG лежат в репозитории:
+    # см. assets/icons/adwaita/README.md.
+    - assets/icons/adwaita/
