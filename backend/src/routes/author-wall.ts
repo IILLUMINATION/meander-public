@@ -19,6 +19,8 @@ import { getIO } from '../services/socket';
 const TEMP_DIR = path.join(os.tmpdir(), 'meander_uploads');
 const POST_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const POST_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+const MAX_POST_LENGTH = 5000;
+const MAX_COMMENT_LENGTH = 2000;
 
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 
@@ -194,6 +196,9 @@ router.post('/:authorId/posts', authMiddleware, async (req: Request, res: Respon
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Content is required' });
     }
+    if (content.length > MAX_POST_LENGTH) {
+      return res.status(400).json({ error: `Пост не длиннее ${MAX_POST_LENGTH} символов` });
+    }
 
     const limits = await getKarmaAndLimits(userId);
 
@@ -308,6 +313,9 @@ router.put('/posts/:postId', authMiddleware, async (req: Request, res: Response)
 
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Content is required' });
+    }
+    if (content.length > MAX_POST_LENGTH) {
+      return res.status(400).json({ error: `Пост не длиннее ${MAX_POST_LENGTH} символов` });
     }
 
     const post = await pool.query('SELECT author_id FROM author_posts WHERE id = $1', [postId]);
@@ -572,6 +580,16 @@ router.post('/posts/:postId/comments', authMiddleware, async (req: Request, res:
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Content is required' });
     }
+    if (content.length > MAX_COMMENT_LENGTH) {
+      return res.status(400).json({ error: `Комментарий не длиннее ${MAX_COMMENT_LENGTH} символов` });
+    }
+    if (!uuidValidate(postId)) {
+      return res.status(400).json({ error: 'Invalid post ID' });
+    }
+    const post = await pool.query('SELECT is_active FROM author_posts WHERE id = $1', [postId]);
+    if (post.rows.length === 0 || post.rows[0].is_active !== true) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
 
     const limits = await getKarmaAndLimits(userId);
 
@@ -680,6 +698,9 @@ router.put('/comments/:commentId', authMiddleware, async (req: Request, res: Res
 
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Content is required' });
+    }
+    if (content.length > MAX_COMMENT_LENGTH) {
+      return res.status(400).json({ error: `Комментарий не длиннее ${MAX_COMMENT_LENGTH} символов` });
     }
 
     const comment = await pool.query('SELECT user_id FROM author_post_comments WHERE id = $1', [commentId]);

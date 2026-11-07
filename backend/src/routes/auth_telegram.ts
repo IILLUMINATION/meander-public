@@ -102,9 +102,15 @@ async function handleTelegramWidgetAuth(req: Request, res: Response) {
     .join('\n');
   const secret = crypto.createHash('sha256').update(botToken).digest();
   const hmac = crypto.createHmac('sha256', secret).update(checkString).digest('hex');
-  if (hmac !== data.hash) return res.status(401).json({ error: 'Invalid Telegram hash' });
-  // auth_date check (expire 1 day)
-  if (data.auth_date && Date.now() / 1000 - Number(data.auth_date) > 86400) {
+  const expected = Buffer.from(hmac, 'hex');
+  const provided = Buffer.from(String(data.hash || ''), 'hex');
+  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) {
+    return res.status(401).json({ error: 'Invalid Telegram hash' });
+  }
+  // SEC-10: auth_date обязателен; произвольно старый или будущий payload —
+  // это повтор украденного виджета, а не вход.
+  const authDate = Number(data.auth_date);
+  if (!Number.isFinite(authDate) || Math.abs(Date.now() / 1000 - authDate) > 86400) {
     return res.status(401).json({ error: 'Telegram auth expired' });
   }
   const telegramId = String(data.id);

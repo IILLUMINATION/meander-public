@@ -172,7 +172,8 @@ router.get('/quota', limitQuotaGet, async (req: AuthRequest, res: Response) => {
             upgradeHints: hints,
         });
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'quota error' });
+        console.error('[cloud-sync] quota:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -214,7 +215,8 @@ router.get('/quests', limitList, async (req: AuthRequest, res: Response) => {
         });
         res.json(list);
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'list error' });
+        console.error('[cloud-sync] list:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -342,7 +344,8 @@ router.post('/quests/:questId/check', limitCheck, async (req: AuthRequest, res: 
             remoteUpdatedAt: row?.updated_at,
         });
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'check error' });
+        console.error('[cloud-sync] check:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -537,7 +540,7 @@ router.put(
             });
         } catch (e: any) {
             console.error('[cloud-sync] PUT error:', e);
-            res.status(500).json({ error: e?.message || 'put error' });
+            res.status(500).json({ error: 'Internal server error' });
         }
     },
 );
@@ -584,7 +587,7 @@ router.get(
             stream.pipe(res);
         } catch (e: any) {
             console.error('[cloud-sync] GET error:', e);
-            res.status(500).json({ error: e?.message || 'get error' });
+            res.status(500).json({ error: 'Internal server error' });
         }
     },
 );
@@ -629,7 +632,8 @@ router.delete('/quests/:questId', async (req: AuthRequest, res: Response) => {
         );
         res.json({ ok: true });
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'delete error' });
+        console.error('[cloud-sync] delete:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -659,7 +663,8 @@ router.post('/admin/grant', async (req: AuthRequest, res: Response) => {
         );
         res.json({ ok: true });
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'grant error' });
+        console.error('[cloud-sync] grant:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -673,7 +678,8 @@ router.post('/admin/recompute', async (req: AuthRequest, res: Response) => {
         const tier = await recomputeTier(userId);
         res.json({ ok: true, tier });
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'recompute error' });
+        console.error('[cloud-sync] recompute:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -686,7 +692,8 @@ router.post('/admin/cleanup', async (req: AuthRequest, res: Response) => {
         const report = await runCloudSyncCleanup();
         res.json({ ok: true, ...report });
     } catch (e: any) {
-        res.status(500).json({ error: e?.message || 'cleanup error' });
+        console.error('[cloud-sync] cleanup:', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 

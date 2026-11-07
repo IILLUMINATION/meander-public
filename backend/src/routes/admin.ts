@@ -43,7 +43,8 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
             pending_assets: parseInt(pendingAssets.rows[0].count),
         });
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -69,7 +70,8 @@ router.get('/moderation-queue', async (req: AuthRequest, res: Response) => {
         `);
         res.json(result.rows);
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -84,7 +86,8 @@ router.get('/music-moderation-queue', async (req: AuthRequest, res: Response) =>
         `);
         res.json(result.rows);
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -108,7 +111,8 @@ router.post('/music/:id/review', async (req: AuthRequest, res: Response) => {
         }
         res.json({ success: true });
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -123,7 +127,8 @@ router.get('/assets-moderation-queue', async (req: AuthRequest, res: Response) =
         `);
         res.json(result.rows);
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -146,7 +151,8 @@ router.post('/assets/:id/review', async (req: AuthRequest, res: Response) => {
         }
         res.json({ success: true });
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -198,7 +204,8 @@ router.post('/quest/:id/review', async (req: AuthRequest, res: Response) => {
 
         res.json({ success: true });
     } catch (e) {
-        res.status(500).json(e);
+        console.error('admin route failed:', e);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 

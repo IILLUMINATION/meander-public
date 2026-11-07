@@ -20,7 +20,7 @@ passport.use(
 
         if (existingUserResult.rows.length > 0) {
           // Пользователь уже существует, возвращаем его
-          console.log('User found:', existingUserResult.rows[0]);
+          console.log('User found:', existingUserResult.rows[0].id);
           return done(null, existingUserResult.rows[0]);
         }
 
@@ -38,7 +38,7 @@ passport.use(
           [newUser.id, newUser.google_id, newUser.full_name, newUser.email, newUser.avatar_url]
         );
         
-        console.log('New user created:', newUserResult.rows[0]);
+        console.log('New user created:', newUserResult.rows[0].id);
         return done(null, newUserResult.rows[0]);
       } catch (err) {
         return done(err, false);
