@@ -39,7 +39,37 @@ const getBearerToken = (authHeader?: string): string | null => {
   return token;
 };
 
-const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+// In-memory кэш статуса блокировки с коротким TTL (SEC-01). Без кэша каждый
+// запрос бил бы в БД; с ним — один SELECT на пользователя раз в TTL, а блок
+// вступает в силу максимум через TTL после того, как его поставили.
+const BLOCK_CACHE_TTL_MS = 30 * 1000;
+const _blockStatusCache = new Map<string, { blocked: boolean; fetchedAt: number }>();
+
+async function isBlocked(userId?: string): Promise<boolean> {
+  if (!userId) return false;
+  const cached = _blockStatusCache.get(userId);
+  if (cached && Date.now() - cached.fetchedAt < BLOCK_CACHE_TTL_MS) {
+    return cached.blocked;
+  }
+  try {
+    const result = await pool.query(
+      'SELECT is_blocked FROM profiles WHERE id = $1',
+      [userId],
+    );
+    // Строки нет (пользователь удалён) — считаем незаблокированным: дальше по
+    // коду запрос просто не найдёт владельца.
+    const blocked = result.rows[0]?.is_blocked === true;
+    _blockStatusCache.set(userId, { blocked, fetchedAt: Date.now() });
+    return blocked;
+  } catch (e) {
+    // Best-effort, как touchLastSeen: если БД недоступна, большинство запросов
+    // всё равно упадёт дальше; здесь не превращаем это в блокировку всех.
+    console.error('[auth] block status check failed', e);
+    return false;
+  }
+}
+
+const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const token = getBearerToken(req.headers['authorization']);
   const secret = process.env.JWT_SECRET;
 
@@ -50,18 +80,35 @@ const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => 
     return res.status(401).json({ error: 'No token provided' });
   }
 
-  jwt.verify(token, secret, { algorithms: ['HS256'] }, (err: any, user: any) => {
-    if (err) {
-      // 401, а не 403: токен протух (живёт 7 дней) — это конец сессии, а не
-      // отказ по правилу. Клиент по 401 сбрасывает аккаунт и уводит на вход;
-      // по 403 он считает ответ «запретил модерирующий код» и остаётся в
-      // зомби-сессии, где падает каждый запрос.
-      return res.status(401).json({ error: 'Token is not valid', code: 'TOKEN_INVALID' });
-    }
-    req.user = user;
-    touchLastSeen(user?.id);
-    next();
-  });
+  let user: jwt.JwtPayload | string;
+  try {
+    // Синхронная форма verify: возвращает payload или бросает на невалидном/
+    // протухшем токене.
+    user = jwt.verify(token, secret, { algorithms: ['HS256'] });
+  } catch (err) {
+    // 401, а не 403: токен протух (живёт 7 дней) — это конец сессии, а не
+    // отказ по правилу. Клиент по 401 сбрасывает аккаунт и уводит на вход;
+    // по 403 он считает ответ «запретил модерирующий код» и остаётся в
+    // зомби-сессии, где падает каждый запрос.
+    return res.status(401).json({ error: 'Token is not valid', code: 'TOKEN_INVALID' });
+  }
+
+  // Наши токены всегда объекты ({ id, role }); строка — это подписанная строка
+  // старого формата, которой у нас не бывает.
+  if (typeof user === 'string') {
+    return res.status(401).json({ error: 'Token is not valid', code: 'TOKEN_INVALID' });
+  }
+
+  // SEC-01: заблокированным закрываем все защищённые endpoint'ы сразу в
+  // middleware, а не в отдельных route'ах. 403 здесь — отказ по правилу, и
+  // клиент его корректно не путает с мёртвым токеном.
+  if (await isBlocked(user.id)) {
+    return res.status(403).json({ error: 'Your account is blocked', code: 'ACCOUNT_BLOCKED' });
+  }
+
+  req.user = user;
+  touchLastSeen(user.id);
+  next();
 };
 
 export const optionalAuthMiddleware = (
