@@ -4,6 +4,15 @@ import { validate as uuidValidate } from 'uuid'; // ИМПОРТ
 
 const router = Router();
 
+// SEC-19: переход в приложение вынесен из HTML в статический скрипт, чтобы CSP
+// не разрешала исполнять произвольный инлайн-код. Ссылка передаётся через
+// <meta>, которую браузер не исполняет.
+router.get('/redirect.js', (_req: Request, res: Response) => {
+    res.type('application/javascript').send(
+        "window.addEventListener('load',function(){var m=document.querySelector('meta[name=\"meander-app-link\"]');if(m){var u=m.getAttribute('content');if(u){setTimeout(function(){window.location.href=u;},500);}}});"
+    );
+});
+
 // Твоя ссылка на Google Play
 const GOOGLE_PLAY_LINK = "https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner";
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
@@ -46,6 +55,7 @@ const renderHtml = (title: string, description: string, imageUrl: string, appSch
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="referrer" content="no-referrer">
+    <meta name="meander-app-link" content="${safeAppLink}">
 
     <meta property="og:type" content="website">
     <meta property="og:title" content="${safeTitle}">
@@ -223,13 +233,7 @@ const renderHtml = (title: string, description: string, imageUrl: string, appSch
         </div>
     </div>
     
-    <script>
-        window.onload = function() {
-            setTimeout(function() {
-                window.location.href = "${safeAppLink}";
-            }, 500);
-        }
-    </script>
+    <script src="/share/redirect.js"></script>
 </body>
 </html>
 `;
@@ -247,6 +251,7 @@ const renderPostHtml = (authorName: string, authorAvatar: string, content: strin
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="referrer" content="no-referrer">
+    <meta name="meander-app-link" content="${safeAppLink}">
 
     <meta property="og:type" content="article">
     <meta property="og:title" content="Пост от ${safeName}">
@@ -412,13 +417,7 @@ const renderPostHtml = (authorName: string, authorAvatar: string, content: strin
         </div>
     </div>
     
-    <script>
-        window.onload = function() {
-            setTimeout(function() {
-                window.location.href = "${safeAppLink}";
-            }, 500);
-        }
-    </script>
+    <script src="/share/redirect.js"></script>
 </body>
 </html>
 `;

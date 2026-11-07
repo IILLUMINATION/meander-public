@@ -696,12 +696,20 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res: Response) 
     // Кривой tier — не повод отвечать 500: каталог просто отдаёт все уровни,
     // как и раньше. Валидный приходит с клиента новым параметром.
     const tierFilter = parseMarketTier(req.query.tier);
+    // SEC-23: клиент может листать каталог; предел 50 не даёт одному запросу
+    // вытянуть весь каталог. Без limit старые клиенты получают прежний ответ.
+    const rawLimit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 50) : null;
+    const rawOffset = typeof req.query.offset === 'string' ? parseInt(req.query.offset, 10) : NaN;
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
     const { text: q, params: p } = marketListQuery({
         search: typeof search === 'string' ? search : undefined,
         category: categoryFilter,
         showNsfw,
         viewerId: req.user?.id ?? null,
         tier: tierFilter,
+        limit,
+        offset,
     });
 
     try {

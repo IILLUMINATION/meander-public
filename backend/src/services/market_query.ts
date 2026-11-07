@@ -31,6 +31,10 @@ export interface MarketListOptions {
     viewerId?: string | null;
     /** Уровень каталога 1..3; null/undefined — все уровни. */
     tier?: number | null;
+    /** Сколько строк вернуть; null/undefined — без LIMIT (старые клиенты). */
+    limit?: number | null;
+    /** Смещение для постраничной выдачи. */
+    offset?: number;
 }
 
 export interface BuiltQuery {
@@ -38,7 +42,7 @@ export interface BuiltQuery {
     params: any[];
 }
 
-export function marketListQuery({ search, category, showNsfw = false, viewerId = null, tier = null }: MarketListOptions): BuiltQuery {
+export function marketListQuery({ search, category, showNsfw = false, viewerId = null, tier = null, limit = null, offset = 0 }: MarketListOptions): BuiltQuery {
     let text = SELECT;
     const params: any[] = [];
 
@@ -84,6 +88,15 @@ export function marketListQuery({ search, category, showNsfw = false, viewerId =
     // внутри уровня — свежее. Свежесть остаётся вторым ключом, поэтому
     // перепубликация по-прежнему поднимает квест наверх своей полки.
     text += ' ORDER BY mq.market_tier ASC, mq.created_at DESC';
+
+    if (limit !== null && limit !== undefined) {
+        text += ` LIMIT $${params.length + 1}`;
+        params.push(limit);
+    }
+    if (offset > 0) {
+        text += ` OFFSET $${params.length + 1}`;
+        params.push(offset);
+    }
 
     return { text, params };
 }

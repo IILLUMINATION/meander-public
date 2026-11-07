@@ -131,7 +131,7 @@ router.get('/:authorId/posts', optionalAuthMiddleware, async (req: Request, res:
     if (!uuidValidate(authorId)) return res.status(400).json({ error: 'Invalid author ID format' });
     const limit = parseInt(req.query.limit as string, 10) || 20;
     const offset = parseInt(req.query.offset as string, 10) || 0;
-    const viewerId = (req as AuthRequest).user?.id || (req.query.viewer_id as string) || null;
+    const viewerId = (req as AuthRequest).user?.id || null;
 
     // Guideline 1.2: стена заблокированного автора для блокирующего пуста.
     if ((req as AuthRequest).user?.id) {
@@ -474,10 +474,10 @@ router.post('/posts/:postId/like', authMiddleware, async (req: Request, res: Res
 // ============================================================
 
 // GET /api/author-walls/posts/:postId
-router.get('/posts/:postId', async (req: Request, res: Response) => {
+router.get('/posts/:postId', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { postId } = req.params;
-    const viewerId = req.query.viewer_id as string | undefined;
+    const viewerId = req.user?.id || null;
 
     const result = await pool.query(
       `SELECT 
@@ -516,10 +516,10 @@ router.get('/posts/:postId', async (req: Request, res: Response) => {
 });
 
 // GET /api/author-walls/posts/:postId/comments
-router.get('/posts/:postId/comments', async (req: Request, res: Response) => {
+router.get('/posts/:postId/comments', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const { postId } = req.params;
-    const viewerId = req.query.viewer_id as string | undefined;
+    const viewerId = req.user?.id || null;
 
     let result;
     try {

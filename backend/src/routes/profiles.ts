@@ -1,4 +1,5 @@
 import { Router, Response, Request, NextFunction } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import multer from 'multer';
 import fs from 'fs';
 import os from 'os';
@@ -10,6 +11,7 @@ import { validate as uuidValidate, v4 as uuidv4 } from 'uuid';
 import { decryptToken, encryptToken } from '../services/sync_settings_crypto';
 import { awardAchievement } from '../services/achievements';
 import { isStaff } from '../services/visibility';
+import { clientIp } from '../services/client_ip';
 import { grantDueRewards, rewardProgress } from '../services/rewards';
 import { uploadImage, UnsupportedImageError, acceptsImagePartMime } from '../services/image_host';
 import {
@@ -790,8 +792,21 @@ router.get('/me/rewards', authMiddleware, async (req: AuthRequest, res: Response
     }
 });
 
+// SEC-15: перебор промокодов. Ключ — пользователь, для анонимов — IP.
+const redeemLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    keyGenerator: (req) => {
+        const userId = (req as AuthRequest).user?.id;
+        return userId ? `redeem_${userId}` : `redeem_ip_${ipKeyGenerator(clientIp(req))}`;
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Слишком много попыток. Попробуйте позже.' },
+});
+
 // POST /profiles/redeem (Промокоды)
-router.post('/redeem', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/redeem', authMiddleware, redeemLimiter, async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     const { code } = req.body;
 
@@ -814,7 +829,7 @@ router.post('/redeem', authMiddleware, async (req: AuthRequest, res: Response) =
 
         if (codeRes.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ error: "Промокод не найден или неактивен" });
+            return res.status(400).json({ error: "Неверный или недоступный код" });
         }
 
         const promo = codeRes.rows[0];
@@ -822,7 +837,7 @@ router.post('/redeem', authMiddleware, async (req: AuthRequest, res: Response) =
         // 2. Проверяем лимит использований
         if (promo.current_uses >= promo.max_uses) {
             await client.query('ROLLBACK');
-            return res.status(400).json({ error: "Лимит активаций исчерпан" });
+            return res.status(400).json({ error: "Неверный или недоступный код" });
         }
 
         // 3. Проверяем, активировал ли уже этот юзер
@@ -833,7 +848,7 @@ router.post('/redeem', authMiddleware, async (req: AuthRequest, res: Response) =
 
         if (usageCheck.rows.length > 0) {
             await client.query('ROLLBACK');
-            return res.status(400).json({ error: "Вы уже активировали этот код" });
+            return res.status(400).json({ error: "Неверный или недоступный код" });
         }
 
         // 4. Обновляем счетчик использований
@@ -1184,8 +1199,6 @@ router.post('/fcm-token', authMiddleware, async (req: AuthRequest, res: Response
     }
 });
 
-export default router;
-
 // POST /profiles/playtime-sync (НОВЫЙ РОУТ)
 router.post('/playtime-sync', authMiddleware, async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
@@ -1291,3 +1304,5 @@ router.post('/playtime-sync', authMiddleware, async (req: AuthRequest, res: Resp
         client.release();
     }
 });
+
+export default router;

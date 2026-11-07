@@ -217,8 +217,13 @@ router.get('/:id/file', optionalAuthMiddleware, async (req: AuthRequest, res: Re
       '.woff2': 'font/woff2',
     };
     const ext = path.extname(match).toLowerCase();
-    res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${match}"`);
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+    // SEC-18: инлайн — только для медиа и шрифтов; неизвестный тип отдаём
+    // вложением, чтобы браузер не пытался его отрисовать.
+    const inline = /^(image|audio|video|font)\//.test(contentType);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${match}"`);
     return res.sendFile(full);
   } catch (e: any) {
     console.error('[assets] file', e);

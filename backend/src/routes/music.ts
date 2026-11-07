@@ -258,8 +258,11 @@ router.get('/:id/file', optionalAuthMiddleware, async (req: AuthRequest, res: Re
       '.aac': 'audio/aac',
     };
     const ext = path.extname(match).toLowerCase();
-    res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${match}"`);
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // SEC-18: аудио играем инлайн, неизвестное — только вложением.
+    res.setHeader('Content-Disposition', `${contentType.startsWith('audio/') ? 'inline' : 'attachment'}; filename="${match}"`);
     return res.sendFile(full);
   } catch (e: any) {
     console.error('[music] GET /:id/file', e);

@@ -64,7 +64,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             imgSrc: ["'self'", "data:", "https:"],
@@ -76,6 +76,8 @@ app.use(helmet({
 app.use(hpp());
 app.use(compression());
 
+// CSRF: состояние меняется только по Bearer-токену; cookie-сессий и
+// автоматически отправляемых креденшелов у API нет (SEC-20).
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
@@ -83,7 +85,7 @@ app.use(cors({
         if (allowedOrigins.includes(origin)) return callback(null, true);
         return callback(new Error('Not allowed by CORS'));
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -153,8 +155,20 @@ const downloadLimiter = rateLimit({
 app.use(generalLimiter);
 
 // --- 3. ПАРСИНГ ---
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// SEC-14: обычные JSON-запросы ограничены 1 МБ, формы — 100 КБ. Облачная
+// синхронизация принимает квесты до 5 МБ, поэтому большой лимит включается
+// только для её префикса, а не для всего приложения.
+const jsonDefault = express.json({ limit: '1mb' });
+const jsonCloudSync = express.json({ limit: '5mb' });
+const urlencodedDefault = express.urlencoded({ extended: true, limit: '100kb' });
+const urlencodedCloudSync = express.urlencoded({ extended: true, limit: '5mb' });
+const isCloudSyncPath = (p: string) => p === '/cloud-sync' || p.startsWith('/cloud-sync/');
+app.use((req, res, next) => {
+    (isCloudSyncPath(req.path) ? jsonCloudSync : jsonDefault)(req, res, next);
+});
+app.use((req, res, next) => {
+    (isCloudSyncPath(req.path) ? urlencodedCloudSync : urlencodedDefault)(req, res, next);
+});
 
 if (process.env.NODE_ENV !== 'production') {
     app.use(morgan('dev'));
