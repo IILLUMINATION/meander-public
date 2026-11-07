@@ -187,7 +187,7 @@ class _ExpressionEditorScreenState extends State<ExpressionEditorScreen>
       ),
     );
     if (result != null && result.isNotEmpty && mounted) {
-      _insertText('{$result}');
+      _insertText(bracedVariableToken(result));
     }
   }
 

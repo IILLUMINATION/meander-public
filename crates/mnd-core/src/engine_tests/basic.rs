@@ -984,6 +984,87 @@ fn set_image_writes_source_override_into_state() {
 }
 
 #[test]
+fn set_image_resolves_table_cell_with_variable_row() {
+    let mut engine = simple_engine("q_si_table", vec![node("node_1", "Start", vec![])]);
+    engine.start_new(None);
+
+    let row = |dmg: &str, pic: &str| {
+        serde_json::json!({"Урон": dmg, "Картинка": pic})
+            .as_object()
+            .unwrap()
+            .clone()
+    };
+    engine.state.set_table(
+        "Оружие",
+        QuestTable::new(
+            "Оружие".to_string(),
+            vec!["Урон".to_string(), "Картинка".to_string()],
+            vec![
+                row("0", "res/images/none.webp"),
+                row("10", "res/images/axe.webp"),
+                row("7", "res/images/spear.webp"),
+            ],
+            serde_json::Map::new(),
+        ),
+    );
+    // Строка выбирается переменной с тем же именем, что и таблица.
+    engine.state.set_variable("Оружие", serde_json::json!(2));
+
+    let exec = ScriptExecutor::new();
+    let mut lua = None;
+    let mut ctrl = crate::executor::ExecutionController::default();
+    exec.execute_block_recursively(
+        serde_json::json!({
+            "type": "set_image",
+            "item_id": "img",
+            "source": "{Оружие[\"Картинка\"][\"{Оружие}\"]}",
+        })
+        .as_object()
+        .unwrap(),
+        &mut engine.state,
+        &mut ctrl,
+        "q_si_table",
+        &mut lua,
+    )
+    .unwrap();
+
+    assert_eq!(
+        engine
+            .state
+            .get_variable("_internal_item_sources")
+            .and_then(|v| v.get("img"))
+            .and_then(|v| v.as_str()),
+        Some("res/images/axe.webp"),
+        "прямая ссылка в таблицу из set_image должна резолвиться"
+    );
+
+    // Та же ссылка, но как её кладёт формульный редактор: `{{...}}`.
+    exec.execute_block_recursively(
+        serde_json::json!({
+            "type": "set_image",
+            "item_id": "img2",
+            "source": "{{Оружие[\"Картинка\"][\"{Оружие}\"]}}",
+        })
+        .as_object()
+        .unwrap(),
+        &mut engine.state,
+        &mut ctrl,
+        "q_si_table",
+        &mut lua,
+    )
+    .unwrap();
+    assert_eq!(
+        engine
+            .state
+            .get_variable("_internal_item_sources")
+            .and_then(|v| v.get("img2"))
+            .and_then(|v| v.as_str()),
+        Some("res/images/axe.webp"),
+        "двойные скобки (формульный редактор) не должны ломать источник"
+    );
+}
+
+#[test]
 fn set_visible_writes_hidden_override_into_state() {
     let mut engine = simple_engine("q_sv", vec![node("node_1", "Start", vec![])]);
     engine.start_new(None);

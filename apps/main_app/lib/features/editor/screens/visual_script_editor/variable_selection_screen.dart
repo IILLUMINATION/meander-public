@@ -96,6 +96,18 @@ class QuestVariable {
   });
 }
 
+/// Оборачивает выбор из пикера в фигурные скобки ровно один раз.
+///
+/// Переменная приходит без скобок (`имя`), ссылка на ячейку таблицы — уже в
+/// скобках (`{т["кол"][2]}`). Двойная обёртка `{{…}}` ломала сырые поля:
+/// движок считал внешние скобки частью токена, адрес не находился, и блок
+/// `set_image` подставлял буквальный текст вместо пути к картинке.
+String bracedVariableToken(String picked) {
+  final trimmed = picked.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+  return '{$trimmed}';
+}
+
 class VariableSelectionScreen extends StatefulWidget {
   final String questId;
   final String? selectedVariable;
@@ -120,7 +132,7 @@ class VariableSelectionScreen extends StatefulWidget {
     this.cellPicker = false,
   });
 
-  /// Единая точка входа для вставки в текст (маркдаун, формулы):
+/// Единая точка входа для вставки в текст (маркдаун, формулы):
   /// переменные возвращают `{имя}`, таблицы открывают редактор в режиме
   /// выбора ячейки и возвращают ссылку `{имя["колонка"][N]}`.
   /// Семантику пикера меняем здесь — вызывающим не нужно знать про `cellPicker`.

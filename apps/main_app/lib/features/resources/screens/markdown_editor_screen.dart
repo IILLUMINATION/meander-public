@@ -318,7 +318,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     );
 
     if (variableName != null && variableName.isNotEmpty) {
-      _insertMarkdown('{$variableName}');
+      _insertMarkdown(bracedVariableToken(variableName));
     } else {
       _focusNode.requestFocus();
     }

@@ -893,6 +893,12 @@ pub(crate) fn interpolate_placeholders_raw(
     input: &str,
     game_state: &mut dyn ScriptRuntime,
 ) -> String {
+    // Формульный редактор умеет сохранить значение как `{{…}}`
+    // (двойная обёртка). Схлопываем её тем же правилом, что
+    // `evaluate_expression`: иначе сканер считает внешние скобки частью
+    // токена, адрес `{т["кол"][2]}` не находится, и сырое поле (источник
+    // `set_image`, url, слот сохранения) остаётся текстом `{{…}}`.
+    let input = normalize_placeholder_braces(input);
     let chars: Vec<char> = input.chars().collect();
     let mut out = String::with_capacity(input.len());
     let mut i = 0;
