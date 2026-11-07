@@ -1,6 +1,8 @@
-# ВРЕМЕННЫЙ ОБХОД: nginx отдаёт HTTP (Cloudflare Flexible)
+# ЗАКРЫТ: временный обход nginx (Cloudflare Flexible)
 
-**Статус: активен.** Дата: 2026-11-07, ~22:51 MSK (19:51 UTC).
+**Статус: закрыт.** 2026-11-07, ~20:55 UTC. Cloudflare снова проксирует
+трафик и ходит на origin по **HTTPS** (Full/Full strict); origin-конфиги
+восстановлены: HTTP → `301`, HTTPS → `200`. Петли редиректов нет.
 
 ## Симптом
 Мониторинг: `[Backend Meander] [🔴 Down] Maximum number of redirects exceeded`
@@ -12,7 +14,7 @@ Cloudflare SSL/TLS в режиме **Flexible**: CF ходит на origin по 
 Origin на HTTP отдавал `return 301 https://...`, CF возвращал этот 301 браузеру,
 браузер снова шёл по HTTPS — и так 50 раз.
 
-## Что изменено (временно)
+## Что было изменено временно (откатено)
 - `/etc/nginx/sites-enabled/meander-site`:
   удалён `server { listen 80; ... return 301 https://...; }`,
   в 443-блок добавлен `listen 80;`.
@@ -20,41 +22,42 @@ Origin на HTTP отдавал `return 301 https://...`, CF возвращал 
 - Бэкапы исходных конфигов:
   - `/root/nginx-backups/meander-site.bak.20261107_195008`
   - `/root/nginx-backups/meander.bak.20261107_195040`
+- Временные конфиги сохранены для аудита как
+  `/root/nginx-backups/*.temp.*`.
 
-## Проверка (сейчас)
+## Проверка после отката
 ```bash
 curl -sI https://meander.sbs/                 # 200
+curl -sI http://meander.sbs/                  # 301 → https://meander.sbs/
 curl -sI https://backend.meander.sbs/quests   # 200
-curl -sI http://127.0.0.1/ -H 'Host: meander.sbs'          # 200 (временно)
-curl -sI http://127.0.0.1/quests -H 'Host: backend.meander.sbs' # 200 (временно)
+curl -sI http://127.0.0.1/ -H 'Host: meander.sbs'          # 301 (origin)
+curl -sI http://127.0.0.1/quests -H 'Host: backend.meander.sbs' # 301 (origin)
 ```
 
-## КАК ВЕРНУТЬ (сделать, когда Cloudflare будет Full (strict))
-1. Cloudflare Dashboard → зона `meander.sbs` → **SSL/TLS → Overview → Full (strict)**.
+## Откат (выполнен)
+1. Cloudflare переключён на **Full (strict)**; CF подключается к origin по
+   `443` (проверено `ss` — established-соединения CF на `194.31.223.9:443`).
 2. На сервере:
    ```bash
    cp /root/nginx-backups/meander-site.bak.20261107_195008 /etc/nginx/sites-enabled/meander-site
    cp /root/nginx-backups/meander.bak.20261107_195040      /etc/nginx/sites-enabled/meander
    nginx -t && systemctl reload nginx
    ```
-3. Проверить:
-   ```bash
-   curl -sI https://meander.sbs/      # 200
-   curl -sI http://meander.sbs/       # 301 → https://meander.sbs/
-   curl -sI https://backend.meander.sbs/quests  # 200
-   ```
-4. Удалить это напоминание (файл на Desktop, в репозитории и на сервере).
+3. Проверки выше прошли; health backend `204`.
 
-## Напоминание
-При каждом входе root по SSH в `/root/.bashrc` выводится предупреждение.
-Убрать: удалить из `/root/.bashrc` блок, начинающийся с
-`# TEMP: Cloudflare nginx workaround reminder`.
+## Напоминания удалены
+Удалён блок `# TEMP: Cloudflare nginx workaround reminder` из
+`/root/.bashrc` (бэкап `/root/.bashrc.bak.*`), файлы
+`/root/RESTORE-AFTER-CLOUDFLARE-FIX.md`,
+`/root/nginx-backups/RESTORE-AFTER-CLOUDFLARE-FIX.md` и
+`~/Desktop/RESTORE-NGINX-CLOUDFLARE.md`.
 
 ## Почему не оставлять навсегда
-Пока обход активен, origin отдаёт сайт и API по **прямому HTTP** (если знать IP),
-т.е. трафик вне Cloudflare не шифруется и нет CF-защиты. HSTS включён, но это не замена Full (strict).
+Пока обход был активен, origin отдавал сайт и API по **прямому HTTP**
+(если знать IP), т.е. трафик вне Cloudflare не шифровался и не было
+CF-защиты. После переключения на Full (strict) обход снят.
 
-## Дополнительно сделано 2026-11-07 (можно оставить после откатa обхода)
+## Дополнительно сделано 2026-11-07 (остаётся после отката обхода)
 
 - **Реальный IP клиента (SEC-07).** `/etc/nginx/snippets/cloudflare-real-ip.conf`
   содержит `set_real_ip_from` для всех сетей Cloudflare (v4/v6),
@@ -80,3 +83,4 @@ curl -sI http://127.0.0.1/quests -H 'Host: backend.meander.sbs' # 200 (врем�
   Cloudflare в проблемном регионе, а не код.
 - **`/` и `security.txt` (LIVE-03).** Корень отдаёт `204`, добавлены
   `/.well-known/security.txt` (GitHub Security Advisories) и `robots.txt`.
+  Старый закэшированный CF `404` для `robots.txt` истёк и теперь отдаётся `200`.
