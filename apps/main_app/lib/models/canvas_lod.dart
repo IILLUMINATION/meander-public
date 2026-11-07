@@ -13,6 +13,11 @@ class CanvasLod {
   /// рисуются: они в этом масштабе всё равно неразборчивы, но и недёшевы.
   static const double detailsMinScale = 0.35;
 
+  /// Сколько нод должно быть видно одновременно, чтобы упрощение вообще
+  /// включалось. На маленьком графе (как на экране с десятком нод) кадр и так
+  /// укладывается в бюджет, а снятые подписи и детали только портят вид.
+  static const int lodMinNodes = 40;
+
   /// Сколько миллисекунд UI-потока на сборку списка отрисовки канваса мы
   /// считаем нормой. Кадр 60 fps — 16.6 мс, половину оставляем остальному UI.
   static const double frameBudgetMs = 8.0;
@@ -22,7 +27,11 @@ class CanvasLod {
   static const int minTitleBudget = 8;
 
   /// Детали (описание, индикаторы, якоря) рисовать при текущем зуме?
-  static bool showDetails(double scale) => scale >= detailsMinScale;
+  ///
+  /// Упрощение включается только на большом графе: при [visibleNodes] не выше
+  /// [lodMinNodes] детали остаются, даже если ноды уменьшены.
+  static bool showDetails(double scale, {int visibleNodes = 0}) =>
+      visibleNodes <= lodMinNodes || scale >= detailsMinScale;
 }
 
 /// Скользящая цена кадра канваса и вытекающий бюджет подписей.
@@ -39,6 +48,7 @@ class CanvasFrameCost {
 
   /// Сколько подписей разрешить в этом кадре при [visibleNodes] видимых нодах.
   int budgetFor(int visibleNodes) {
+    if (visibleNodes <= CanvasLod.lodMinNodes) return visibleNodes;
     final budget = _budget;
     return budget == null ? visibleNodes : budget.clamp(0, visibleNodes);
   }
@@ -47,6 +57,11 @@ class CanvasFrameCost {
   /// Именно здесь дорог `TextPainter.layout` на каждую подпись.
   void record(double paintMs, {required int visibleNodes}) {
     _emaMs = _emaMs <= 0 ? paintMs : _emaMs * 0.6 + paintMs * 0.4;
+    if (visibleNodes <= CanvasLod.lodMinNodes) {
+      // Мало нод: подписи не могут быть причиной тяжёлого кадра — не режем.
+      _budget = null;
+      return;
+    }
     final current = _budget ?? visibleNodes;
     if (_emaMs > CanvasLod.frameBudgetMs) {
       // Кадр не влезает: режем подписи, но оставляем запас для восстановления.

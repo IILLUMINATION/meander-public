@@ -120,12 +120,24 @@ void main() {
       expect(spy.titledNodeIds, hasLength(12));
     });
 
-    testWidgets('детали при отдалении по-прежнему пропадают', (tester) async {
+    testWidgets('детали пропадают на большом графе при отдалении', (
+      tester,
+    ) async {
+      final spy = _SpyRenderer();
+      paintOnce(canvasWithNodes(60, scale: 0.2), spy, CanvasFrameCost());
+
+      expect(spy.showDetailsFlags, isNotEmpty);
+      expect(spy.showDetailsFlags.every((flag) => flag == false), isTrue);
+    });
+
+    testWidgets('маленький граф сохраняет детали даже при отдалении', (
+      tester,
+    ) async {
       final spy = _SpyRenderer();
       paintOnce(canvasWithNodes(4, scale: 0.2), spy, CanvasFrameCost());
 
       expect(spy.showDetailsFlags, isNotEmpty);
-      expect(spy.showDetailsFlags.every((flag) => flag == false), isTrue);
+      expect(spy.showDetailsFlags.every((flag) => flag == true), isTrue);
     });
 
     testWidgets('при обычном зуме детали рисуются', (tester) async {
@@ -158,6 +170,17 @@ void main() {
         greaterThanOrEqualTo(CanvasLod.minTitleBudget),
       );
       expect(spy.titledNodeIds.first, 'n59');
+    });
+
+    testWidgets('медленный кадр не режет подписи на маленьком графе', (
+      tester,
+    ) async {
+      const total = 30;
+      final cost = slowFrameCost(total);
+      final spy = _SpyRenderer();
+      paintOnce(canvasWithNodes(total, scale: 0.2), spy, cost);
+
+      expect(spy.titledNodeIds, hasLength(total));
     });
 
     testWidgets('быстрые кадры возвращают подписи всем нодам', (tester) async {
@@ -243,10 +266,16 @@ void main() {
   });
 
   group('CanvasLod.showDetails', () {
-    test('порог 0.35', () {
-      expect(CanvasLod.showDetails(0.34), isFalse);
-      expect(CanvasLod.showDetails(0.35), isTrue);
-      expect(CanvasLod.showDetails(1.0), isTrue);
+    test('порог 0.35 работает только на большом графе', () {
+      expect(CanvasLod.showDetails(0.34, visibleNodes: 60), isFalse);
+      expect(CanvasLod.showDetails(0.35, visibleNodes: 60), isTrue);
+      expect(CanvasLod.showDetails(1.0, visibleNodes: 60), isTrue);
+    });
+
+    test('маленький граф не упрощается при любом зуме', () {
+      expect(CanvasLod.showDetails(0.1, visibleNodes: 3), isTrue);
+      expect(CanvasLod.showDetails(0.1, visibleNodes: 40), isTrue);
+      expect(CanvasLod.showDetails(0.1), isTrue);
     });
   });
 }

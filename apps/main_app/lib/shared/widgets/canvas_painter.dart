@@ -99,7 +99,10 @@ class InfiniteCanvasPainter extends CustomPainter {
     final matchingNodeIds = state.matchingNodeIds;
 
     // --- СВЯЗИ --- (батчинг + LOD, геометрия из провайдера)
-    final isLowDetail = state.scale < 0.5;
+    // Упрощение (прямые тонкие линии без пунктира) нужно только большому
+    // графу; на маленьком изгибы и пунктир остаются при любом зуме.
+    final isLowDetail =
+        state.scale < 0.5 && visibleNodes.length > CanvasLod.lodMinNodes;
     final kindFilteredConnections = state.connections
         .where((connection) => visibleConnectionKinds.contains(connection.kind))
         .toList();
@@ -113,7 +116,10 @@ class InfiniteCanvasPainter extends CustomPainter {
       return g.bounds.overlaps(expandedRect);
     }).toList();
 
-    // Батчинг: 1 drawPath на вид связи вместо 2* N
+    // Батчинг: 1 drawPath на вид связи. Виртуальные рёбра (timer/script)
+    // рисуются пунктиром — иначе они неотличимы от content-рёбер и сливаются
+    // с ними в одну сплошную линию. На мелком зуме пунктир нечитаем, там
+    // остаётся тонкая сплошная.
     if (visibleConnections.isNotEmpty) {
       final solidContent = Path();
       final solidTimer = Path();
@@ -135,12 +141,19 @@ class InfiniteCanvasPainter extends CustomPainter {
           target.lineTo(g.end.dx, g.end.dy);
         } else {
           if (c.isVirtual) {
-            // В LOD-дальности пунктир — визуальный мусор, рисуем сплошной тонкой
-            target.moveTo(g.start.dx, g.start.dy);
-            target.lineTo(g.end.dx, g.end.dy);
+            target.addPath(_dashedPathFor(g), Offset.zero);
           } else {
-            target.moveTo(g.start.dx, g.start.dy);
-            target.cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+            final curve = Path()
+              ..moveTo(g.start.dx, g.start.dy)
+              ..cubicTo(
+                g.cp1.dx,
+                g.cp1.dy,
+                g.cp2.dx,
+                g.cp2.dy,
+                g.end.dx,
+                g.end.dy,
+              );
+            target.addPath(curve, Offset.zero);
             _addArrowToPath(arrowPath, g.cp2, g.end);
           }
         }
@@ -182,10 +195,14 @@ class InfiniteCanvasPainter extends CustomPainter {
       _drawConnectionPreview(canvas, startNode, state.connectionPreviewEnd!);
     }
 
-    // --- НОДЫ --- (LOD: при отдалении падают описание/пилюли/якоря, название
-    // остаётся — оно нужно для ориентира. Экономим только когда кадр не влезает:
-    // подписи нормируются бюджетом из измеренной цены кадра.)
-    final bool showDetails = CanvasLod.showDetails(state.scale);
+    // --- НОДЫ --- (LOD: описание/пилюли/якоря падают только на мелком зуме и
+    // только на большом графе; название остаётся всегда — оно нужно для
+    // ориентира. Подписи дополнительно нормируются бюджетом из измеренной
+    // цены кадра.)
+    final bool showDetails = CanvasLod.showDetails(
+      state.scale,
+      visibleNodes: visibleNodes.length,
+    );
     final List<({Node node, bool dimmed})> priorityTitles = [];
     final List<({Node node, bool dimmed})> otherTitles = [];
     for (final node in visibleNodes) {
@@ -418,6 +435,38 @@ class InfiniteCanvasPainter extends CustomPainter {
       ..close();
     canvas.drawPath(path, paint);
   }
+
+  /// Пунктирная копия кривой связи.
+  ///
+  /// Нарезка на сегменты — самая дорогая часть отрисовки виртуальных рёбер
+  /// (у большого квеста их сотни), а геометрия между кадрами панорамы/зума не
+  /// меняется. Ключ — сам объект геометрии (пересоздаётся при движении нод),
+  /// поэтому кэш живёт по identity и не требует сравнений путей.
+  static final Map<ConnectionGeometry, Path> _dashedPaths =
+      <ConnectionGeometry, Path>{};
+
+  Path _dashedPathFor(ConnectionGeometry g) {
+    final cached = _dashedPaths[g];
+    if (cached != null) return cached;
+    final curve = Path()
+      ..moveTo(g.start.dx, g.start.dy)
+      ..cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+    final dashed = Path();
+    for (final metric in curve.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final end = math.min(distance + _dash, metric.length);
+        dashed.addPath(metric.extractPath(distance, end), Offset.zero);
+        distance = end + _dashGap;
+      }
+    }
+    if (_dashedPaths.length > 4096) _dashedPaths.clear();
+    _dashedPaths[g] = dashed;
+    return dashed;
+  }
+
+  static const double _dash = 8;
+  static const double _dashGap = 6;
 
   void _addArrowToPath(Path arrowPath, Offset from, Offset to) {
     final d = to - from;

@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_core/src/gen/api/canvas.dart' as rust_canvas;
 
@@ -252,7 +253,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   Timer? _autoSaveDebounce;
   Timer? _cameraCommitTimer;
   Timer? _hoverDebounce;
-  int _syncRevision = 0;
+  String _scriptScanSignature = '';
+  int _scriptScanToken = 0;
   void Function()? _contentChangeUnsub;
   static const double gridSize = 20.0;
 
@@ -298,7 +300,6 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   }
 
   Future<void> _syncNodesFromProvider(List<SavedNode> savedNodes) async {
-    final currentRevision = ++_syncRevision;
     final sw = Stopwatch()..start();
 
     final index = await _ref.read(canvasIndexProvider(_questId).future);
@@ -401,7 +402,27 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     }
 
     if (mounted) {
-      state = state.copyWith(nodes: nodes, connections: connections);
+      // Скриптовые рёбра в индексе не лежат — они приходят фоновым сканом.
+      // Пересборка связей из индекса не должна их выбрасывать: скан повторно
+      // запускается только при смене набора нод/признака `hasScripts`.
+      final scriptConnections = <Connection>[
+        for (final c in state.connections)
+          if (c.kind == ConnectionKind.script &&
+              nodeMap[c.fromNode.id] != null &&
+              nodeMap[c.toNode.id] != null)
+            Connection(
+              id: c.id,
+              fromNode: nodeMap[c.fromNode.id]!,
+              toNode: nodeMap[c.toNode.id]!,
+              color: c.color,
+              isVirtual: true,
+              kind: c.kind,
+            ),
+      ];
+      state = state.copyWith(
+        nodes: nodes,
+        connections: [...connections, ...scriptConnections],
+      );
     }
     sw.stop();
     print(
@@ -410,36 +431,60 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       'in ${sw.elapsedMilliseconds}ms',
     );
 
-    // Скриптовые рёбра требуют тел нод; грузим их только фоном и только
-    // если у нод вообще есть ссылки на скрипты.
-    if (nodes.any((n) => (n.scriptAssetId ?? '').isNotEmpty)) {
+    // Скриптовые рёбра (пунктир) живут в телах нод: `scriptAssetId`, элементы
+    // `type: script` и `scriptTriggers`. Индекс хранит только признак
+    // `hasScripts`, поэтому тела читаются лишь когда скрипты действительно
+    // есть (или индекс старый и признака ещё нет), и только когда набор таких
+    // нод изменился — иначе скан крутился бы на каждое сохранение.
+    final chapterSummaries = (index['nodes'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .where((n) => n['chapterId']?.toString() == _tagId);
+    final scriptSignature = chapterSummaries
+        .map((n) => '${n['id']}:${n['hasScripts']}')
+        .join('|');
+    if (scriptSignature != _scriptScanSignature) {
+      _scriptScanSignature = scriptSignature;
+      final scanToken = ++_scriptScanToken;
       unawaited(
         _loadScriptConnectionsInBackground(
-          revision: currentRevision,
+          token: scanToken,
           nodes: nodes,
           nodeMap: nodeMap,
-          baseConnections: connections,
+          skipBodyNodeIds: {
+            for (final summary in chapterSummaries)
+              if (summary['hasScripts'] == false)
+                summary['id']?.toString() ?? '',
+          },
         ),
       );
     }
   }
 
   Future<void> _loadScriptConnectionsInBackground({
-    required int revision,
+    required int token,
     required List<Node> nodes,
     required Map<String, Node> nodeMap,
-    required List<Connection> baseConnections,
+    required Set<String> skipBodyNodeIds,
   }) async {
     final sw = Stopwatch()..start();
     try {
       final scriptConnections = await _collectScriptConnections(
         nodes: nodes,
         nodeMap: nodeMap,
+        skipBodyNodeIds: skipBodyNodeIds,
       );
-      if (!mounted || revision != _syncRevision) return;
+      // Отдельный токен, а не ревизия синка: синк может пройти повторно, пока
+      // читаются тела, и результат первого скана всё равно актуален.
+      if (!mounted || token != _scriptScanToken) return;
 
+      // Мержим в актуальные связи, а не в снимок на момент запуска скана:
+      // пока тела читались, автор мог добавить обычную связь, и снимок её бы
+      // затёр.
       state = state.copyWith(
-        connections: [...baseConnections, ...scriptConnections],
+        connections: [
+          ...state.connections.where((c) => c.kind != ConnectionKind.script),
+          ...scriptConnections,
+        ],
       );
       sw.stop();
       print(
@@ -458,6 +503,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   Future<List<Connection>> _collectScriptConnections({
     required List<Node> nodes,
     required Map<String, Node> nodeMap,
+    Set<String> skipBodyNodeIds = const {},
   }) async {
     final scriptTargetsCache = <String, Set<String>>{};
     final resolvedScriptCache = <String, String?>{};
@@ -466,8 +512,20 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     final result = <Connection>[];
 
     for (final sourceNode in nodes) {
-      final scriptRefs = _collectNodeScriptReferences(sourceNode.content);
-      final nodeScriptRef = sourceNode.scriptAssetId?.trim();
+      // Индекс канваса хранит только summary (без `content.items`), поэтому
+      // ссылки на скрипты в элементах и триггерах видны лишь в теле ноды.
+      // `hasScripts == false` в индексе — тело читать незачем.
+      final body = skipBodyNodeIds.contains(sourceNode.id)
+          ? null
+          : await QuestNodesStore.readNode(_questId, sourceNode.id);
+      final bodyContent = body?['content'];
+      final content = bodyContent is Map
+          ? Map<String, dynamic>.from(bodyContent)
+          : sourceNode.content;
+      final scriptRefs = _collectNodeScriptReferences(content);
+      final nodeScriptRef = (body?['scriptAssetId'] ?? sourceNode.scriptAssetId)
+          ?.toString()
+          .trim();
       if (nodeScriptRef != null && nodeScriptRef.isNotEmpty) {
         scriptRefs.add(nodeScriptRef);
       }

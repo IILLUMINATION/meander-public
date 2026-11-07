@@ -481,8 +481,51 @@ class QuestNodesStore {
     if (content is Map && content['description'] is String) {
       summary['description'] = content['description'];
     }
+    // Канвасу нужен дешёвый признак «у ноды есть скрипты», иначе для
+    // пунктирных рёбер приходится читать тело каждой ноды главы.
+    summary['hasScripts'] = _hasScriptRefs(node);
     summary.putIfAbsent('type', () => 'node');
     return summary;
+  }
+
+  /// Есть ли у ноды ссылка на скрипт: `scriptAssetId`, элемент `type: script`
+  /// или `scriptTriggers` на любом элементе (включая вложенные children).
+  static bool _hasScriptRefs(Map<String, dynamic> node) {
+    final asset = node['scriptAssetId']?.toString().trim();
+    if (asset != null && asset.isNotEmpty) return true;
+
+    final refs = <String>{};
+    void walk(dynamic raw) {
+      if (raw is! Map) return;
+      if (raw['type']?.toString() == 'script') {
+        final path = raw['resourcePath']?.toString().trim();
+        if (path != null && path.isNotEmpty) refs.add(path);
+      }
+      final triggers = raw['scriptTriggers'];
+      if (triggers is Map) {
+        for (final value in triggers.values) {
+          final path = value?.toString().trim();
+          if (path != null && path.isNotEmpty) refs.add(path);
+        }
+      }
+      final children = raw['children'];
+      if (children is List) {
+        for (final child in children) {
+          walk(child);
+        }
+      }
+    }
+
+    final content = node['content'];
+    if (content is Map) {
+      final items = content['items'];
+      if (items is List) {
+        for (final item in items) {
+          walk(item);
+        }
+      }
+    }
+    return refs.isNotEmpty;
   }
 
   static Future<Map<String, dynamic>?> _readNodeBody(
