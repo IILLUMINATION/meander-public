@@ -114,6 +114,16 @@ fn http_date(time: SystemTime) -> String {
     dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
 }
 
+/// Node's `fs.Stats.mtime` is a `Date`, whose millisecond field rounds the
+/// filesystem nanoseconds to the nearest millisecond. `etag` hashes that
+/// `Date`, so truncating here would produce a different ETag roughly half the
+/// time.
+fn mtime_millis(time: SystemTime) -> u128 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|d| (d.as_nanos() + 500_000) / 1_000_000)
+        .unwrap_or(0)
+}
+
 fn weak_eq(a: &str, b: &str) -> bool {
     a.trim().trim_start_matches("W/") == b.trim().trim_start_matches("W/")
 }
@@ -171,10 +181,7 @@ pub async fn file_response(
     })?;
     let len = meta.len();
     let modified = meta.modified().unwrap_or(UNIX_EPOCH);
-    let millis = modified
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    let millis = mtime_millis(modified);
     let etag = format!("W/\"{len:x}-{millis:x}\"");
     let last_modified = http_date(modified);
 
@@ -371,5 +378,14 @@ mod tests {
         assert!(!QUEST_FILE.is_match("../etc/passwd"));
         assert!(!QUEST_FILE.is_match("6f1d2a4e-0b4d-4f2a-9d5f-0b1b2c3d4e5f.exe"));
         assert!(!QUEST_FILE.is_match("6f1d2a4e-0b4d-4f2a-9d5f-0b1b2c3d4e5"));
+    }
+
+    #[test]
+    fn etag_millis_round_like_node_date() {
+        let at = |ns: u64| UNIX_EPOCH + std::time::Duration::from_nanos(ns);
+        assert_eq!(mtime_millis(at(863_891_680)), 864);
+        assert_eq!(mtime_millis(at(864_077_961)), 864);
+        assert_eq!(mtime_millis(at(864_500_000)), 865);
+        assert_eq!(mtime_millis(at(864_499_999)), 864);
     }
 }
