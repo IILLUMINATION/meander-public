@@ -162,3 +162,6 @@ flutter:
     - assets/guides/create_quest/
     - assets/guides/market/
     - assets/guides/hub/
+    # Готовая веб-оболочка для кнопки «Собрать веб-версию». Архив (~10 МБ)
+    # кладёт scripts/build_web_template.sh или CI — в git его нет.
+    - assets/web_player/

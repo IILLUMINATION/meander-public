@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:canvas_app/core/services/export_service.dart';
 import 'package:canvas_app/features/quests/widgets/quest_export_format_dialog.dart';
 import 'package:canvas_app/core/services/offline_apk_builder.dart';
+import 'package:canvas_app/core/services/offline_web_builder.dart';
 import 'package:canvas_app/core/services/quest_document_exporter.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/save_game_service.dart';
@@ -64,10 +65,15 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
   bool _isExportingTxt = false;
   bool _isExportingPdf = false;
   bool _isBuildingApk = false;
+  bool _isBuildingWeb = false;
 
   /// Собирать APK офлайн умеет только Android — и только если в сборку
   /// приложения вшит шаблон плеера (это делает CI, см. build_android.yml).
   bool _canBuildApk = false;
+
+  /// Веб-версию собирает сама оболочка из вшитого архива — платформа любая,
+  /// но только если архив положили (`scripts/build_web_template.sh`/CI).
+  bool _canBuildWeb = false;
 
   /// Ключ кнопки «Сценарий и Главы» — на неё указывает обучение.
   final GlobalKey _openEditorKey = GlobalKey();
@@ -85,6 +91,11 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
         }),
       );
     }
+    unawaited(
+      OfflineWebBuilder.isAvailable().then((available) {
+        if (mounted) setState(() => _canBuildWeb = available);
+      }),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref
@@ -224,6 +235,32 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
       );
     } finally {
       if (mounted) setState(() => _isBuildingApk = false);
+    }
+  }
+
+  Future<void> _buildWeb(Quest quest) async {
+    if (_isBuildingWeb) return;
+    setState(() => _isBuildingWeb = true);
+    try {
+      final result = await OfflineWebBuilder.buildAndSave(
+        quest.id,
+        questTitle: quest.title,
+      );
+      if (!mounted) return;
+      if (result != null) {
+        _showSnack(
+          trf('Веб-версия собрана: {p0}', {'p0': result.fileName}),
+          success: true,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(
+        trf('Ошибка сборки веб-версии: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
+    } finally {
+      if (mounted) setState(() => _isBuildingWeb = false);
     }
   }
 
@@ -475,6 +512,18 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
                   onTap: () {
                     Navigator.pop(ctx);
                     _buildApk(quest);
+                  },
+                ),
+              if (_canBuildWeb)
+                ListTile(
+                  leading: const Icon(Icons.public_rounded),
+                  title: Text(tr('Собрать веб-версию')),
+                  subtitle: Text(
+                    tr('Сайт с квестом — zip, нужен хостинг с COOP/COEP'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _buildWeb(quest);
                   },
                 ),
               const SizedBox(height: 8),

@@ -142,6 +142,10 @@ jobs:
           key: macos-pods-${{ hashFiles('apps/main_app/macos/Podfile', 'apps/main_app/pubspec.lock') }}
           restore-keys: macos-pods-
 
+      # Веб-оболочка для in-app веб-экспорта (см. build_web_template.sh).
+      - name: Build web player template
+        run: bash ./scripts/build_web_template.sh
+
       - name: Build macOS release
         working-directory: apps/main_app
         run: flutter build macos --release

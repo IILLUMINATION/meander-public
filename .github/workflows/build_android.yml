@@ -109,6 +109,11 @@ jobs:
           ls -la "$assets"
           rm -rf apps/quest_player/build
 
+      # Веб-оболочка для кнопки «Собрать веб-версию»: приложение достаёт её
+      # из assets и добавляет quest.mnd на устройстве.
+      - name: Build web player template
+        run: bash ./scripts/build_web_template.sh
+
       - name: Build APK
         working-directory: apps/main_app
         env:
