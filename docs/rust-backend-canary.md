@@ -48,14 +48,17 @@ middleware; the canary process is enough.
 | Stage | Traffic | Routes | Socket.IO | Gate |
 |---|---|---|---|---|
 | 0. Deploy idle | 0% | none | Node | Process starts, `/` = 204, same DB |
-| 1. Shadow | 0% | GET/HEAD mirrored | Node | 24h, response diffs reviewed |
+| 1. Shadow (optional) | 0% | GET/HEAD replayed | Node | 24h, response diffs reviewed |
 | 2. Read canary | 1% of users | GET/HEAD | Node | 24h: 5xx/p95 not worse than Node |
 | 3. Read canary | 5% then 10% | GET/HEAD | Node | 24–48h per step |
 | 4. Write canary | 1% | POST/PUT/PATCH/DELETE | see below | Explicit idempotency review |
 | 5. Read majority | 50% of users | GET/HEAD | Node | 24–48h |
 | 6. Cutover | 100% | all | Rust | Low-traffic window, Node standby |
 
-Do not start at 50%. Do not enable write retries in any stage.
+Shadow is optional and must be GET/HEAD-only. nginx's `mirror` directive is
+not method-aware, so it is not used in the example config; use a read-only
+replay tool or a separate GET-only ingress. Do not start at 50%. Do not enable
+write retries in any stage.
 
 ### WebSocket decision
 

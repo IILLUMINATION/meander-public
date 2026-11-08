@@ -37,29 +37,16 @@ map "$canary_read_eligible:$canary_bucket" $canary_port {
     default 3000;
 }
 
-# GET/HEAD shadow copy. The mirror runs asynchronously and cannot affect the
-# client response. The body is not mirrored; this is deliberate.
-map $request_method $canary_mirror_uri {
-    default "";
-    GET     /__rust_shadow;
-    HEAD    /__rust_shadow;
-}
+# Shadow mirroring is intentionally omitted. nginx's `mirror` directive is
+# not method-aware: it would also replay POST/PUT/PATCH/DELETE without a body,
+# which can corrupt state. Do shadowing with a read-only replay tool, or only
+# after every unsafe method has been excluded at the edge.
 
 server {
     listen 443 ssl;
     server_name backend.meander.sbs;
 
     # ... existing TLS/Cloudflare-real-ip configuration ...
-
-    location = /__rust_shadow {
-        internal;
-        proxy_pass http://127.0.0.1:3100$request_uri;
-        proxy_set_header Host $host;
-        proxy_set_header X-Request-Id $request_id;
-        proxy_connect_timeout 2s;
-        proxy_read_timeout 5s;
-        proxy_send_timeout 5s;
-    }
 
     # Keep all realtime traffic on one backend during the split rollout.
     location /socket.io/ {
@@ -74,11 +61,6 @@ server {
     }
 
     location / {
-        # Shadow only safe methods into Rust. If your nginx rejects the empty
-        # variable, remove these two lines until the variable form is tested.
-        mirror $canary_mirror_uri;
-        mirror_request_body off;
-
         proxy_pass http://127.0.0.1:$canary_port;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
