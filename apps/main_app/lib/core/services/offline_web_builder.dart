@@ -4,7 +4,8 @@ import 'package:archive/archive_io.dart';
 import 'package:canvas_app/core/services/export_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_file_dialog/flutter_file_dialog.dart';
+import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/services/quest_document_exporter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -83,13 +84,13 @@ class OfflineWebBuilder {
       await composeSite(shellDir: siteDir, questMnd: questFile);
       await zipSite(siteDir, zipFile);
 
-      final saved = await FlutterFileDialog.saveFile(
-        params: SaveFileDialogParams(
-          sourceFilePath: zipFile.path,
-          fileName: '$fileName.zip',
-        ),
+      final saved = await QuestDocumentExporter.saveBytes(
+        bytes: await zipFile.readAsBytes(),
+        suggestedFileName: '$fileName.zip',
+        dialogTitle: tr('Сохранить веб-версию'),
+        extensions: const ['zip'],
       );
-      if (saved == null) return null;
+      if (!saved) return null;
       return WebExportResult('$fileName.zip');
     } finally {
       for (final path in [workDir, zipFile, questFile]) {

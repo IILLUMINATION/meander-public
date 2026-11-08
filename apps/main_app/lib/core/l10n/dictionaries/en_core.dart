@@ -74,6 +74,7 @@ final Map<String, String> enCore = {
   'Сохранить квест': 'Save quest',
   'Сохранить логи': 'Save logs',
   'Сохранить шаблон': 'Save template',
+  'Сохранить веб-версию': 'Save web version',
   'Сохранить экспорт квеста': 'Save quest export',
   'Ссылка на несуществующую ноду': 'Link to a nonexistent node',
   'Точный циан': 'True cyan',

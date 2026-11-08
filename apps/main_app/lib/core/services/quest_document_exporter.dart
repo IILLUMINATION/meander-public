@@ -30,7 +30,7 @@ class QuestDocumentExporter {
     try {
       final book = await _loadQuestBook(questId);
       final pdfBytes = await QuestPdfBuilder.build(book, options: options);
-      return await _saveBytes(
+      return await saveBytes(
         bytes: pdfBytes,
         suggestedFileName: '${_sanitize(questTitle)}.pdf',
         dialogTitle: tr('Сохранить PDF'),
@@ -202,7 +202,12 @@ class QuestDocumentExporter {
   //  Сохранение
   // ---------------------------------------------------------------------------
 
-  static Future<bool> _saveBytes({
+  /// Системный диалог сохранения файла.
+  ///
+  /// Разные плагины под разные платформы: `flutter_file_dialog` есть только на
+  /// Android и iOS (`MissingPluginException` на десктопе), а `file_picker`
+  /// умеет писать байты на Windows/Linux/macOS.
+  static Future<bool> saveBytes({
     required Uint8List bytes,
     required String suggestedFileName,
     required String dialogTitle,
