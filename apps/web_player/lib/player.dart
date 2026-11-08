@@ -192,7 +192,7 @@ class QuestPlayer extends ChangeNotifier {
     } catch (e, stack) {
       debugPrint('[web-player] start failed: $e\n$stack');
       phase = PlayPhase.failed;
-      errorMessage = '$e';
+      errorMessage = _explainWebFailure('$e');
       _safeNotify();
     }
   }
@@ -1003,4 +1003,18 @@ splitDeltaAgainstHold({
 
 extension on String {
   String? get ifEmptyOrNull => isEmpty ? null : this;
+}
+
+/// Ошибка старта движка на вебе: `RuntimeError: unreachable` — это не текст
+/// для игрока, а wasm-ловушка. Чаще всего страницу отдали без COOP/COEP, и
+/// FRB не смог поднять worker pool через SharedArrayBuffer; без подсказки
+/// автор видит голую строку и не понимает, что чинить.
+String _explainWebFailure(String raw) {
+  final wasmTrap = raw.contains('RuntimeError') || raw.contains('unreachable');
+  if (!wasmTrap) return raw;
+  return '$raw\n\nДвижок не запустился: странице нужны заголовки '
+      'Cross-Origin-Opener-Policy: same-origin и '
+      'Cross-Origin-Embedder-Policy: require-corp. Без них браузер не даёт '
+      'SharedArrayBuffer. Для локальной раздачи: '
+      'python3 scripts/serve_web_export.py --dir <папка экспорта>.';
 }
