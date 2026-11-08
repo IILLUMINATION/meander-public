@@ -33,7 +33,8 @@ impl BlockHandler for SaveOperation {
             "open" | "list" => serde_json::json!({"type": "open_saves"}),
             "load" => {
                 if slot.is_empty() {
-                    ctx.executor.log("⚠️ save_operation: load без имени слота — открываю список");
+                    ctx.executor
+                        .log("⚠️ save_operation: load без имени слота — открываю список");
                     serde_json::json!({"type": "open_saves"})
                 } else {
                     serde_json::json!({"type": "load_save", "slotName": slot})
@@ -41,14 +42,16 @@ impl BlockHandler for SaveOperation {
             }
             "delete" => {
                 if slot.is_empty() {
-                    ctx.executor.log("⚠️ save_operation: delete без имени слота — пропуск");
+                    ctx.executor
+                        .log("⚠️ save_operation: delete без имени слота — пропуск");
                     return Ok(None);
                 }
                 serde_json::json!({"type": "delete_save", "slotName": slot})
             }
             _ => {
-                ctx.executor
-                    .log(&format!("⚠️ save_operation: неизвестная операция «{operation}»"));
+                ctx.executor.log(&format!(
+                    "⚠️ save_operation: неизвестная операция «{operation}»"
+                ));
                 return Ok(None);
             }
         };
@@ -60,11 +63,9 @@ impl BlockHandler for SaveOperation {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::executor::{EventType, ScriptExecutor};
     use crate::runtime::ScriptRuntime;
     use serde_json::json;
-    use std::collections::HashMap;
 
     fn state() -> crate::runtime::InMemoryScriptRuntimeState {
         crate::runtime::InMemoryScriptRuntimeState::new(None, None)
@@ -129,8 +130,9 @@ mod tests {
             json!({"type": "save_operation", "operation": "explode"}),
             &mut s,
         );
-        assert!(s
-            .get_variable("_internal_external_commands")
-            .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty)));
+        assert!(
+            s.get_variable("_internal_external_commands")
+                .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty))
+        );
     }
 }

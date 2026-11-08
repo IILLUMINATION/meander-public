@@ -8,7 +8,7 @@
 //!
 //! Все три формы обязаны давать одинаковый результат.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use mnd_core::executor::evaluate_expression;
 use mnd_core::models::quest_table::QuestTable;
@@ -228,9 +228,9 @@ fn double_brace_row_names_survive() {
 #[test]
 fn variable_as_segment_key() {
     let mut s = shop_state();
-    s.set_variable("col".into(), json!("цена"));
-    s.set_variable("row".into(), json!("щит"));
-    s.set_variable("idx".into(), json!(2));
+    s.set_variable("col", json!("цена"));
+    s.set_variable("row", json!("щит"));
+    s.set_variable("idx", json!(2));
     assert_eq!(eval("shop[col][1]", &mut s), json!(10));
     assert_eq!(eval("shop[\"цена\"][row]", &mut s), json!(20));
     assert_eq!(eval("shop[\"цена\"][idx]", &mut s), json!(20));
@@ -254,10 +254,12 @@ fn reserved_words_block_column_and_row_names() {
             let table = QuestTable::with_row_names(
                 "t".into(),
                 vec!["columns".into(), "rows".into()],
-                vec![json!({"columns": "C", "rows": "R"})
-                    .as_object()
-                    .cloned()
-                    .unwrap()],
+                vec![
+                    json!({"columns": "C", "rows": "R"})
+                        .as_object()
+                        .cloned()
+                        .unwrap(),
+                ],
                 vec!["S".into()],
                 json!({}).as_object().cloned().unwrap(),
             );

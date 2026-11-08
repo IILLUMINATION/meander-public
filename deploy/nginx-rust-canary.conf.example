@@ -1,0 +1,70 @@
+# Example only. Run `nginx -t` and test in staging before using it.
+#
+# Topology:
+#   Node 127.0.0.1:3000  (default, owns cron and WebSocket during read canary)
+#   Rust 127.0.0.1:3100  (canary process, DISABLE_CRON=1 ACCESS_LOG=1)
+#
+# Start with the 1% read-only stage. Do not raise the percentage until the
+# gates in docs/rust-backend-canary.md are met.
+
+upstream meander_node {
+    server 127.0.0.1:3000;
+    keepalive 32;
+}
+
+# Only safe methods are eligible for the canary. Writes stay on Node until
+# the WebSocket/idempotency review is done.
+map $request_method $canary_read_eligible {
+    default 0;
+    GET     1;
+    HEAD    1;
+}
+
+# Per-user bucket: JWT first, then peer address for guests. 1% -> 50% is a
+# one-line change, but only after the lower stages pass.
+split_clients "${http_authorization}${remote_addr}" $canary_bucket {
+    1%  rust;
+    *   node;
+}
+
+map "$canary_read_eligible:$canary_bucket" $canary_port {
+    "1:rust" 3100;
+    default 3000;
+}
+
+# Shadow mirroring is intentionally omitted. nginx's `mirror` directive is
+# not method-aware: it would also replay POST/PUT/PATCH/DELETE without a body,
+# which can corrupt state. Do shadowing with a read-only replay tool, or only
+# after every unsafe method has been excluded at the edge.
+
+server {
+    listen 443 ssl;
+    server_name backend.meander.sbs;
+
+    # ... existing TLS/Cloudflare-real-ip configuration ...
+
+    # Keep all realtime traffic on one backend during the split rollout.
+    location /socket.io/ {
+        proxy_pass http://meander_node;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Request-Id $request_id;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:$canary_port;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Request-Id $request_id;
+
+        # No cross-backend retry: `proxy_pass` uses a variable, so
+        # `proxy_next_upstream` cannot target Node, and retrying writes can
+        # duplicate them. Rollback is an nginx reload, not a transparent retry.
+    }
+}

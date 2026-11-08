@@ -6,5 +6,50 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[lib]
+name = "mnd_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mnd-server"
+path = "src/main.rs"
+
 [dependencies]
 mnd-core = { path = "../mnd-core" }
+
+aes-gcm = "0.10"
+anyhow = "1"
+axum = { version = "0.8", features = ["multipart", "macros"] }
+base64 = "0.22"
+bcrypt = "0.17"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6"
+dotenvy = "0.15"
+futures = "0.3"
+hex = "0.4"
+hmac = "0.12"
+http = "1"
+jsonwebtoken = "9"
+mime_guess = "2"
+rand = "0.8"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+socketioxide = { version = "0.18", features = ["extensions", "state", "tracing"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "uuid", "chrono", "json", "bigdecimal", "migrate"] }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["compression-gzip", "compression-deflate", "compression-br", "cors", "fs", "limit", "set-header", "trace", "util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"

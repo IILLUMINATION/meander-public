@@ -9,7 +9,7 @@
 //!
 //! Паритет: `packages/mnd_core/lib/models/quest_table.dart`.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// Таблица квеста: классические строки + key-value хранилище для скриптов.
 ///
