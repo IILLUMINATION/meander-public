@@ -27,7 +27,11 @@ final _questFiles = <String, String>{
   }),
   'nodes.json': jsonEncode({
     'nodes': [
-      {'id': 'n1', 'title': 'Первая', 'content': {'items': []}},
+      {
+        'id': 'n1',
+        'title': 'Первая',
+        'content': {'items': []},
+      },
     ],
     'groups': [],
   }),
@@ -67,6 +71,13 @@ List<Paint> _strokePaints(WidgetTester tester) {
     }
   }
   return result;
+}
+
+/// Есть ли в дереве span'ов тени (старая техника обводки).
+bool _hasShadows(InlineSpan span) {
+  if (span is! TextSpan) return false;
+  if (span.style?.shadows?.isNotEmpty ?? false) return true;
+  return (span.children ?? const <InlineSpan>[]).any(_hasShadows);
 }
 
 /// Плеер один на файл: `initRustCore()` второй раз бросает «Should not
@@ -129,63 +140,48 @@ void main() {
       expect(_strokePaints(tester), isEmpty);
     });
 
-  
-  testWidgets('фрагментная обводка даёт тени только выделенному куску', (
-    tester,
-  ) async {
-    await renderText(
-      tester,
-      _textItem(text: 'до [outline=#0000FF:3]синий[/outline] после'),
-    );
-    final shadowed = <TextStyle>[];
-    void collect(InlineSpan span) {
-      if (span is! TextSpan) return;
-      if (span.style?.shadows?.isNotEmpty ?? false) shadowed.add(span.style!);
-      span.children?.forEach(collect);
-    }
-
-    for (final element in tester.allElements) {
-      final widget = element.widget;
-      if (widget is RichText) collect(widget.text);
-    }
-    expect(shadowed, isNotEmpty);
-    expect(
-      shadowed.every(
-        (s) => s.shadows!.every((shadow) => shadow.color == const Color(0xFF0000FF)),
-      ),
-      isTrue,
-    );
-    expect(shadowed.every((s) => s.shadows!.length == 8), isTrue);
-  });
-
-  testWidgets('item-обводка не дублирует фрагментные тени в штриховом слое', (
-    tester,
-  ) async {
-    await renderText(
-      tester,
-      _textItem(
-        text: '[outline=#00FF00]зелёный[/outline] текст',
-        outlineColor: _outline,
-      ),
-    );
-    final strokes = _strokePaints(tester);
-    expect(strokes, isNotEmpty);
-    bool shadowedStroke(InlineSpan span) {
-      if (span is! TextSpan) return false;
-      if (span.style?.foreground?.style == PaintingStyle.stroke &&
-          (span.style?.shadows?.isNotEmpty ?? false)) {
-        return true;
-      }
-      return (span.children ?? const <InlineSpan>[]).any(shadowedStroke);
-    }
-
-    final found = tester.allWidgets.whereType<RichText>().any(
-          (w) => shadowedStroke(w.text),
+    testWidgets(
+      'фрагментная обводка даёт штриховой слой только выделенному куску',
+      (tester) async {
+        await renderText(
+          tester,
+          _textItem(text: 'до [outline=#0000FF:3]синий[/outline] после'),
         );
-    expect(found, isFalse);
-  });
+        final fragment = _strokePaints(
+          tester,
+        ).where((p) => p.color == const Color(0xFF0000FF)).toList();
+        expect(fragment, isNotEmpty, reason: 'у фрагмента нет контура');
+        expect(fragment.every((p) => p.strokeWidth == 3.0), isTrue);
+        // Копий глифа со сдвигом больше нет: они давали раздвоенный контур.
+        for (final widget in tester.allWidgets.whereType<RichText>()) {
+          expect(_hasShadows(widget.text), isFalse);
+        }
+      },
+    );
 
-  testWidgets('markdown-разновидности уходят в тот же контур', (
+    testWidgets('item-обводка не дублирует фрагмент тенями: свой цвет важнее', (
+      tester,
+    ) async {
+      await renderText(
+        tester,
+        _textItem(
+          text: '[outline=#00FF00]зелёный[/outline] текст',
+          outlineColor: _outline,
+        ),
+      );
+      final strokes = _strokePaints(tester);
+      expect(strokes.any((p) => p.color == const Color(0xFF00FF00)), isTrue);
+      expect(
+        strokes.any((p) => p.color == _outline),
+        isTrue,
+        reason: 'остальной текст обводится цветом айтема',
+      );
+      for (final widget in tester.allWidgets.whereType<RichText>()) {
+        expect(_hasShadows(widget.text), isFalse);
+      }
+    });
+
+    testWidgets('markdown-разновидности уходят в тот же контур', (
       tester,
     ) async {
       await renderText(

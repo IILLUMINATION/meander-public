@@ -174,7 +174,7 @@ void main() {
     expect(_drawnTexts(tester).where((t) => t.contains('жирный')).length, 2);
   });
 
-  testWidgets('фрагментная обводка красит только выделенный кусок', (
+  testWidgets('фрагментная обводка — штриховой слой своего цвета и толщины', (
     tester,
   ) async {
     await renderText(
@@ -182,34 +182,64 @@ void main() {
       textItem(text: 'до [outline=#0000FF:3]синий[/outline] после'),
     );
 
-    final shadowed = <TextStyle>[];
-    void walk(InlineSpan span) {
-      if (span is! TextSpan) return;
-      if (span.style?.shadows?.isNotEmpty ?? false) {
-        shadowed.add(span.style!);
-      }
-      for (final child in span.children ?? const <InlineSpan>[]) {
-        walk(child);
-      }
+    final strokes = _strokePaints(
+      tester,
+    ).where((p) => p.color == const Color(0xFF0000FF)).toList();
+    expect(strokes, isNotEmpty, reason: 'у фрагмента нет штрихового слоя');
+    expect(strokes.every((p) => p.strokeWidth == 3.0), isTrue);
+    // Копий глифа со сдвигом быть не должно: они давали раздвоенный контур.
+    for (final widget in tester.allWidgets.whereType<RichText>()) {
+      expect(_anyShadows(widget.text), isFalse, reason: 'остались тени');
     }
 
-    for (final element in tester.allElements) {
-      final widget = element.widget;
-      if (widget is RichText) walk(widget.text);
-    }
-    expect(shadowed, isNotEmpty, reason: 'у фрагмента нет теневого контура');
-    expect(
-      shadowed.every(
-        (s) => s.shadows!.every(
-          (shadow) => shadow.color == const Color(0xFF0000FF),
-        ),
-      ),
-      isTrue,
-    );
-    expect(shadowed.every((s) => s.shadows!.length == 8), isTrue);
+    // Слой контура — отдельный: заливка и контур, как у обводки айтема.
+    final texts = _drawnTexts(tester);
+    expect(texts.length % 2, 0, reason: 'слои не парятся: $texts');
   });
 
-  testWidgets('item-обводка не дублирует фрагментные тени в штриховом слое', (
+  testWidgets('толщина фрагмента нормируется ядром', (tester) async {
+    await renderText(
+      tester,
+      textItem(text: '[outline=#00FF00:99]жирно[/outline]'),
+    );
+    expect(
+      _strokePaints(tester)
+          .where((p) => p.color == const Color(0xFF00FF00))
+          .every((p) => p.strokeWidth == kTextOutlineWidthMax),
+      isTrue,
+    );
+
+    await renderText(
+      tester,
+      textItem(text: '[outline=#00FF00]тонко[/outline]'),
+    );
+    expect(
+      _strokePaints(tester)
+          .where((p) => p.color == const Color(0xFF00FF00))
+          .every((p) => p.strokeWidth == kTextOutlineWidthDefault),
+      isTrue,
+    );
+  });
+
+  testWidgets('фрагмент в scale-режиме тоже штриховой, а не теневой', (
+    tester,
+  ) async {
+    await renderText(
+      tester,
+      textItem(text: '[outline=#0000FF:4]синий[/outline] обычный'),
+      textFit: 'scale',
+    );
+    final strokes = _strokePaints(tester);
+    expect(
+      strokes.where((p) => p.color == const Color(0xFF0000FF)),
+      isNotEmpty,
+    );
+    for (final widget in tester.allWidgets.whereType<RichText>()) {
+      expect(_anyShadows(widget.text), isFalse);
+    }
+  });
+
+  testWidgets('фрагмент поверх обводки айтема: свой цвет важнее', (
     tester,
   ) async {
     await renderText(
@@ -220,20 +250,17 @@ void main() {
       ),
     );
     final strokes = _strokePaints(tester);
-    expect(strokes, isNotEmpty);
-    final shadowedStroke = tester.allWidgets.whereType<RichText>().any((w) {
-      bool hasShadows(InlineSpan span) {
-        if (span is! TextSpan) return false;
-        if (span.style?.foreground?.style == PaintingStyle.stroke &&
-            (span.style?.shadows?.isNotEmpty ?? false)) {
-          return true;
-        }
-        return (span.children ?? const <InlineSpan>[]).any(hasShadows);
-      }
-
-      return hasShadows(w.text);
-    });
-    expect(shadowedStroke, isFalse);
+    expect(
+      strokes.any((p) => p.color == const Color(0xFF00FF00)),
+      isTrue,
+      reason: 'у фрагмента нет своей кисти',
+    );
+    expect(
+      strokes.any((p) => p.color == _outline),
+      isTrue,
+      reason: 'остальной текст должен обводиться цветом айтема',
+    );
+    expect(strokes.every((p) => p.style == PaintingStyle.stroke), isTrue);
   });
 
   testWidgets('анимация появления режет и слой обводки', (tester) async {
@@ -267,6 +294,13 @@ void main() {
       reason: 'невидимый резерв габарита обязан быть полным',
     );
   });
+}
+
+/// Есть ли в дереве span'ов хоть одна тень (старая техника обводки).
+bool _anyShadows(InlineSpan root) {
+  if (root is! TextSpan) return false;
+  if (root.style?.shadows?.isNotEmpty ?? false) return true;
+  return (root.children ?? const <InlineSpan>[]).any(_anyShadows);
 }
 
 bool _spanHasStroke(InlineSpan root) {

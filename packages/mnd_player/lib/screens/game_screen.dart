@@ -232,9 +232,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     final sessionStart = DateTime.now();
     void stageLog(String stage) => debugPrint(
-          '[Perf][Game] $stage: '
-          '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
-        );
+      '[Perf][Game] $stage: '
+      '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
+    );
 
     // Префлайт (safety-аудит, проверка плагинов) — main_app передаёт колбэк.
     final canStart = await widget.preflight?.call() ?? true;
@@ -1542,7 +1542,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               // одно, а получал другое.
               final vw = constraints.maxWidth;
               final vh = constraints.maxHeight;
-              const columnCap = 720.0;
+              const columnCap = kContentColumnMaxWidth;
               final columnWidth = vw < columnCap ? vw : columnCap;
               final viewport = Size(columnWidth, vh);
               final dx = (vw - columnWidth) / 2;

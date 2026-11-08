@@ -30,7 +30,7 @@ class PlayScreen extends StatefulWidget {
 class _PlayScreenState extends State<PlayScreen> {
   /// Та же шапка колонки, что у нативного плеера: на широком окне игра
   /// центрируется, а не растягивается во весь браузер.
-  static const double _columnCap = 720.0;
+  static const double _columnCap = kContentColumnMaxWidth;
   static const Color _fallbackBackground = Color(0xFF0B0D10);
 
   String? _questFont;

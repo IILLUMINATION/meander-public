@@ -72,9 +72,12 @@ class FontNode extends ElementNode {
       TextStyle(fontFamily: fontFamily);
 }
 
-/// Фрагментная обводка: `[outline=#RRGGBB]…[/outline]` или с толщиной
-/// `[outline=#RRGGBB:4]…[/outline]`. Рисуется тенями под глифами, поэтому
-/// не конфликтует с item-level штриховым слоем и сохраняет инлайн-цвет.
+/// Как слой markdown обращается с фрагментной обводкой `[outline=…]`.
+///
+/// Обводку рисует ОТДЕЛЬНЫЙ штриховой слой под заливкой: `[none]` — слой
+/// заливки, обводку не трогает; `[stroke]` — слой контура, каждый фрагмент
+/// рисуется своей кистью (цвет и толщина тега). Копий глифа со сдвигом здесь
+/// нет намеренно: они давали раздвоенный контур и расходились с игрой.
 class OutlineTagSyntax extends md.InlineSyntax {
   static const String tag = 'outline';
 
@@ -98,31 +101,29 @@ class OutlineTagSyntax extends md.InlineSyntax {
   }
 }
 
+enum TextOutlineMode {
+  /// Слой заливки: обводку не рисуем, её кладёт нижний слой.
+  none,
+
+  /// Штриховой слой: фрагмент рисуется кистью своего тега.
+  stroke,
+}
+
 class OutlineNode extends ElementNode {
   final Color color;
   final double width;
-  final bool enabled;
+  final TextOutlineMode mode;
 
-  OutlineNode(this.color, this.width, {this.enabled = true});
+  OutlineNode(this.color, this.width, {this.mode = TextOutlineMode.none});
 
   @override
   TextStyle get style {
-    if (!enabled) return parentStyle ?? const TextStyle();
-    final shadows = <Shadow>[
-      for (final direction in const <Offset>[
-        Offset(-1, 0),
-        Offset(1, 0),
-        Offset(0, -1),
-        Offset(0, 1),
-        Offset(-0.7, -0.7),
-        Offset(0.7, -0.7),
-        Offset(-0.7, 0.7),
-        Offset(0.7, 0.7),
-      ])
-        Shadow(color: color, offset: direction * width, blurRadius: 0),
-    ];
-    return parentStyle?.merge(TextStyle(shadows: shadows)) ??
-        TextStyle(shadows: shadows);
+    final parent = parentStyle;
+    if (mode == TextOutlineMode.none) return parent ?? const TextStyle();
+    // Кисть одна на все поверхности: толщина трактуется и клэмпится ядром.
+    final paint = textOutlineStroke(color, width: width);
+    return parent?.merge(TextStyle(foreground: paint)) ??
+        TextStyle(foreground: paint);
   }
 }
 
@@ -139,7 +140,7 @@ MarkdownGenerator createColorMarkdownGenerator({
   EdgeInsets linesMargin = const EdgeInsets.symmetric(vertical: 2),
   RegExp? splitRegExp,
   String? questId,
-  bool showOutline = true,
+  TextOutlineMode outlineMode = TextOutlineMode.none,
 }) {
   return MarkdownGenerator(
     inlineSyntaxList: [
@@ -156,11 +157,12 @@ MarkdownGenerator createColorMarkdownGenerator({
         tag: OutlineTagSyntax.tag,
         generator: (e, config, visitor) {
           final color = _parseColor(e.attributes['color'] ?? '');
-          final width =
-              (double.tryParse(e.attributes['width'] ?? '') ??
-                      kTextOutlineWidthDefault)
-                  .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
-          return OutlineNode(color, width, enabled: showOutline);
+          final width = double.tryParse(e.attributes['width'] ?? '');
+          return OutlineNode(
+            color,
+            width ?? kTextOutlineWidthDefault,
+            mode: outlineMode,
+          );
         },
       ),
       SpanNodeGeneratorWithTag(

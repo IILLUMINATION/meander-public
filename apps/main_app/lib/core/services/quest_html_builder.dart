@@ -536,27 +536,20 @@ class QuestHtmlBuilder {
       .replaceAll("'", '&#39;');
 
   /// Обводка текста айтема в значение для CSS `text-shadow`, либо `null`, если
-  /// обводки нет. Считаем здесь, а не в JS: смещения совпадают с редакторским
-  /// превью (`markdown_editor_screen._previewOutlineShadows`) — плеер кладёт
-  /// штрих под заполнение, и восемь копий глифов без размытия дают в браузере
-  /// тот же контур. Расхождение автор увидел бы только в экспорте.
+  /// обводки нет. В браузере нет слоя штриха, поэтому контур — восемь копий
+  /// глифа без размытия. Кольцо смещений считает ядро
+  /// (`textOutlineShadowOffsets`): ровно те же сдвиги, что у Flutter-рендереров,
+  /// и та же нормировка толщины — иначе страница расходилась бы с игрой.
   static String? _textShadowCss(Map<String, dynamic> item) {
     final color = _cssColor(item['textOutlineColor']);
     if (color == null) return null;
-    final width =
-        ((item['textOutlineWidth'] as num?)?.toDouble() ??
-                kTextOutlineWidthDefault)
-            .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
-    final half = width / 2.0;
-    final parts = <String>[];
-    for (final dx in [-half, 0.0, half]) {
-      for (final dy in [-half, 0.0, half]) {
-        if (dx == 0.0 && dy == 0.0) continue;
+    final width = (item['textOutlineWidth'] as num?)?.toDouble();
+    final parts = <String>[
+      for (final offset in textOutlineShadowOffsets(width: width))
         // Dart печатает double как «1.0»/«0.25» — валидное CSS-число, единицы
         // приписываем руками: без `px` ненулевой offset браузер не принимает.
-        parts.add('${dx}px ${dy}px 0 $color');
-      }
-    }
+        '${offset.dx}px ${offset.dy}px 0 $color',
+    ];
     return parts.join(', ');
   }
 

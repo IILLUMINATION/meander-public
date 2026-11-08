@@ -26,6 +26,7 @@ export 'engine/script_format.dart';
 
 // Models
 export 'models/content_item.dart';
+export 'models/text_outline.dart';
 export 'models/literary_work.dart';
 export 'models/quest_descriptor.dart';
 export 'models/music_track.dart';
