@@ -1,0 +1,30 @@
+//! Service layer shared by the route handlers.
+
+pub mod account_deletion;
+pub mod achievements;
+pub mod activity;
+pub mod cloud_sync_cleanup;
+pub mod cloud_sync_storage;
+pub mod cloud_sync_tier;
+pub mod content_rules;
+pub mod cosmetics;
+pub mod fcm;
+pub mod gating;
+pub mod google_exchange;
+pub mod image_host;
+pub mod imgbb;
+pub mod jwks;
+pub mod market_query;
+pub mod market_tiers;
+pub mod moderation;
+pub mod notifications;
+pub mod publish_errors;
+pub mod quest_analytics;
+pub mod quest_genres;
+pub mod quest_language;
+pub mod quest_scan;
+pub mod rewards;
+pub mod sync_settings_crypto;
+pub mod system_chat;
+pub mod telegram_jwt;
+pub mod visibility;
