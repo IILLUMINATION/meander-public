@@ -48,10 +48,9 @@ async fn test_ip(req: axum::extract::Request) -> axum::Json<serde_json::Value> {
         .headers()
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
+        && let Some(object) = body.as_object_mut()
     {
-        if let Some(object) = body.as_object_mut() {
-            object.insert("headers".into(), serde_json::json!(forwarded));
-        }
+        object.insert("headers".into(), serde_json::json!(forwarded));
     }
     axum::Json(body)
 }

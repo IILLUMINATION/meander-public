@@ -178,10 +178,10 @@ impl IntoResponse for ApiError {
                 body.entry(k).or_insert(v);
             }
         }
-        if !is_production() {
-            if let Some(original) = self.original {
-                body.insert("original_error".into(), Value::String(original));
-            }
+        if !is_production()
+            && let Some(original) = self.original
+        {
+            body.insert("original_error".into(), Value::String(original));
         }
         (self.status, Json(Value::Object(body))).into_response()
     }

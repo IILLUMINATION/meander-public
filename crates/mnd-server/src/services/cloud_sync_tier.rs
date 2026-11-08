@@ -66,7 +66,7 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 const ADMIN: TierConfig = TierConfig {
     name: "admin",
-    max_file_bytes: 1 * GB,
+    max_file_bytes: GB,
     max_files: 1_000_000,
     max_total_bytes: MAX_SAFE_INTEGER,
     max_refs: 1_000_000,
@@ -335,13 +335,11 @@ pub async fn build_upgrade_hints(state: &AppState, user_id: Uuid) -> Result<Valu
         }));
     }
 
-    if current_tier == "starter" || current_tier == "none" {
-        if metrics.published_count == 0 {
-            hints.push(json!({
-                "target": "free",
-                "text": "Опубликуйте 1 квест — получите 100 МБ.",
-            }));
-        }
+    if (current_tier == "starter" || current_tier == "none") && metrics.published_count == 0 {
+        hints.push(json!({
+            "target": "free",
+            "text": "Опубликуйте 1 квест — получите 100 МБ.",
+        }));
     }
 
     if current_tier == "free" || current_tier == "starter" {

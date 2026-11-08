@@ -133,11 +133,11 @@ fn append_node_text(full_text: &mut String, node: &Value) {
         .and_then(Value::as_array)
     {
         for item in items {
-            if let Some(text) = item.get("text").and_then(Value::as_str) {
-                if !text.is_empty() {
-                    full_text.push_str(text);
-                    full_text.push('\n');
-                }
+            if let Some(text) = item.get("text").and_then(Value::as_str)
+                && !text.is_empty()
+            {
+                full_text.push_str(text);
+                full_text.push('\n');
             }
         }
     }
@@ -246,13 +246,13 @@ pub fn publish_decision(
     moderation: Option<&crate::services::moderation::ModerationResult>,
     text_scan_failed: bool,
 ) -> PublishDecision {
-    if let Some(m) = moderation {
-        if !m.approved {
-            return PublishDecision {
-                status: "in_review",
-                moderator_comment: format!("Flag: {}", m.reason),
-            };
-        }
+    if let Some(m) = moderation
+        && !m.approved
+    {
+        return PublishDecision {
+            status: "in_review",
+            moderator_comment: format!("Flag: {}", m.reason),
+        };
     }
     if text_scan_failed {
         return PublishDecision {

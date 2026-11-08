@@ -441,15 +441,13 @@ async fn resolve_report(
             _ => {}
         }
 
-        if block_user {
-            if let Some(user_id) = user_to_block {
-                sqlx::query(
+        if block_user && let Some(user_id) = user_to_block {
+            sqlx::query(
                     "UPDATE profiles SET is_blocked = TRUE, token_version = token_version + 1 WHERE id = $1",
                 )
                 .bind(user_id)
                 .execute(&mut *tx)
                 .await?;
-            }
         }
     }
 

@@ -554,11 +554,11 @@ async fn get_forum(
     if let Value::Object(map) = &mut forum_json {
         map.insert(
             "joined".to_string(),
-            Value::Bool(access.as_ref().map_or(false, |a| a.joined)),
+            Value::Bool(access.as_ref().is_some_and(|a| a.joined)),
         );
         map.insert(
             "banned".to_string(),
-            Value::Bool(access.as_ref().map_or(false, |a| a.banned)),
+            Value::Bool(access.as_ref().is_some_and(|a| a.banned)),
         );
     }
 
@@ -595,21 +595,21 @@ async fn patch_forum(
     let name = body.str("name").map(str::trim);
     let description = body.str("description").map(str::trim);
 
-    if let Some(name) = name {
-        if name.len() < 3 || name.len() > FORUM_RULES.max_name_chars {
-            return Err(ApiError::bad_request(format!(
-                "Название должно быть от 3 до {} символов",
-                FORUM_RULES.max_name_chars
-            )));
-        }
+    if let Some(name) = name
+        && (name.len() < 3 || name.len() > FORUM_RULES.max_name_chars)
+    {
+        return Err(ApiError::bad_request(format!(
+            "Название должно быть от 3 до {} символов",
+            FORUM_RULES.max_name_chars
+        )));
     }
-    if let Some(description) = description {
-        if description.len() > FORUM_RULES.max_description_chars {
-            return Err(ApiError::bad_request(format!(
-                "Описание длиннее {} символов",
-                FORUM_RULES.max_description_chars
-            )));
-        }
+    if let Some(description) = description
+        && description.len() > FORUM_RULES.max_description_chars
+    {
+        return Err(ApiError::bad_request(format!(
+            "Описание длиннее {} символов",
+            FORUM_RULES.max_description_chars
+        )));
     }
 
     let is_restricted = body.bool("is_restricted");
@@ -656,7 +656,7 @@ async fn quest_slug_fallback(
         ("POST", "posts") => {
             create_topic(State(state), auth?, Path("quest".to_owned()), body).await
         }
-        _ => Ok(crate::express_not_found(&method, &uri.path().to_owned())),
+        _ => Ok(crate::express_not_found(&method, uri.path())),
     }
 }
 

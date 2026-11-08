@@ -108,10 +108,10 @@ fn claims_user(payload: Value) -> Option<AuthUser> {
 /// "not blocked" exactly like the Node implementation: a broken read must not
 /// lock every user out.
 pub async fn account_state(state: &Arc<AppState>, user_id: Uuid) -> AccountState {
-    if let Some(cached) = state.accounts.get(&user_id) {
-        if cached.fetched_at.elapsed() < ACCOUNT_CACHE_TTL {
-            return cached.state;
-        }
+    if let Some(cached) = state.accounts.get(&user_id)
+        && cached.fetched_at.elapsed() < ACCOUNT_CACHE_TTL
+    {
+        return cached.state;
     }
 
     let fresh = match sqlx::query("SELECT is_blocked, token_version FROM profiles WHERE id = $1")
@@ -188,18 +188,17 @@ pub async fn account_state(state: &Arc<AppState>, user_id: Uuid) -> AccountState
 }
 
 fn token_current(user: &AuthUser, account: AccountState) -> bool {
-    match account.token_version {
-        None => true,
-        Some(version) => user.tv == version,
-    }
+    account
+        .token_version
+        .is_none_or(|version| user.tv == version)
 }
 
 /// Fire-and-forget side effects of an authenticated request.
 pub fn touch_last_seen(state: &Arc<AppState>, user_id: Uuid) {
-    let should_touch = match state.last_seen.get(&user_id) {
-        Some(at) if at.elapsed() < LAST_SEEN_THROTTLE => false,
-        _ => true,
-    };
+    let should_touch = !matches!(
+        state.last_seen.get(&user_id),
+        Some(at) if at.elapsed() < LAST_SEEN_THROTTLE
+    );
     if !should_touch {
         return;
     }

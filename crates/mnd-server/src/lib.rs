@@ -150,7 +150,13 @@ pub async fn build_app(state: Arc<AppState>) -> anyhow::Result<(Router, SocketIo
         .layer(mw::from_fn_with_state(state.clone(), middleware::cors))
         .layer(mw::from_fn(middleware::security_headers))
         .layer(mw::from_fn(middleware::method_fallthrough))
-        .layer(axum::middleware::map_response(middleware::json_charset));
+        .layer(axum::middleware::map_response(middleware::json_charset))
+        // Outermost HTTP layer: logs the final status (including errors added
+        // by inner middleware) and echoes the request id for nginx.
+        .layer(mw::from_fn_with_state(
+            state.clone(),
+            middleware::access_log,
+        ));
 
     // Express is non-strict about a *single* trailing slash (`/music/` ===
     // `/music`) but rejects `/music//`. Normalise before routing; Socket.IO
@@ -302,7 +308,9 @@ pub(crate) fn body_encoding(value: &str) -> Result<Option<BodyEncoding>, String>
 pub(crate) fn decode_body(bytes: &[u8], encoding: Option<BodyEncoding>) -> String {
     let decode_utf16 = |little: bool, strip_bom: bool| -> String {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| {
                 if little {
                     u16::from_le_bytes([pair[0], pair[1]])

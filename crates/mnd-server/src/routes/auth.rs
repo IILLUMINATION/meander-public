@@ -207,10 +207,10 @@ async fn google_exchange(State(state): State<Arc<AppState>>, body: Body) -> ApiR
         return Err(ApiError::bad_request("redirectUri must point to loopback"));
     }
 
-    if let Some(client_id) = body.str("clientId") {
-        if client_id != desktop_client_id {
-            return Err(ApiError::bad_request("clientId does not match this server"));
-        }
+    if let Some(client_id) = body.str("clientId")
+        && client_id != desktop_client_id
+    {
+        return Err(ApiError::bad_request("clientId does not match this server"));
     }
 
     let input = crate::services::google_exchange::GoogleExchangeInput {
@@ -557,9 +557,9 @@ async fn telegram_widget_auth(state: &AppState, data: &Map<String, Value>) -> Ap
             )
             .bind(Uuid::new_v4())
             .bind(&telegram_id)
-            .bind(&username)
+            .bind(username)
             .bind(&full_name)
-            .bind(&photo_url)
+            .bind(photo_url)
             .fetch_one(&state.db)
             .await
             .map_err(|e| {
@@ -571,7 +571,7 @@ async fn telegram_widget_auth(state: &AppState, data: &Map<String, Value>) -> Ap
             })?;
 
             let user_id = row.try_get::<Uuid, _>("id").unwrap_or_default();
-            award_achievement(&state, user_id, "hello_world").await;
+            award_achievement(state, user_id, "hello_world").await;
             row
         }
     };
@@ -679,9 +679,9 @@ async fn telegram_token(State(state): State<Arc<AppState>>, body: Body) -> ApiRe
             )
             .bind(Uuid::new_v4())
             .bind(&telegram_id)
-            .bind(&username)
+            .bind(username)
             .bind(&full_name)
-            .bind(&avatar_url)
+            .bind(avatar_url)
             .fetch_one(&state.db)
             .await
             .map_err(|e| {
@@ -708,9 +708,9 @@ async fn telegram_token(State(state): State<Arc<AppState>>, body: Body) -> ApiRe
          RETURNING *",
     )
     .bind(user.try_get::<Uuid, _>("id").unwrap_or_default())
-    .bind(&username)
+    .bind(username)
     .bind(&full_name)
-    .bind(&avatar_url)
+    .bind(avatar_url)
     .fetch_one(&state.db)
     .await
     .map_err(|e| {
@@ -834,8 +834,8 @@ async fn verify_apple_identity_token(
         h.update(raw_nonce.as_bytes());
         h.finalize()
     };
-    let expected_b64url = URL_SAFE_NO_PAD.encode(&digest);
-    let expected_hex = hex::encode(&digest);
+    let expected_b64url = URL_SAFE_NO_PAD.encode(digest);
+    let expected_hex = hex::encode(digest);
     let provided = payload.get("nonce").and_then(Value::as_str).unwrap_or("");
 
     if !constant_time_eq(&expected_b64url, provided) && !constant_time_eq(&expected_hex, provided) {
@@ -991,7 +991,7 @@ fn remaining_days(purge_at: DateTime<Utc>) -> i64 {
 async fn get_account(State(state): State<Arc<AppState>>, auth: AuthUser) -> ApiResult {
     let user_id = auth.id;
 
-    let result = async {
+    async {
         let row =
             sqlx::query("SELECT deletion_purge_at, deletion_reason FROM profiles WHERE id = $1")
                 .bind(user_id)
@@ -1015,9 +1015,7 @@ async fn get_account(State(state): State<Arc<AppState>>, auth: AuthUser) -> ApiR
             "reason": reason,
         }))
     }
-    .await;
-
-    result
+    .await
 }
 
 async fn delete_account(
@@ -1027,7 +1025,7 @@ async fn delete_account(
 ) -> ApiResult {
     let user_id = auth.id;
 
-    let result = async {
+    async {
         if body.bool("acknowledged") != Some(true) {
             return Err(ApiError::bad_request(
                 "Нужно подтверждение удаления (acknowledged = true)",
@@ -1159,15 +1157,13 @@ async fn delete_account(
             "days_left": DELETION_GRACE_DAYS,
         }))
     }
-    .await;
-
-    result
+    .await
 }
 
 async fn restore_account(State(state): State<Arc<AppState>>, auth: AuthUser) -> ApiResult {
     let user_id = auth.id;
 
-    let result = async {
+    async {
         let mut tx = state.db.begin().await.map_err(|e| {
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1234,9 +1230,7 @@ async fn restore_account(State(state): State<Arc<AppState>>, auth: AuthUser) -> 
 
         ok_json(json!({ "restored": true }))
     }
-    .await;
-
-    result
+    .await
 }
 
 // ============================================================================

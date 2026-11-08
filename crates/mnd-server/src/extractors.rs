@@ -47,12 +47,12 @@ pub async fn upload_form(
     if !crate::is_multipart_content_type(&content_type) {
         // `multer` engages busboy for any `multipart/*` media type, and busboy
         // then refuses everything but `multipart/form-data`.
-        if let Some(subtype) = media.strip_prefix("multipart/") {
-            if !subtype.is_empty() {
-                return Err(UploadFormError::Multipart(format!(
-                    "Unsupported content type: {raw_content_type}"
-                )));
-            }
+        if let Some(subtype) = media.strip_prefix("multipart/")
+            && !subtype.is_empty()
+        {
+            return Err(UploadFormError::Multipart(format!(
+                "Unsupported content type: {raw_content_type}"
+            )));
         }
         let bytes = axum::body::to_bytes(request.into_body(), 1024 * 1024)
             .await
@@ -169,12 +169,13 @@ fn percent_decode(raw: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&plus[i + 1..i + 3], 16) {
-                out.push(byte);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&plus[i + 1..i + 3], 16)
+        {
+            out.push(byte);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;

@@ -398,14 +398,14 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 async fn redirect_js() -> ApiResult {
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(
             header::CONTENT_TYPE,
             "application/javascript; charset=utf-8",
         )
         .body(Body::from(REDIRECT_JS))
-        .map_err(|e| ApiError::internal(e.to_string()))?)
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
 
 async fn share_quest(State(state): State<Arc<AppState>>, Path(raw_id): Path<String>) -> ApiResult {
@@ -621,19 +621,19 @@ fn truncate_node(value: &str) -> String {
 }
 
 fn plain_text(status: StatusCode, body: &'static str) -> ApiResult {
-    Ok(Response::builder()
+    Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(Body::from(body))
-        .map_err(|e| ApiError::internal(e.to_string()))?)
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
 
 fn html_response(status: StatusCode, body: String) -> ApiResult {
-    Ok(Response::builder()
+    Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(Body::from(body))
-        .map_err(|e| ApiError::internal(e.to_string()))?)
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
 
 #[cfg(test)]

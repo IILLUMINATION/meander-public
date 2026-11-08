@@ -39,10 +39,10 @@ impl JwksCache {
     }
 
     async fn keys(&self, http: &reqwest::Client) -> Option<Vec<Jwk>> {
-        if let Some((fetched, keys)) = self.keys.read().await.as_ref() {
-            if fetched.elapsed() < JWKS_TTL {
-                return Some(keys.clone());
-            }
+        if let Some((fetched, keys)) = self.keys.read().await.as_ref()
+            && fetched.elapsed() < JWKS_TTL
+        {
+            return Some(keys.clone());
         }
         let response = http
             .get(&self.url)
@@ -86,7 +86,7 @@ pub async fn verify_identity_token(
     let claims = data.claims;
 
     let iss = claims.get("iss")?.as_str()?;
-    if !issuers.iter().any(|i| *i == iss) {
+    if !issuers.contains(&iss) {
         return None;
     }
     let aud_ok = match claims.get("aud")? {
@@ -94,7 +94,7 @@ pub async fn verify_identity_token(
         Value::Array(items) => items
             .iter()
             .filter_map(Value::as_str)
-            .any(|aud| audiences.iter().any(|a| *a == aud)),
+            .any(|aud| audiences.contains(&aud)),
         _ => false,
     };
     aud_ok.then_some(claims)

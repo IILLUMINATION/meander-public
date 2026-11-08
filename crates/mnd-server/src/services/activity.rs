@@ -38,18 +38,18 @@ pub async fn touch_daily_activity(state: &Arc<AppState>, user_id: Uuid) {
 }
 
 fn clamp_days(raw: Option<i64>) -> i64 {
-    let value = match raw {
+    match raw {
         Some(v) if (1..=365).contains(&v) => v,
         Some(v) if v < 1 => 1,
         Some(_) => 365,
         None => 30,
-    };
-    value
+    }
 }
 
 async fn load_summary(state: &AppState, days: i64) -> Value {
     let days_i32 = days as i32;
-    let row = match sqlx::query(
+
+    match sqlx::query(
         "SELECT
             (SELECT COUNT(*) FROM profiles)::int AS total_users,
             (SELECT COUNT(*) FROM profiles WHERE created_at >= date_trunc('day', now()))::int AS new_today,
@@ -73,13 +73,13 @@ async fn load_summary(state: &AppState, days: i64) -> Value {
     {
         Ok(row) => pg_row_to_json(&row),
         Err(_) => json!({}),
-    };
-    row
+    }
 }
 
 async fn load_actions(state: &AppState, days: i64) -> Value {
     let days_i32 = days as i32;
-    let row = match sqlx::query(
+
+    match sqlx::query(
         "SELECT
             (SELECT COUNT(*) FROM quest_votes WHERE created_at >= now() - make_interval(days => $1::int))::int AS quest_votes,
             (SELECT COUNT(*) FROM music_votes WHERE created_at >= now() - make_interval(days => $1::int))::int AS music_votes,
@@ -111,13 +111,13 @@ async fn load_actions(state: &AppState, days: i64) -> Value {
     {
         Ok(row) => pg_row_to_json(&row),
         Err(_) => json!({}),
-    };
-    row
+    }
 }
 
 async fn load_series(state: &AppState, days: i64) -> Value {
     let days_i32 = days as i32;
-    let rows = match sqlx::query(
+
+    match sqlx::query(
         "WITH days AS (
             SELECT generate_series(
                 CURRENT_DATE - ($1::int - 1),
@@ -190,13 +190,13 @@ async fn load_series(state: &AppState, days: i64) -> Value {
     {
         Ok(rows) => rows_to_json(&rows),
         Err(_) => Value::Array(Vec::new()),
-    };
-    rows
+    }
 }
 
 async fn load_top_users(state: &AppState, days: i64) -> Value {
     let days_i32 = days as i32;
-    let rows = match sqlx::query(
+
+    match sqlx::query(
         "WITH events AS (
             SELECT user_id FROM quest_votes
              WHERE created_at >= now() - make_interval(days => $1::int)
@@ -289,8 +289,7 @@ async fn load_top_users(state: &AppState, days: i64) -> Value {
     {
         Ok(rows) => rows_to_json(&rows),
         Err(_) => Value::Array(Vec::new()),
-    };
-    rows
+    }
 }
 
 pub async fn get_activity_overview(state: &AppState, raw_days: Option<i64>) -> Value {

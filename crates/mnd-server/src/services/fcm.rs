@@ -52,10 +52,10 @@ fn credentials_path(state: &AppState) -> Option<PathBuf> {
 }
 
 async fn access_token(state: &AppState, account: &ServiceAccount) -> Option<String> {
-    if let Some((token, expires)) = state.fcm.access.read().await.as_ref() {
-        if Instant::now() < *expires {
-            return Some(token.clone());
-        }
+    if let Some((token, expires)) = state.fcm.access.read().await.as_ref()
+        && Instant::now() < *expires
+    {
+        return Some(token.clone());
     }
 
     let now = chrono::Utc::now().timestamp();

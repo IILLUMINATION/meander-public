@@ -74,7 +74,7 @@ pub fn declared_size_rejection(
 
 pub fn file_too_large(size_bytes: u64, limit_bytes: u64) -> PublishError {
     let size_mb = format!("{:.2}", size_bytes as f64 / MB as f64);
-    let limit_mb = ((limit_bytes + MB / 2) / MB) as u64;
+    let limit_mb = (limit_bytes + MB / 2) / MB;
     let mut details = Map::new();
     details.insert("size_bytes".into(), json!(size_bytes));
     let size_mb_value = size_mb.parse::<f64>().unwrap_or(0.0);

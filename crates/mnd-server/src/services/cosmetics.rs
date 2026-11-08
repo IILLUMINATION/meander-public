@@ -188,10 +188,10 @@ pub fn sanitize_stored(raw: &Value) -> Map<String, Value> {
         if id.is_empty() {
             continue;
         }
-        if let Some(def) = get_cosmetic(id) {
-            if def.slot == slot {
-                result.insert(slot.to_string(), Value::String(id.to_string()));
-            }
+        if let Some(def) = get_cosmetic(id)
+            && def.slot == slot
+        {
+            result.insert(slot.to_string(), Value::String(id.to_string()));
         }
     }
     result

@@ -97,12 +97,12 @@ fn parse_genres(form: &FormData, fallback: Option<&str>) -> Vec<String> {
         }
         _ => {}
     }
-    if out.is_empty() {
-        if let Some(f) = fallback {
-            let cleaned = sanitize_text(f, 100);
-            if !cleaned.is_empty() {
-                out.push(cleaned);
-            }
+    if out.is_empty()
+        && let Some(f) = fallback
+    {
+        let cleaned = sanitize_text(f, 100);
+        if !cleaned.is_empty() {
+            out.push(cleaned);
         }
     }
     out
@@ -348,10 +348,10 @@ async fn list_music(
     let genre = params.get("genre").map(|s| s.as_str()).unwrap_or("");
     let limit = parse_int(params.get("limit").map(|s| s.as_str()))
         .map(|v| v.clamp(1, 200))
-        .unwrap_or(50) as i64;
+        .unwrap_or(50);
     let offset = parse_int(params.get("offset").map(|s| s.as_str()))
         .map(|v| v.max(0))
-        .unwrap_or(0) as i64;
+        .unwrap_or(0);
 
     let mut where_clauses = vec!["status = 'published'".to_string()];
     let mut args: Vec<(i32, String)> = Vec::new();
@@ -386,14 +386,13 @@ async fn list_music(
         .iter()
         .map(|r| {
             let mut obj = pg_row_to_json(r);
-            if let Value::Object(ref mut map) = obj {
-                if let Some(Value::String(id)) = map.get("id").cloned() {
-                    if let Ok(uuid) = Uuid::parse_str(&id) {
-                        let url = music_file_url(&state, uuid);
-                        map.insert("download_url".to_string(), Value::String(url.clone()));
-                        map.insert("file_url".to_string(), Value::String(url));
-                    }
-                }
+            if let Value::Object(ref mut map) = obj
+                && let Some(Value::String(id)) = map.get("id").cloned()
+                && let Ok(uuid) = Uuid::parse_str(&id)
+            {
+                let url = music_file_url(&state, uuid);
+                map.insert("download_url".to_string(), Value::String(url.clone()));
+                map.insert("file_url".to_string(), Value::String(url));
             }
             obj
         })

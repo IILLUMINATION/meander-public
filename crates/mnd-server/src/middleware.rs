@@ -3,9 +3,10 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::Json;
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{ConnectInfo, OriginalUri, Request, State};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -50,6 +51,63 @@ pub fn client_ip(req: &Request) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
+/// Structured access log for the canary deployment. Disabled by default so
+/// production traffic keeps Node's exact headers; the canary process enables
+/// it with `ACCESS_LOG=1`. The request id is echoed to nginx and is safe to
+/// correlate across both backends.
+pub async fn access_log(State(state): State<Arc<AppState>>, req: Request, next: Next) -> Response {
+    if !state.cfg.access_log {
+        return next.run(req).await;
+    }
+
+    let started = Instant::now();
+    let method = req.method().clone();
+    let path = req
+        .extensions()
+        .get::<OriginalUri>()
+        .map(|uri| uri.0.path().to_string())
+        .unwrap_or_else(|| req.uri().path().to_string());
+    let client_ip = client_ip(&req);
+    let request_id = request_id(&req);
+
+    let mut response = next.run(req).await;
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-request-id"), value);
+    }
+
+    tracing::info!(
+        target: "mnd_server::access",
+        request_id = %request_id,
+        upstream = "rust",
+        method = %method,
+        path = %path,
+        status = response.status().as_u16(),
+        latency_ms = started.elapsed().as_millis(),
+        client_ip = %client_ip,
+        "request"
+    );
+    response
+}
+
+fn request_id(req: &Request) -> String {
+    if let Some(value) = req
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && v.len() <= 128)
+        .filter(|v| {
+            v.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
+        })
+    {
+        return value.to_string();
+    }
+    uuid::Uuid::new_v4().to_string()
+}
+
 fn rate_headers(response: &mut Response, decision: Decision) {
     let headers = response.headers_mut();
     let mut set = |name: &'static str, value: String| {
@@ -91,18 +149,18 @@ pub(crate) fn too_many(message: &str, decision: Decision) -> Response {
 /// intact, so reproduce the router-level 400 here, after routing decided that
 /// the path is a parameterised route.
 pub async fn validate_path_params(req: Request, next: Next) -> Response {
-    if let Some(matched) = req.extensions().get::<axum::extract::MatchedPath>() {
-        if matched.as_str().contains('{') {
-            for segment in req.uri().path().split('/') {
-                if !segment.is_empty() && !percent_decodes(segment) {
-                    let message = format!("Failed to decode param '{segment}'");
-                    let err = if crate::error::is_production() {
-                        crate::error::ApiError::bad_request("Произошла ошибка. Попробуйте позже.")
-                    } else {
-                        crate::error::ApiError::bad_request(message.clone()).with_original(message)
-                    };
-                    return err.into_response();
-                }
+    if let Some(matched) = req.extensions().get::<axum::extract::MatchedPath>()
+        && matched.as_str().contains('{')
+    {
+        for segment in req.uri().path().split('/') {
+            if !segment.is_empty() && !percent_decodes(segment) {
+                let message = format!("Failed to decode param '{segment}'");
+                let err = if crate::error::is_production() {
+                    crate::error::ApiError::bad_request("Произошла ошибка. Попробуйте позже.")
+                } else {
+                    crate::error::ApiError::bad_request(message.clone()).with_original(message)
+                };
+                return err.into_response();
             }
         }
     }

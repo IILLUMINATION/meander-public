@@ -318,15 +318,15 @@ async fn send_message(
                 ),
             ));
         }
-        if let Some(thread_id) = thread_id {
-            if !peer_replied {
-                let wait = seconds_until_next_message(&state, thread_id, auth.id, &tenure).await;
-                if wait > 0 {
-                    return Err(ApiError::new(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        format!("Следующее сообщение можно через {wait} с."),
-                    ));
-                }
+        if let Some(thread_id) = thread_id
+            && !peer_replied
+        {
+            let wait = seconds_until_next_message(&state, thread_id, auth.id, &tenure).await;
+            if wait > 0 {
+                return Err(ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!("Следующее сообщение можно через {wait} с."),
+                ));
             }
         }
     }
@@ -664,7 +664,7 @@ async fn broadcast_system_news(
     }
 
     let tenure = get_tenure(&state, auth.id).await;
-    if tenure.as_ref().map_or(true, |t| !is_staff(t)) {
+    if tenure.as_ref().is_none_or(|t| !is_staff(t)) {
         return Err(ApiError::forbidden(
             "Новость команды может публиковать только админ",
         ));

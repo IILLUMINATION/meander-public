@@ -69,6 +69,10 @@ impl RateLimiter {
     pub fn len(&self) -> usize {
         self.windows.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.windows.is_empty()
+    }
 }
 
 /// The `ipKeyGenerator`-normalised key: express-rate-limit collapses IPv6

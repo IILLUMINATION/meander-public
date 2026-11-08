@@ -226,15 +226,15 @@ fn normalize_post(mut value: Value) -> Value {
             Value::Number(value_to_i64(v).into()),
         );
     }
-    if let Some(v) = map.get("media_urls") {
-        if v.is_null() {
-            map.insert("media_urls".to_string(), Value::Array(vec![]));
-        }
+    if let Some(v) = map.get("media_urls")
+        && v.is_null()
+    {
+        map.insert("media_urls".to_string(), Value::Array(vec![]));
     }
-    if let Some(v) = map.get("tags") {
-        if v.is_null() {
-            map.insert("tags".to_string(), Value::Array(vec![]));
-        }
+    if let Some(v) = map.get("tags")
+        && v.is_null()
+    {
+        map.insert("tags".to_string(), Value::Array(vec![]));
     }
 
     Value::Object(Map::from_iter(map.clone()))

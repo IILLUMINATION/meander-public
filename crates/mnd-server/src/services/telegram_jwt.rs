@@ -32,7 +32,7 @@ impl std::error::Error for TelegramTokenError {}
 
 fn base64_url_decode(input: &str) -> Result<String, TelegramTokenError> {
     let mut s = input.replace('-', "+").replace('_', "/");
-    while s.len() % 4 != 0 {
+    while !s.len().is_multiple_of(4) {
         s.push('=');
     }
     let bytes = base64::engine::general_purpose::STANDARD
@@ -58,7 +58,7 @@ fn hmac_sha256_base64url(key: &[u8], data: &str) -> String {
     mac.update(data.as_bytes());
     let result = mac.finalize();
     let bytes = result.into_bytes();
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes)
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Проверка JWT id_token, выписанного Telegram.

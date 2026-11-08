@@ -28,7 +28,11 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("[FCM] Firebase credentials loaded");
     }
 
-    cron::spawn_all(state);
+    if cfg.disable_cron {
+        tracing::warn!("background cron disabled (DISABLE_CRON)");
+    } else {
+        cron::spawn_all(state);
+    }
 
     axum::serve(
         listener,

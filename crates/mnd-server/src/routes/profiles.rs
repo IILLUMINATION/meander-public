@@ -80,7 +80,7 @@ fn validate_banner_style(value: &Value) -> Result<Option<Value>, String> {
     let id = obj
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("banner_style.id is not allowed"))?;
+        .ok_or_else(|| "banner_style.id is not allowed".to_string())?;
     if !ALLOWED_BANNER_IDS.contains(&id) {
         return Err(format!("banner_style.id \"{}\" is not allowed", id));
     }
@@ -441,20 +441,18 @@ async fn get_profile(
     let mut value = crate::json::pg_row_to_json(&row);
 
     let is_owner_or_staff = auth.id() == Some(id) || is_staff(&state, auth.id()).await;
-    if !is_owner_or_staff {
-        if let Value::Object(ref mut map) = value {
-            for key in [
-                "role",
-                "last_seen_at",
-                "timezone_offset",
-                "quiet_hours_enabled",
-                "show_nsfw",
-                "ad_free_until",
-                "total_playtime_seconds",
-                "total_quests_playtime_seconds",
-            ] {
-                map.remove(key);
-            }
+    if !is_owner_or_staff && let Value::Object(ref mut map) = value {
+        for key in [
+            "role",
+            "last_seen_at",
+            "timezone_offset",
+            "quiet_hours_enabled",
+            "show_nsfw",
+            "ad_free_until",
+            "total_playtime_seconds",
+            "total_quests_playtime_seconds",
+        ] {
+            map.remove(key);
         }
     }
 
@@ -1032,7 +1030,7 @@ async fn redeem_promo(
         .bind(&id)
         .bind(slot)
         .bind(tier)
-        .bind(&code)
+        .bind(code)
         .execute(&mut *tx)
         .await?;
 
@@ -1258,10 +1256,7 @@ async fn build_play_history(state: &AppState, user_id: Uuid) -> Result<Value, Ap
     let quests_played: i32 = totals.try_get("quests_played")?;
     let active_days: i32 = days.try_get("active_days")?;
 
-    let items_json: Vec<Value> = items
-        .iter()
-        .map(|r| crate::json::pg_row_to_json(r))
-        .collect();
+    let items_json: Vec<Value> = items.iter().map(crate::json::pg_row_to_json).collect();
 
     let activity: Vec<Value> = activity_rows
         .iter()
@@ -1461,74 +1456,6 @@ async fn sync_playtime(
 }
 
 // ========================================================================
-//  Tests for pure profile validation logic
-// ========================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn banner_style_accepts_allowed_presets() {
-        let value = json!({"type": "preset", "id": "aurora"});
-        let result = validate_banner_style(&value).unwrap();
-        assert_eq!(result, Some(json!({"type": "preset", "id": "aurora"})));
-    }
-
-    #[test]
-    fn banner_style_rejects_unknown_id() {
-        let value = json!({"type": "preset", "id": "nope"});
-        assert!(validate_banner_style(&value).is_err());
-    }
-
-    #[test]
-    fn banner_style_null_is_null() {
-        assert_eq!(validate_banner_style(&Value::Null).unwrap(), None);
-    }
-
-    #[test]
-    fn social_links_validates_and_lowercases() {
-        let value = json!([
-            {"platform": "Telegram", "url": "https://t.me/test"},
-            {"platform": "GITHUB", "url": "  https://github.com/test  "}
-        ]);
-        let result = validate_social_links(&value).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0]["platform"], "telegram");
-        assert_eq!(result[1]["url"], "https://github.com/test");
-    }
-
-    #[test]
-    fn social_links_rejects_bad_protocol() {
-        let value = json!([{"platform": "website", "url": "ftp://example.com"}]);
-        assert!(validate_social_links(&value).is_err());
-    }
-
-    #[test]
-    fn social_links_rejects_unknown_platform() {
-        let value = json!([{"platform": "fb", "url": "https://fb.com/x"}]);
-        assert!(validate_social_links(&value).is_err());
-    }
-
-    #[test]
-    fn social_links_skips_non_objects() {
-        let value = json!([null, {"platform": "website", "url": "https://x.dev"}, 42]);
-        let result = validate_social_links(&value).unwrap();
-        assert_eq!(result.len(), 1);
-    }
-
-    #[test]
-    fn avatar_extensions_match_node() {
-        assert!(is_avatar_extension(".jpg"));
-        assert!(is_avatar_extension(".jpeg"));
-        assert!(is_avatar_extension(".png"));
-        assert!(is_avatar_extension(".webp"));
-        assert!(!is_avatar_extension(".gif"));
-        assert!(!is_avatar_extension(""));
-    }
-}
-
-// ========================================================================
 //  Router
 // ========================================================================
 
@@ -1578,8 +1505,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/fcm-token", post(post_fcm_token))
         .route("/playtime-sync", post(sync_playtime))
 }
-
-/// `Body::i64` semantics for a value already destructured out of `Body`.
 
 /// Node's `pg` sends JS scalars to text columns as-is (a JS string is not
 /// re-quoted). Binding a `serde_json::Value` directly makes sqlx serialise the
@@ -1660,4 +1585,72 @@ fn js_parse_number(raw: &str) -> Option<f64> {
         return u64::from_str_radix(oct, 8).ok().map(|n| n as f64);
     }
     trimmed.parse::<f64>().ok()
+}
+
+// ========================================================================
+//  Tests for pure profile validation logic
+// ========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn banner_style_accepts_allowed_presets() {
+        let value = json!({"type": "preset", "id": "aurora"});
+        let result = validate_banner_style(&value).unwrap();
+        assert_eq!(result, Some(json!({"type": "preset", "id": "aurora"})));
+    }
+
+    #[test]
+    fn banner_style_rejects_unknown_id() {
+        let value = json!({"type": "preset", "id": "nope"});
+        assert!(validate_banner_style(&value).is_err());
+    }
+
+    #[test]
+    fn banner_style_null_is_null() {
+        assert_eq!(validate_banner_style(&Value::Null).unwrap(), None);
+    }
+
+    #[test]
+    fn social_links_validates_and_lowercases() {
+        let value = json!([
+            {"platform": "Telegram", "url": "https://t.me/test"},
+            {"platform": "GITHUB", "url": "  https://github.com/test  "}
+        ]);
+        let result = validate_social_links(&value).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0]["platform"], "telegram");
+        assert_eq!(result[1]["url"], "https://github.com/test");
+    }
+
+    #[test]
+    fn social_links_rejects_bad_protocol() {
+        let value = json!([{"platform": "website", "url": "ftp://example.com"}]);
+        assert!(validate_social_links(&value).is_err());
+    }
+
+    #[test]
+    fn social_links_rejects_unknown_platform() {
+        let value = json!([{"platform": "fb", "url": "https://fb.com/x"}]);
+        assert!(validate_social_links(&value).is_err());
+    }
+
+    #[test]
+    fn social_links_skips_non_objects() {
+        let value = json!([null, {"platform": "website", "url": "https://x.dev"}, 42]);
+        let result = validate_social_links(&value).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn avatar_extensions_match_node() {
+        assert!(is_avatar_extension(".jpg"));
+        assert!(is_avatar_extension(".jpeg"));
+        assert!(is_avatar_extension(".png"));
+        assert!(is_avatar_extension(".webp"));
+        assert!(!is_avatar_extension(".gif"));
+        assert!(!is_avatar_extension(""));
+    }
 }

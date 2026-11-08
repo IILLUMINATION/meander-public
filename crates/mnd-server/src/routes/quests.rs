@@ -99,11 +99,11 @@ fn strip_html(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let mut index = 0;
     while index < chars.len() {
-        if chars[index] == '<' {
-            if let Some(offset) = chars[index + 1..].iter().position(|c| *c == '>') {
-                index += offset + 2;
-                continue;
-            }
+        if chars[index] == '<'
+            && let Some(offset) = chars[index + 1..].iter().position(|c| *c == '>')
+        {
+            index += offset + 2;
+            continue;
         }
         out.push(chars[index]);
         index += 1;
@@ -386,10 +386,10 @@ async fn publish(
     } else {
         genres_from_form_value(form.str("genres"))
     };
-    if selected.is_empty() {
-        if let Some(category) = form.str("category") {
-            selected = normalize_quest_genres(&Value::String(category.to_string()), 3);
-        }
+    if selected.is_empty()
+        && let Some(category) = form.str("category")
+    {
+        selected = normalize_quest_genres(&Value::String(category.to_string()), 3);
     }
     if selected.is_empty() {
         selected = vec!["adventure".to_string()];
@@ -410,10 +410,11 @@ async fn publish(
         .fetch_optional(&state.db)
         .await
         .map_err(|err| unexpected(&err))?;
-    if let Some(owner) = owner {
-        if owner != user_id && !is_admin(&state, user_id).await {
-            return Err(ownership_conflict().to_api_error());
-        }
+    if let Some(owner) = owner
+        && owner != user_id
+        && !is_admin(&state, user_id).await
+    {
+        return Err(ownership_conflict().to_api_error());
     }
 
     let Some(quest_file_index) = form.files.iter().position(|f| f.field == "questFile") else {
@@ -519,10 +520,11 @@ async fn publish(
             .await
             .map_err(|err| unexpected(&err))?;
     let is_new_quest = existing_owner.is_none();
-    if let Some(owner) = existing_owner {
-        if owner != user_id && !is_admin(&state, user_id).await {
-            return Err(ownership_conflict().to_api_error());
-        }
+    if let Some(owner) = existing_owner
+        && owner != user_id
+        && !is_admin(&state, user_id).await
+    {
+        return Err(ownership_conflict().to_api_error());
     }
 
     let upsert = format!(
@@ -783,21 +785,21 @@ async fn vote(
                     .bind(quest_id)
                     .fetch_optional(&state.db)
                     .await?;
-            if let Some((author_id, title)) = quest {
-                if author_id != user_id {
-                    create_notification(
-                        &state,
-                        NewNotification {
-                            user_id: author_id,
-                            actor_id: Some(user_id),
-                            kind: "quest_like",
-                            quest_id: Some(quest_id),
-                            review_id: None,
-                            payload: Some(json!({ "title": title })),
-                        },
-                    )
-                    .await;
-                }
+            if let Some((author_id, title)) = quest
+                && author_id != user_id
+            {
+                create_notification(
+                    &state,
+                    NewNotification {
+                        user_id: author_id,
+                        actor_id: Some(user_id),
+                        kind: "quest_like",
+                        quest_id: Some(quest_id),
+                        review_id: None,
+                        payload: Some(json!({ "title": title })),
+                    },
+                )
+                .await;
             }
         }
 
@@ -1350,10 +1352,10 @@ async fn admin_action(
                 .bind(MARKET_TIER_MODERATED)
                 .fetch_optional(&state.db)
                 .await?;
-                return match row {
+                match row {
                     Some(row) => ok_json(pg_row_to_json(&row)),
                     None => Err(ApiError::not_found("Quest not found")),
-                };
+                }
             }
             "set_market_tier" => {
                 let Some(tier) = parse_market_tier_json(&value) else {
@@ -1369,10 +1371,10 @@ async fn admin_action(
                 .bind(MARKET_TIER_DEMO)
                 .fetch_optional(&state.db)
                 .await?;
-                return match row {
+                match row {
                     Some(row) => ok_json(pg_row_to_json(&row)),
                     None => Err(ApiError::not_found("Quest not found")),
-                };
+                }
             }
             "set_nsfw" => {
                 let row = sqlx::query(
@@ -1382,10 +1384,10 @@ async fn admin_action(
                 .bind(quest_id)
                 .fetch_optional(&state.db)
                 .await?;
-                return match row {
+                match row {
                     Some(row) => ok_json(pg_row_to_json(&row)),
                     None => Err(ApiError::not_found("Quest not found")),
-                };
+                }
             }
             "set_featured" => {
                 let row = sqlx::query(
@@ -1395,10 +1397,10 @@ async fn admin_action(
                 .bind(quest_id)
                 .fetch_optional(&state.db)
                 .await?;
-                return match row {
+                match row {
                     Some(row) => ok_json(pg_row_to_json(&row)),
                     None => Err(ApiError::not_found("Quest not found")),
-                };
+                }
             }
             "set_status" => {
                 let next_status = value_to_string(&value);
@@ -1457,9 +1459,9 @@ async fn admin_action(
                         }
                     });
                 }
-                return ok_json(pg_row_to_json(&row));
+                ok_json(pg_row_to_json(&row))
             }
-            _ => return Err(ApiError::bad_request("Unknown admin action")),
+            _ => Err(ApiError::bad_request("Unknown admin action")),
         }
     }
     .await;
@@ -1930,21 +1932,21 @@ async fn review(
                 .fetch_optional(&state.db)
                 .await
                 .map_err(|err| fail(err, "review quest author lookup"))?;
-        if let Some((author_id, title)) = quest {
-            if author_id != auth.id {
-                create_notification(
-                    &state,
-                    NewNotification {
-                        user_id: author_id,
-                        actor_id: Some(auth.id),
-                        kind: "quest_review",
-                        quest_id: Some(quest_id),
-                        review_id,
-                        payload: Some(json!({ "title": title })),
-                    },
-                )
-                .await;
-            }
+        if let Some((author_id, title)) = quest
+            && author_id != auth.id
+        {
+            create_notification(
+                &state,
+                NewNotification {
+                    user_id: author_id,
+                    actor_id: Some(auth.id),
+                    kind: "quest_review",
+                    quest_id: Some(quest_id),
+                    review_id,
+                    payload: Some(json!({ "title": title })),
+                },
+            )
+            .await;
         }
     }
 

@@ -51,10 +51,10 @@ where
 
 /// `socket.handshake.auth.token` first, then `?token=` (older web players).
 fn handshake_token(auth: Option<&Value>, query: Option<&str>) -> Option<String> {
-    if let Some(token) = auth.and_then(|a| a.get("token")).and_then(Value::as_str) {
-        if !token.is_empty() {
-            return Some(token.to_string());
-        }
+    if let Some(token) = auth.and_then(|a| a.get("token")).and_then(Value::as_str)
+        && !token.is_empty()
+    {
+        return Some(token.to_string());
     }
     query.and_then(|q| {
         q.split('&')
@@ -107,7 +107,7 @@ async fn authenticate(
 }
 
 async fn on_connect(socket: SocketRef) {
-    let Some(SocketUser(user_id)) = socket.extensions.get::<SocketUser>().map(|u| u.clone()) else {
+    let Some(SocketUser(user_id)) = socket.extensions.get::<SocketUser>() else {
         return;
     };
     socket.join(format!("user_{user_id}"));
@@ -130,7 +130,7 @@ async fn join_post(
     else {
         return;
     };
-    let Some(SocketUser(user_id)) = socket.extensions.get::<SocketUser>().map(|u| u.clone()) else {
+    let Some(SocketUser(user_id)) = socket.extensions.get::<SocketUser>() else {
         return;
     };
 

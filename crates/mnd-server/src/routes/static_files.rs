@@ -266,10 +266,10 @@ pub async fn file_response(
     if let Ok(value) = HeaderValue::from_str(&etag) {
         out.insert(header::ETAG, value);
     }
-    if let RangeSpec::Partial(start, end) = range {
-        if let Ok(value) = HeaderValue::from_str(&format!("bytes {start}-{end}/{len}")) {
-            out.insert(header::CONTENT_RANGE, value);
-        }
+    if let RangeSpec::Partial(start, end) = range
+        && let Ok(value) = HeaderValue::from_str(&format!("bytes {start}-{end}/{len}"))
+    {
+        out.insert(header::CONTENT_RANGE, value);
     }
     Ok(response)
 }

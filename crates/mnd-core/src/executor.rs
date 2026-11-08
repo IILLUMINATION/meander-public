@@ -254,7 +254,6 @@ impl ScriptExecutor {
     }
 
     pub(crate) fn log(&self, message: &str) {
-
         let msg = format!("[Rust/mnd-core] {message}");
         if let Some(logger) = &self.logger {
             logger(&msg);
@@ -1551,12 +1550,11 @@ fn normalize_placeholder_braces(text: &str) -> String {
         } else if c == ']' && brackets > 0 {
             brackets -= 1;
         }
-        if c == '{' && i + 1 < chars.len() && chars[i + 1] == '{' {
-            if chars.get(i + 2) != Some(&'}') {
-                out.push('{');
-                i += 2;
-                continue;
-            }
+        if c == '{' && i + 1 < chars.len() && chars[i + 1] == '{' && chars.get(i + 2) != Some(&'}')
+        {
+            out.push('{');
+            i += 2;
+            continue;
         }
         if c == '}' && i + 1 < chars.len() && chars[i + 1] == '}' {
             let rest = chars.get(i + 2);
@@ -3621,7 +3619,10 @@ mod tests {
         s.set_table("лавка", table);
 
         assert_eq!(
-            evaluate_expression(Some(json!(format!("{{лавка[\"{}\"][1]}}", r#"ко\"лон]ка"#))), &mut s),
+            evaluate_expression(
+                Some(json!(format!("{{лавка[\"{}\"][1]}}", r#"ко\"лон]ка"#))),
+                &mut s
+            ),
             json!(42),
             "кавычка и `]` в имени колонки"
         );

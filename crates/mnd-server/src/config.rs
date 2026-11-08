@@ -44,6 +44,12 @@ pub struct Config {
     pub quest_xaccel_private_prefix: String,
 
     pub enable_debug_routes: bool,
+    /// Canary switch: the Rust process must not run background sweeps while
+    /// Node still owns them, otherwise every job runs twice.
+    pub disable_cron: bool,
+    /// Structured access log used by the canary/shadow deployment. Off by
+    /// default so response headers and log volume stay identical to Node.
+    pub access_log: bool,
     pub firebase_credentials: Option<PathBuf>,
 
     pub ai_default_tokens: i64,
@@ -67,6 +73,13 @@ fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> T {
     env(key)
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(default)
+}
+
+fn env_bool(key: &str) -> bool {
+    matches!(
+        env(key).as_deref().map(str::trim),
+        Some("1" | "true" | "TRUE" | "yes" | "on")
+    )
 }
 
 impl Config {
@@ -153,6 +166,8 @@ impl Config {
             quest_xaccel_prefix: xaccel,
 
             enable_debug_routes: env("ENABLE_DEBUG_ROUTES").as_deref() == Some("true"),
+            disable_cron: env_bool("DISABLE_CRON"),
+            access_log: env_bool("ACCESS_LOG"),
             firebase_credentials: env("FIREBASE_CREDENTIALS")
                 .or_else(|| env("GOOGLE_APPLICATION_CREDENTIALS"))
                 .map(PathBuf::from),

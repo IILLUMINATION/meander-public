@@ -777,12 +777,12 @@ async fn cosmetics_grant(
     }
 
     let days = body.i64("days").map(|d| d as i32);
-    if let Some(d) = days {
-        if d <= 0 || d > 3650 {
-            return Err(ApiError::bad_request(
-                "days должен быть числом 1..3650 или null",
-            ));
-        }
+    if let Some(d) = days
+        && (d <= 0 || d > 3650)
+    {
+        return Err(ApiError::bad_request(
+            "days должен быть числом 1..3650 или null",
+        ));
     }
 
     let reason = trim_reason(body.str("reason"));
@@ -989,7 +989,7 @@ async fn cosmetics_codes_create(
 
 fn auto_promo_code() -> String {
     let uuid = Uuid::new_v4().to_string();
-    format!("MND-{}", &uuid[..8].to_uppercase())
+    format!("MND-{}", uuid[..8].to_uppercase())
 }
 
 async fn remove_public_file(dir: &std::path::Path, id: &Uuid) {

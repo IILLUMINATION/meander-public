@@ -103,7 +103,7 @@ async fn ensure_quota_row(state: &AppState, user_id: Uuid) -> Result<QuotaRow, A
     .await?;
 
     if let Some(r) = row {
-        return Ok(map_quota_row(&r)?);
+        return map_quota_row(&r);
     }
 
     recompute_tier(state, user_id).await?;
@@ -118,7 +118,7 @@ async fn ensure_quota_row(state: &AppState, user_id: Uuid) -> Result<QuotaRow, A
     .await?
     .ok_or_else(|| ApiError::internal("Failed to create cloud sync quota"))?;
 
-    Ok(map_quota_row(&row)?)
+    map_quota_row(&row)
 }
 
 fn map_quota_row(r: &sqlx::postgres::PgRow) -> Result<QuotaRow, ApiError> {
@@ -268,25 +268,23 @@ async fn list_quests(State(state): State<Arc<AppState>>, auth: AuthUser) -> ApiR
             "downloadPath": format!("/cloud-sync/quests/{quest_id}"),
         });
 
-        if let Some(mq) = market_quest_id {
-            if let Value::Object(ref mut map) = obj {
-                map.insert("marketQuestId".to_string(), Value::String(mq.to_string()));
-            }
+        if let Some(mq) = market_quest_id
+            && let Value::Object(ref mut map) = obj
+        {
+            map.insert("marketQuestId".to_string(), Value::String(mq.to_string()));
         }
-        if let Some(v) = market_version {
-            if let Value::Object(ref mut map) = obj {
-                map.insert("marketVersion".to_string(), Value::String(v));
-            }
+        if let Some(v) = market_version
+            && let Value::Object(ref mut map) = obj
+        {
+            map.insert("marketVersion".to_string(), Value::String(v));
         }
-        if let Some(v) = market_current_version {
-            if let Value::Object(ref mut map) = obj {
-                map.insert("marketCurrentVersion".to_string(), Value::String(v));
-            }
+        if let Some(v) = market_current_version
+            && let Value::Object(ref mut map) = obj
+        {
+            map.insert("marketCurrentVersion".to_string(), Value::String(v));
         }
-        if is_ref {
-            if let Value::Object(ref mut map) = obj {
-                map.insert("marketAvailable".to_string(), Value::Bool(market_available));
-            }
+        if is_ref && let Value::Object(ref mut map) = obj {
+            map.insert("marketAvailable".to_string(), Value::Bool(market_available));
         }
 
         list.push(obj);
@@ -328,18 +326,16 @@ async fn check_quest(
     .await?;
 
     let mut supports_market_ref = false;
-    if let Some(market_ref) = body.get("marketRef").and_then(Value::as_object) {
-        if let Some(Value::String(mq)) = market_ref.get("marketQuestId") {
-            if let Ok(uuid) = Uuid::parse_str(mq) {
-                let status = sqlx::query_scalar::<_, String>(
-                    "SELECT status::text FROM quests WHERE id = $1",
-                )
+    if let Some(market_ref) = body.get("marketRef").and_then(Value::as_object)
+        && let Some(Value::String(mq)) = market_ref.get("marketQuestId")
+        && let Ok(uuid) = Uuid::parse_str(mq)
+    {
+        let status =
+            sqlx::query_scalar::<_, String>("SELECT status::text FROM quests WHERE id = $1")
                 .bind(uuid)
                 .fetch_optional(&state.db)
                 .await?;
-                supports_market_ref = status.as_deref() == Some("published");
-            }
-        }
+        supports_market_ref = status.as_deref() == Some("published");
     }
 
     // Identical fingerprint already on the server.
@@ -743,12 +739,13 @@ fn percent_decode(raw: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&raw[i + 1..i + 3], 16) {
-                out.push(byte);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&raw[i + 1..i + 3], 16)
+        {
+            out.push(byte);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;
@@ -829,10 +826,10 @@ async fn download_quest(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&size.to_string()).expect("numeric header"),
     );
-    if let Some(fp) = fingerprint {
-        if let Ok(value) = HeaderValue::from_str(&fp) {
-            resp.headers_mut().insert("x-fingerprint", value);
-        }
+    if let Some(fp) = fingerprint
+        && let Ok(value) = HeaderValue::from_str(&fp)
+    {
+        resp.headers_mut().insert("x-fingerprint", value);
     }
 
     audit(
@@ -962,11 +959,11 @@ async fn admin_cleanup(
 ) -> ApiResult {
     let report = run_cloud_sync_cleanup(&state).await?;
     let mut obj = json!({"ok": true});
-    if let Value::Object(ref mut map) = obj {
-        if let Value::Object(rep) = report {
-            for (k, v) in rep {
-                map.insert(k, v);
-            }
+    if let Value::Object(ref mut map) = obj
+        && let Value::Object(rep) = report
+    {
+        for (k, v) in rep {
+            map.insert(k, v);
         }
     }
     ok_json(obj)

@@ -663,21 +663,21 @@ async fn like_post(
             .await;
         emit_post_stats(&state, post_id).await;
 
-        if let Some(author_id) = post_author_id(&state, post_id).await {
-            if author_id != auth.id {
-                let _ = create_notification(
-                    &state,
-                    NewNotification {
-                        user_id: author_id,
-                        actor_id: Some(auth.id),
-                        kind: "wall_post_like",
-                        quest_id: None,
-                        review_id: None,
-                        payload: Some(json!({"postId": post_id.to_string()})),
-                    },
-                )
-                .await;
-            }
+        if let Some(author_id) = post_author_id(&state, post_id).await
+            && author_id != auth.id
+        {
+            let _ = create_notification(
+                &state,
+                NewNotification {
+                    user_id: author_id,
+                    actor_id: Some(auth.id),
+                    kind: "wall_post_like",
+                    quest_id: None,
+                    review_id: None,
+                    payload: Some(json!({"postId": post_id.to_string()})),
+                },
+            )
+            .await;
         }
         ok_json(json!({"liked": true}))
     }
@@ -877,24 +877,24 @@ async fn create_comment(
                 .await;
             }
         }
-    } else if let Some(author_id) = post_author_id(&state, post_id).await {
-        if author_id != auth.id {
-            let _ = create_notification(
-                &state,
-                NewNotification {
-                    user_id: author_id,
-                    actor_id: Some(auth.id),
-                    kind: "wall_post_comment",
-                    quest_id: None,
-                    review_id: None,
-                    payload: Some(json!({
-                        "postId": post_id.to_string(),
-                        "commentId": comment["id"].as_str(),
-                    })),
-                },
-            )
-            .await;
-        }
+    } else if let Some(author_id) = post_author_id(&state, post_id).await
+        && author_id != auth.id
+    {
+        let _ = create_notification(
+            &state,
+            NewNotification {
+                user_id: author_id,
+                actor_id: Some(auth.id),
+                kind: "wall_post_comment",
+                quest_id: None,
+                review_id: None,
+                payload: Some(json!({
+                    "postId": post_id.to_string(),
+                    "commentId": comment["id"].as_str(),
+                })),
+            },
+        )
+        .await;
     }
 
     state.emit_to_room(&format!("post_{post_id}"), "new_comment", comment.clone());

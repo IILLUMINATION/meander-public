@@ -66,8 +66,8 @@ async fn list_notifications(
          LIMIT $2 OFFSET $3",
     )
     .bind(auth.id)
-    .bind(limit as i64)
-    .bind(offset as i64)
+    .bind(limit)
+    .bind(offset)
     .bind(archived)
     .fetch_all(&state.db)
     .await?;

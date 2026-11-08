@@ -17,21 +17,11 @@ use sha2::{Digest, Sha256};
 use crate::error::ApiError;
 
 /// The shape stored in `profile_sync_settings` and returned to callers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EncryptedToken {
     pub ciphertext: String,
     pub iv: String,
     pub tag: String,
-}
-
-impl Default for EncryptedToken {
-    fn default() -> Self {
-        Self {
-            ciphertext: String::new(),
-            iv: String::new(),
-            tag: String::new(),
-        }
-    }
 }
 
 fn build_cipher() -> Result<Aes256Gcm, String> {

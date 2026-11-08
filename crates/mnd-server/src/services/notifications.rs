@@ -77,10 +77,10 @@ pub async fn create_notification(state: &Arc<AppState>, n: NewNotification<'_>) 
     if n.actor_id == Some(n.user_id) {
         return false;
     }
-    if let Some(actor_id) = n.actor_id {
-        if author_muted(state, n.user_id, actor_id, n.kind, None).await {
-            return false;
-        }
+    if let Some(actor_id) = n.actor_id
+        && author_muted(state, n.user_id, actor_id, n.kind, None).await
+    {
+        return false;
     }
 
     let inserted = sqlx::query(
@@ -148,10 +148,10 @@ pub async fn create_notification_tx(
     if n.actor_id == Some(n.user_id) {
         return false;
     }
-    if let Some(actor_id) = n.actor_id {
-        if author_muted(state, n.user_id, actor_id, n.kind, Some(&mut *conn)).await {
-            return false;
-        }
+    if let Some(actor_id) = n.actor_id
+        && author_muted(state, n.user_id, actor_id, n.kind, Some(&mut *conn)).await
+    {
+        return false;
     }
 
     let inserted = sqlx::query(
@@ -231,6 +231,7 @@ pub async fn create_bulk_notifications(
 /// Same insert as [`create_bulk_notifications`], but inside the caller's
 /// transaction. `POST /quests` must write follower notifications before the
 /// quest row is committed, exactly like Node passing its `PoolClient`.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_bulk_notifications_tx(
     state: &Arc<AppState>,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -271,36 +272,36 @@ async fn create_bulk_notifications_with_conn(
         return 0;
     }
 
-    if let Some(actor_id) = actor_id {
-        if AUTHOR_EVENT_TYPES.contains(&kind) {
-            use sqlx::Row;
-            let rows = sqlx::query(
-                "SELECT id, author_notifs_mode, author_notifs_exceptions
+    if let Some(actor_id) = actor_id
+        && AUTHOR_EVENT_TYPES.contains(&kind)
+    {
+        use sqlx::Row;
+        let rows = sqlx::query(
+            "SELECT id, author_notifs_mode, author_notifs_exceptions
                    FROM profiles WHERE id = ANY($1)",
-            )
-            .bind(&recipients)
-            .fetch_all(&mut *conn)
-            .await
-            .unwrap_or_default();
+        )
+        .bind(&recipients)
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap_or_default();
 
-            recipients.retain(|user_id| {
-                let Some(row) = rows
-                    .iter()
-                    .find(|r| r.try_get::<Uuid, _>("id").ok().as_ref() == Some(user_id))
-                else {
-                    return true;
-                };
-                let mode: Option<String> = row.try_get("author_notifs_mode").ok();
-                let exceptions: Vec<Uuid> = row
-                    .try_get::<Option<Vec<Uuid>>, _>("author_notifs_exceptions")
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
-                let has_exception = exceptions.contains(&actor_id);
-                let mode = mode.unwrap_or_else(|| "all".into());
-                !((mode == "all" && has_exception) || (mode == "none" && !has_exception))
-            });
-        }
+        recipients.retain(|user_id| {
+            let Some(row) = rows
+                .iter()
+                .find(|r| r.try_get::<Uuid, _>("id").ok().as_ref() == Some(user_id))
+            else {
+                return true;
+            };
+            let mode: Option<String> = row.try_get("author_notifs_mode").ok();
+            let exceptions: Vec<Uuid> = row
+                .try_get::<Option<Vec<Uuid>>, _>("author_notifs_exceptions")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let has_exception = exceptions.contains(&actor_id);
+            let mode = mode.unwrap_or_else(|| "all".into());
+            !((mode == "all" && has_exception) || (mode == "none" && !has_exception))
+        });
     }
     if recipients.is_empty() {
         return 0;
@@ -376,7 +377,7 @@ async fn is_quiet_hours(state: &AppState, user_id: Uuid) -> bool {
     };
     let now = chrono::Utc::now();
     let user_hour = ((now.timestamp() + i64::from(offset) * 60).rem_euclid(86400) / 3600) as u32;
-    user_hour >= QUIET_START_HOUR || user_hour < QUIET_END_HOUR
+    !(QUIET_END_HOUR..QUIET_START_HOUR).contains(&user_hour)
 }
 
 /// Resolves the actor name, debounces, checks quiet hours, then emits the
