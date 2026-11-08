@@ -111,5 +111,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Then run the canary process with `DISABLE_CRON=1 ACCESS_LOG=1` and check that
+Run the differential harness against disposable database clones as described in
+[`scripts/parity/README.md`](../scripts/parity/README.md). Then run the canary process with `DISABLE_CRON=1 ACCESS_LOG=1` and check that
 `GET /` returns 204 and no background job logs appear.
