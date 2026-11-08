@@ -400,7 +400,10 @@ pub fn router() -> Router<Arc<AppState>> {
 async fn redirect_js() -> ApiResult {
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript")
+        .header(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )
         .body(Body::from(REDIRECT_JS))
         .map_err(|e| ApiError::internal(e.to_string()))?)
 }

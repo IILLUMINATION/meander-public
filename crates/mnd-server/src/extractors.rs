@@ -35,18 +35,29 @@ pub async fn upload_form(
     state: &std::sync::Arc<super::state::AppState>,
     max_file_bytes: usize,
 ) -> Result<FormData, UploadFormError> {
-    let content_type = request
+    let raw_content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
-        .to_ascii_lowercase();
+        .to_string();
+    let content_type = raw_content_type.to_ascii_lowercase();
+    let media = crate::media_type(&content_type);
 
-    if !content_type.starts_with("multipart/form-data") {
+    if !crate::is_multipart_content_type(&content_type) {
+        // `multer` engages busboy for any `multipart/*` media type, and busboy
+        // then refuses everything but `multipart/form-data`.
+        if let Some(subtype) = media.strip_prefix("multipart/") {
+            if !subtype.is_empty() {
+                return Err(UploadFormError::Multipart(format!(
+                    "Unsupported content type: {raw_content_type}"
+                )));
+            }
+        }
         let bytes = axum::body::to_bytes(request.into_body(), 1024 * 1024)
             .await
             .map_err(|_| UploadFormError::TooLarge)?;
-        if content_type.starts_with("application/json") && !bytes.is_empty() {
+        if crate::is_json_content_type(&content_type) && !bytes.is_empty() {
             match serde_json::from_slice::<Value>(&bytes) {
                 Ok(value) if value.is_object() || value.is_array() => {}
                 _ => return Err(UploadFormError::BadJson),
@@ -55,14 +66,26 @@ pub async fn upload_form(
         return Ok(FormData::default());
     }
 
-    let message = if content_type.contains("boundary=") {
-        "Multipart: Unexpected end of form"
-    } else {
-        "Multipart: Boundary not found"
-    };
+    let boundary = content_type.split(';').skip(1).find_map(|param| {
+        let (name, value) = param.split_once('=')?;
+        name.trim()
+            .eq_ignore_ascii_case("boundary")
+            .then(|| value.trim().to_string())
+    });
+    match boundary.as_deref() {
+        None => {
+            return Err(UploadFormError::Multipart(
+                "Multipart: Boundary not found".to_string(),
+            ));
+        }
+        // Multer silently skips parsing when the boundary is empty.
+        Some("") => return Ok(FormData::default()),
+        Some(_) => {}
+    }
+
     let multipart = Multipart::from_request(request, state)
         .await
-        .map_err(|_| UploadFormError::Multipart(message.to_string()))?;
+        .map_err(|_| UploadFormError::Multipart("Unexpected end of form".to_string()))?;
     collect_multipart(multipart, max_file_bytes)
         .await
         .map_err(|err| {
@@ -73,6 +96,11 @@ pub async fn upload_form(
             }
         })
 }
+
+/// Result of the global `express.json`/`express.urlencoded` equivalent, cached
+/// in request extensions before auth and routing run (Node parses first).
+#[derive(Clone)]
+pub struct ParsedBody(pub Value);
 
 /// Parsed body, JSON-shaped. Missing/empty bodies become `{}` like Express.
 pub struct Body(pub Value);
@@ -111,7 +139,7 @@ impl Body {
     }
 }
 
-fn urlencoded_to_value(raw: &str) -> Value {
+pub(crate) fn urlencoded_to_value(raw: &str) -> Value {
     let mut map: Map<String, Value> = Map::new();
     for pair in raw.split('&') {
         if pair.is_empty() {
@@ -161,13 +189,25 @@ impl FromRequest<std::sync::Arc<super::state::AppState>> for Body {
         req: Request,
         _state: &std::sync::Arc<super::state::AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let limit = super::json_body_limit(&req);
+        if let Some(body) = req.extensions().get::<ParsedBody>() {
+            return Ok(Body(body.0.clone()));
+        }
+
         let content_type = req
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_ascii_lowercase();
+        // Express only fills `req.body` for the two parser content types;
+        // anything else reaches the handler as an empty object.
+        if !crate::is_json_content_type(&content_type)
+            && !crate::is_urlencoded_content_type(&content_type)
+        {
+            return Ok(Body(json!({})));
+        }
+
+        let limit = super::json_body_limit(&req);
         let bytes = axum::body::to_bytes(req.into_body(), limit)
             .await
             .map_err(|_| payload_too_large())?;
@@ -176,7 +216,7 @@ impl FromRequest<std::sync::Arc<super::state::AppState>> for Body {
             return Ok(Body(json!({})));
         }
 
-        if content_type.starts_with("application/x-www-form-urlencoded") {
+        if crate::is_urlencoded_content_type(&content_type) {
             let raw = String::from_utf8_lossy(&bytes);
             return Ok(Body(urlencoded_to_value(&raw)));
         }
@@ -272,7 +312,7 @@ pub async fn collect_multipart(
 
     while let Some(field) = multipart.next_field().await.map_err(|err| {
         tracing::warn!(error = %err, "multipart parse failed");
-        ApiError::bad_request("Unexpected upload field")
+        ApiError::bad_request("Unexpected end of form")
     })? {
         let name = field.name().unwrap_or_default().to_string();
         let file_name = field.file_name().map(str::to_string);
@@ -282,7 +322,7 @@ pub async fn collect_multipart(
             None => {
                 let value = field.text().await.map_err(|err| {
                     tracing::warn!(error = %err, "multipart text field failed");
-                    ApiError::bad_request("Unexpected upload field")
+                    ApiError::bad_request("Unexpected end of form")
                 })?;
                 form.fields.entry(name).or_default().push(value);
             }
@@ -298,7 +338,7 @@ pub async fn collect_multipart(
                 use tokio::io::AsyncWriteExt;
                 while let Some(chunk) = stream.chunk().await.map_err(|err| {
                     tracing::warn!(error = %err, "multipart file chunk failed");
-                    ApiError::bad_request("Unexpected upload field")
+                    ApiError::bad_request("Unexpected end of form")
                 })? {
                     size += chunk.len();
                     if size > max_file_bytes {

@@ -779,7 +779,7 @@ async fn upload_avatar(
 
     if form.files.iter().any(|f| f.field != "file") {
         // `uploadAvatarFile` turns multer's LIMIT_UNEXPECTED_FILE into 400.
-        return Err(ApiError::bad_request("Unexpected file field"));
+        return Err(ApiError::bad_request("Too many files"));
     }
     let Some(file) = form.file("file") else {
         return Err(ApiError::bad_request("Прикрепите файл картинки"));
@@ -1145,7 +1145,7 @@ async fn get_user_quests(
     let mut query = String::from(
         "SELECT q.*, p.full_name AS author_name, p.is_verified AS author_is_verified, \
             p.cosmetics->>'name_style' as author_name_style, p.cosmetics AS author_cosmetics, \
-            (SELECT AVG(r.rating) FROM ratings r WHERE r.quest_id = q.id) AS average_rating \
+            (SELECT AVG(r.rating)::text FROM ratings r WHERE r.quest_id = q.id) AS average_rating \
         FROM quests q \
         LEFT JOIN profiles p ON q.author_id = p.id \
         WHERE q.author_id = $1",

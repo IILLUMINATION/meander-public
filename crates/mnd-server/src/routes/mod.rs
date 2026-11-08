@@ -38,9 +38,20 @@ pub fn router() -> Router<Arc<AppState>> {
 
 async fn test_ip(req: axum::extract::Request) -> axum::Json<serde_json::Value> {
     let ip = middleware::client_ip(&req);
-    axum::Json(serde_json::json!({
+    let mut body = serde_json::json!({
         "ip": ip,
         "ips": [ip],
-        "headers": req.headers().get("x-forwarded-for").and_then(|v| v.to_str().ok()),
-    }))
+    });
+    // `res.json` drops keys whose value is undefined, so the header key is
+    // absent when the request had no X-Forwarded-For.
+    if let Some(forwarded) = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(object) = body.as_object_mut() {
+            object.insert("headers".into(), serde_json::json!(forwarded));
+        }
+    }
+    axum::Json(body)
 }

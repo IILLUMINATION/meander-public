@@ -12,7 +12,7 @@ use serde_json::Value;
 use socketioxide::SocketIo;
 use socketioxide::extract::{SocketRef, State, TryData};
 use socketioxide::handler::ConnectHandler;
-use socketioxide::layer::SocketIoLayer;
+use socketioxide::service::SocketIoService;
 use uuid::Uuid;
 
 use crate::auth::account_state;
@@ -21,12 +21,29 @@ use crate::state::AppState;
 #[derive(Debug, Clone)]
 pub struct SocketUser(pub Uuid);
 
-pub fn setup(state: &Arc<AppState>) -> (SocketIoLayer, SocketIo) {
-    let (layer, io) = SocketIo::builder().with_state(state.clone()).build_layer();
+/// Builds the Socket.IO service around an already assembled HTTP router.
+///
+/// Socket.IO requests are answered by the engine before the inner service is
+/// called; every other request falls through to `inner`.
+pub fn setup_with_inner<S>(state: &Arc<AppState>, inner: S) -> (SocketIoService<S>, SocketIo)
+where
+    S: tower::Service<
+            axum::extract::Request,
+            Error = std::convert::Infallible,
+            Response = axum::response::Response,
+        > + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Future: Send + 'static,
+{
+    let (service, io) = SocketIo::builder()
+        .with_state(state.clone())
+        .build_with_inner_svc(inner);
     // The middleware rejects the handshake before the connection handler runs,
     // so `on_connect` can assume an authenticated user.
     io.ns("/", on_connect.with(authenticate));
-    (layer, io)
+    (service, io)
 }
 
 /// `socket.handshake.auth.token` first, then `?token=` (older web players).

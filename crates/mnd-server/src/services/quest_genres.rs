@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
-pub const QUEST_GENRE_IDS: [&str; 50] = [
+pub const QUEST_GENRE_IDS: [&str; 52] = [
     "fantasy",
     "dark_fantasy",
     "fairytale",
@@ -57,6 +57,8 @@ pub const QUEST_GENRE_IDS: [&str; 50] = [
     "martial_arts",
     "medical",
     "political",
+    "business",
+    "farming",
 ];
 
 pub const MAX_QUEST_GENRES: usize = 3;

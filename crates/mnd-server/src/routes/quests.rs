@@ -308,7 +308,7 @@ async fn publish(
     // other content types through; the route then answers "quest file
     // required". Only multipart reaches the file pipeline, and malformed
     // multipart is a 500 there, exactly like `multer`'s error middleware.
-    let form = if content_type.starts_with("multipart/form-data") {
+    let form = if crate::is_multipart_content_type(&content_type) {
         let multipart = Multipart::from_request(request, &state)
             .await
             .map_err(|_| {
@@ -324,7 +324,7 @@ async fn publish(
         let bytes = to_bytes(request.into_body(), 1024 * 1024)
             .await
             .map_err(|_| payload_too_large())?;
-        if content_type.starts_with("application/json") && !bytes.is_empty() {
+        if crate::is_json_content_type(&content_type) && !bytes.is_empty() {
             match serde_json::from_slice::<Value>(&bytes) {
                 Ok(value) if value.is_object() || value.is_array() => {}
                 _ => return Err(ApiError::bad_request("Bad JSON format")),
@@ -1143,7 +1143,7 @@ async fn featured(
         .max(0);
 
     let mut sql = String::from(
-        "SELECT mq.*, (SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id) AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published' AND mq.is_featured = TRUE",
+        "SELECT mq.*, mq.average_rating::text AS average_rating, (SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id) AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published' AND mq.is_featured = TRUE",
     );
     if !show_nsfw {
         sql.push_str(" AND mq.is_nsfw = FALSE");
@@ -1585,7 +1585,7 @@ async fn quest_detail(
         }
 
         let row = sqlx::query(
-            "SELECT mq.*, (SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id) AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.id = $1",
+            "SELECT mq.*, mq.average_rating::text AS average_rating, (SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id) AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.id = $1",
         )
         .bind(quest_id)
         .fetch_optional(&state.db)

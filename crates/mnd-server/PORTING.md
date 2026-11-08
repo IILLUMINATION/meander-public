@@ -416,3 +416,70 @@ Node wraps the blocked/count queries and the hash-dedup lookup in `try/catch`
 and only logs failures (`spam check failed`, `dup check failed`); the Rust
 handlers now do the same instead of turning a transient database error into a
 500. Cover uploads were already best-effort on both sides.
+
+### Path matching and percent escapes
+
+- Express is `strict: false`: `/music/` matches `/music`, but `/music//`
+  does not. `tower_http::normalize_path` was too eager (it also strips
+  leading and inner slashes), so `lib::TrimExpressSlash` removes exactly one
+  trailing slash and leaves leading/inner duplicates alone.
+- Express routers tolerate **one** extra slash between a mount path and the
+  inner route (`/quests//genres`, `/api/forums//slug`, `/profiles//id`), but
+  `/quests///genres` does not match. `EXPRESS_MOUNTS` lists the mounts where
+  this is observable; the same layer collapses only that single duplicate.
+  `/auth`, `/api/app`, `/reports` and `/api/community` do not tolerate it and
+  are intentionally absent from the list.
+- Router params are percent-decoded before the handler. Malformed escapes or
+  invalid UTF-8 byte sequences (`/api/forums/audit%ZZ`) answer
+  `400 {"error":"Failed to decode param '<raw>'","original_error":…}`; the
+  check runs in `middleware::validate_path_params` via `Router::route_layer`
+  so it only fires for routes that actually matched (unknown paths stay 404).
+
+### Body parsers
+
+- The global `express.json`/`express.urlencoded` equivalent is
+  `middleware::body_parser`; `extractors::Body` only reads the cached value.
+  It parses GET/HEAD bodies too (body-parser has no method check), but skips
+  requests without `Content-Length`/`Transfer-Encoding` entirely.
+- Media types are compared exactly (`media_type`), not by prefix:
+  `application/json-patch+json` and `application/vnd.x+json` are **not**
+  parsed and reach handlers as `{}`; `application/json; charset=utf-8` is.
+- Supported charsets mirror `body-parser`/`iconv-lite`: `utf-8` (case
+  insensitive), `utf-16`, `utf-16le`, `utf-16be` (BOM honoured); anything else
+  returns `415 {"error":"unsupported charset \"<UPPER>\"", …}` before auth.
+  UTF-16 bodies are decoded (`lib::decode_body`), and cloud-sync JSON uses the
+  cached parsed body instead of re-reading raw bytes.
+- Multipart media types: multer engages busboy for any `multipart/*` and
+  busboy rejects everything but `multipart/form-data`
+  (`Unsupported content type: <header>`); a missing boundary is
+  `Multipart: Boundary not found`, an empty `boundary=` is skipped like
+  multer, and malformed envelopes are `Unexpected end of form`.
+  `POST /profiles/me/avatar` with a second file answers `Too many files`
+  (multer's `single()` message), while `fields()` uploads keep
+  `Unexpected file field`.
+
+### Response headers
+
+- Helmet defaults are copied in full: CSP includes `base-uri`, `form-action`,
+  `frame-ancestors`, `object-src`, `script-src-attr` and
+  `upgrade-insecure-requests`; HSTS is `max-age=31536000`; Origin-Agent-Cluster
+  is `?1`. finalhandler 404 responses carry `default-src 'none'`
+  (`lib::ExpressFinalHandler` marker checked by `security_headers`).
+- CORS always varies on `Origin` (merged into the existing `Vary` list),
+  advertises `GET,POST,PUT,PATCH,DELETE` and the configured
+  `Content-Type,Authorization` list on preflight only — not on ordinary
+  responses. Prefer `Origin` first in the combined `Vary` value.
+- Rate limits: route-level limiters overwrite the general limiter's headers
+  (`middleware::rate_headers` keeps the first set), `RateLimit-Policy:
+  <max>;w=<window>` is emitted, and 429 responses also carry `Retry-After`.
+- Compression matches Node's `compression` package: 1 KiB threshold and
+  gzip/deflate/brotli negotiation (zstd is not enabled, as in Node).
+
+### Known deviation
+
+- Node's Express sets a weak `ETag` on `res.send`/`res.json` and answers
+  `If-None-Match` with `304`. The Rust port does not emit ETags, so caching
+  revalidates instead of returning 304; payloads, statuses and content types
+  are otherwise identical. Files served through `ServeDir` likewise have no
+  ETag (Express `static` does send one), so static caching is also a
+  revalidation rather than a 304.

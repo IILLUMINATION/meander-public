@@ -548,7 +548,7 @@ async fn update_post(
     body: Body,
 ) -> ApiResult {
     let post_id =
-        Uuid::parse_str(&post_id).map_err(|_| ApiError::bad_request("Invalid post ID"))?;
+        Uuid::parse_str(&post_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let content = body.str("content").unwrap_or("").trim();
     if content.is_empty() {
@@ -602,7 +602,7 @@ async fn delete_post(
     Path(post_id): Path<String>,
 ) -> ApiResult {
     let post_id =
-        Uuid::parse_str(&post_id).map_err(|_| ApiError::bad_request("Invalid post ID"))?;
+        Uuid::parse_str(&post_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let post = sqlx::query("SELECT author_id FROM author_posts WHERE id = $1")
         .bind(post_id)
@@ -628,7 +628,7 @@ async fn like_post(
     Path(post_id): Path<String>,
 ) -> ApiResult {
     let post_id =
-        Uuid::parse_str(&post_id).map_err(|_| ApiError::bad_request("Invalid post ID"))?;
+        Uuid::parse_str(&post_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let existing =
         sqlx::query("SELECT 1 FROM author_post_likes WHERE post_id = $1 AND user_id = $2")
@@ -683,7 +683,7 @@ async fn get_post(
     Path(post_id): Path<String>,
 ) -> ApiResult {
     let post_id =
-        Uuid::parse_str(&post_id).map_err(|_| ApiError::bad_request("Invalid post ID"))?;
+        Uuid::parse_str(&post_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let rows = sqlx::query(
         r#"
@@ -721,7 +721,7 @@ async fn list_comments(
     Path(post_id): Path<String>,
 ) -> ApiResult {
     let post_id =
-        Uuid::parse_str(&post_id).map_err(|_| ApiError::bad_request("Invalid post ID"))?;
+        Uuid::parse_str(&post_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let full_sql = r#"
         SELECT apc.*, p.full_name as user_name, p.avatar_url as user_avatar_url,
@@ -900,7 +900,7 @@ async fn update_comment(
     body: Body,
 ) -> ApiResult {
     let comment_id =
-        Uuid::parse_str(&comment_id).map_err(|_| ApiError::bad_request("Invalid comment ID"))?;
+        Uuid::parse_str(&comment_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let content = body.str("content").unwrap_or("").trim();
     if content.is_empty() {
@@ -937,7 +937,7 @@ async fn delete_comment(
     Path(comment_id): Path<String>,
 ) -> ApiResult {
     let comment_id =
-        Uuid::parse_str(&comment_id).map_err(|_| ApiError::bad_request("Invalid comment ID"))?;
+        Uuid::parse_str(&comment_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let comment = sqlx::query("SELECT user_id, post_id FROM author_post_comments WHERE id = $1")
         .bind(comment_id)
@@ -966,7 +966,7 @@ async fn like_comment(
     Path(comment_id): Path<String>,
 ) -> ApiResult {
     let comment_id =
-        Uuid::parse_str(&comment_id).map_err(|_| ApiError::bad_request("Invalid comment ID"))?;
+        Uuid::parse_str(&comment_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let existing = sqlx::query(
         "SELECT 1 FROM author_post_comment_likes WHERE comment_id = $1 AND user_id = $2",
@@ -1018,7 +1018,7 @@ async fn report_post(
     body: Body,
 ) -> ApiResult {
     let post_id =
-        Uuid::parse_str(&post_id).map_err(|_| ApiError::bad_request("Invalid post ID"))?;
+        Uuid::parse_str(&post_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let reason = body.str("reason").unwrap_or("").trim();
     if reason.is_empty() {
@@ -1044,7 +1044,7 @@ async fn report_comment(
     body: Body,
 ) -> ApiResult {
     let comment_id =
-        Uuid::parse_str(&comment_id).map_err(|_| ApiError::bad_request("Invalid comment ID"))?;
+        Uuid::parse_str(&comment_id).map_err(|_| ApiError::internal("Internal server error"))?;
 
     let reason = body.str("reason").unwrap_or("").trim();
     if reason.is_empty() {

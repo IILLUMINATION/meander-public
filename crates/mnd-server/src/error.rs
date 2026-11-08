@@ -162,7 +162,7 @@ impl From<std::io::Error> for ApiError {
     }
 }
 
-fn is_production() -> bool {
+pub(crate) fn is_production() -> bool {
     std::env::var("NODE_ENV").as_deref() == Ok("production")
 }
 

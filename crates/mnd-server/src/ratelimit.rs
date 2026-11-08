@@ -12,6 +12,8 @@ pub struct Decision {
     pub remaining: u64,
     /// Seconds until the current window resets (`RateLimit-Reset`).
     pub reset_secs: u64,
+    /// Window length in seconds (`RateLimit-Policy: <limit>;w=<window>`).
+    pub window_secs: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +54,7 @@ impl RateLimiter {
             limit: max,
             remaining: max.saturating_sub(entry.count),
             reset_secs: remaining_window.as_secs().max(1),
+            window_secs: window.as_secs(),
         }
     }
 

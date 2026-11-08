@@ -7,7 +7,7 @@
 pub const QUEST_VIEWS_COUNT_SQL: &str =
     "(SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id)";
 
-const SELECT: &str = "SELECT mq.*, (SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id) AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published'";
+const SELECT: &str = "SELECT mq.*, mq.average_rating::text AS average_rating, (SELECT COALESCE(SUM(v.views), 0)::int FROM quest_views v WHERE v.quest_id = mq.id) AS views_count, p.cosmetics ->> 'name_style' AS author_name_style, p.cosmetics AS author_cosmetics FROM market_quests mq LEFT JOIN profiles p ON p.id = mq.author_id WHERE mq.status = 'published'";
 
 #[derive(Debug, Default)]
 pub struct MarketListOptions {

@@ -44,7 +44,7 @@ thiserror = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["compression-gzip", "compression-deflate", "cors", "fs", "limit", "set-header", "trace", "util"] }
+tower-http = { version = "0.6", features = ["compression-gzip", "compression-deflate", "compression-br", "cors", "fs", "limit", "set-header", "trace", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"

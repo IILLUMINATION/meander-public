@@ -482,17 +482,28 @@ async fn put_quest(
         .to_ascii_lowercase();
 
     // ----- Market-ref branch (JSON) -----
-    if content_type.contains("application/json") {
-        let limit = MAX_JSON_BYTES;
-        let bytes = to_bytes(req.into_body(), limit)
-            .await
-            .map_err(|_| payload_too_large())?;
-        let body: Value = if bytes.is_empty() {
-            json!({})
-        } else {
-            match serde_json::from_slice::<Value>(&bytes) {
-                Ok(value) if value.is_object() || value.is_array() => value,
-                _ => return Err(ApiError::bad_request("Bad JSON format")),
+    if crate::is_json_content_type(&content_type) {
+        let cached = req
+            .extensions()
+            .get::<crate::extractors::ParsedBody>()
+            .map(|parsed| parsed.0.clone());
+        let body: Value = match cached {
+            Some(value) => value,
+            None => {
+                let limit = MAX_JSON_BYTES;
+                let encoding = crate::body_encoding(&content_type).unwrap_or(None);
+                let bytes = to_bytes(req.into_body(), limit)
+                    .await
+                    .map_err(|_| payload_too_large())?;
+                if bytes.is_empty() {
+                    json!({})
+                } else {
+                    let text = crate::decode_body(&bytes, encoding);
+                    match serde_json::from_str::<Value>(&text) {
+                        Ok(value) if value.is_object() || value.is_array() => value,
+                        _ => return Err(ApiError::bad_request("Bad JSON format")),
+                    }
+                }
             }
         };
 
