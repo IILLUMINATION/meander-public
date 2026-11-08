@@ -3,11 +3,15 @@
 /// Квест берётся по ссылке: `?url=` (что угодно, что отдаёт байты архива, —
 /// в том числе локальная раздача для отладки) или `?quest=<id>` (публичная
 /// загрузка маркета). Плюс `?node=<id>` — войти не в стартовую ноду.
-/// Без параметров показываем поле ввода: плеер не тянет в браузер каталог и
-/// играет ровно тот архив, на который указали.
+///
+/// Экспорт квеста — это та же оболочка плюс `quest.mnd` рядом с `index.html`
+/// (`scripts/build_quest_web.sh`). Такой архив подхватывается сам, без ссылки
+/// в адресной строке: автор открывает папку и сразу играет. Без встроенного
+/// архива показываем поле ввода — дев-сборка и «принеси свой .mnd».
 library;
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import 'play_screen.dart';
 import 'player.dart';
@@ -20,6 +24,9 @@ import 'quest_bundle.dart';
 /// (`/quest-src/ → GET /static/downloads/`), иначе отклонённую сборку можно было
 /// скачать в обход проверки публикации; байты по-прежнему отдаёт nginx.
 const String _questSrcPath = '/quest-src/';
+
+/// Архив, положенный рядом с оболочкой экспортёром (`scripts/build_quest_web.sh`).
+const String _bakedQuestPath = 'quest.mnd';
 
 void main() {
   runApp(const MeanderWebPlayerApp());
@@ -72,7 +79,37 @@ class _QuestLauncherState extends State<QuestLauncher> {
           startNodeId: params['node'],
         ),
       );
+    } else {
+      // Экспорт «оболочка + quest.mnd»: ссылки в адресе нет, архив лежит
+      // рядом со страницей.
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openBakedQuest(startNodeId: params['node']),
+      );
     }
+  }
+
+  /// Открыть архив, положенный рядом с оболочкой, если он есть.
+  ///
+  /// HEAD, чтобы не качать мегабайты дважды; если хостинг не разрешает HEAD —
+  /// пробуем GET. Отсутствие файла (404) — это обычная дев-сборка, остаётся
+  /// экран со ссылкой.
+  Future<void> _openBakedQuest({String? startNodeId}) async {
+    final url = _resolveLink(_bakedQuestPath);
+    bool exists = false;
+    try {
+      final head = await http.head(Uri.parse(url));
+      // Браузерный fetch не отдаёт Content-Length у HEAD (len=0), поэтому
+      // существование — это сам 200: 404 приходит как 404.
+      exists = head.statusCode == 200;
+      if (head.statusCode == 405 || head.statusCode == 501) {
+        final get = await http.get(Uri.parse(url));
+        exists = get.statusCode == 200 && get.bodyBytes.isNotEmpty;
+      }
+    } catch (_) {
+      exists = false;
+    }
+    if (!mounted || !exists) return;
+    _openQuest(url: url, startNodeId: startNodeId);
   }
 
   /// Относительная ссылка считается от страницы: `?url=/quests/x.mnd` или
