@@ -12,11 +12,6 @@ upstream meander_node {
     keepalive 32;
 }
 
-upstream meander_rust {
-    server 127.0.0.1:3100;
-    keepalive 32;
-}
-
 # Only safe methods are eligible for the canary. Writes stay on Node until
 # the WebSocket/idempotency review is done.
 map $request_method $canary_read_eligible {
@@ -68,9 +63,8 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Request-Id $request_id;
 
-        # GET/HEAD only in practice: nginx does not retry non-idempotent
-        # methods unless `non_idempotent` is added. NEVER add it here.
-        proxy_next_upstream error timeout;
-        proxy_next_upstream_tries 2;
+        # No cross-backend retry: `proxy_pass` uses a variable, so
+        # `proxy_next_upstream` cannot target Node, and retrying writes can
+        # duplicate them. Rollback is an nginx reload, not a transparent retry.
     }
 }

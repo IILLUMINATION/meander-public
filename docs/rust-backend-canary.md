@@ -74,12 +74,15 @@ between users on different backends. Do not do it.
 
 ## Fallback policy
 
-- `GET`/`HEAD`: nginx may retry the other upstream on connection error or
-  timeout.
-- `POST`/`PUT`/`PATCH`/`DELETE`: no automatic retry. Return the error to the
-  client. If a fallback is unavoidable, add an idempotency key first and store
+- No automatic cross-backend retry. nginx's `proxy_next_upstream` cannot
+  redirect a variable `proxy_pass` to Node, and replaying a request can
+  duplicate a write that committed before the timeout.
+- `POST`/`PUT`/`PATCH`/`DELETE`: never retry. Return the error to the client.
+  If a retry is unavoidable, add an idempotency key first and store
   `(key, request hash, result)`; old clients do not send it, so it does not
   help the first canary.
+- Rollback is a config change plus `nginx -s reload`, then stop the Rust
+  process. In-flight requests finish on the old process.
 - Circuit breaker: if the Rust error rate crosses the threshold, stop sending
   **new** requests to it and leave in-flight requests alone.
 
