@@ -124,6 +124,24 @@ void main() {
     );
   });
 
+  // Реальный случай (фон ноды/главы не показывался): файл ресурса сам без
+  // расширения — так его импортировали из источника, где имени с точкой не
+  // было. В `backgroundAssetId` лежит это же имя, каталог по расширению не
+  // выбрать; файл обязан найтись в res/images.
+  test('файл без расширения находится по имени из metadata', () async {
+    stubPathProvider();
+    final questId = newQuest();
+    await writeImage(questId, _uuid);
+    await writeMetadata(questId, {
+      _uuid: {'name': 'jpg(2)', 'folder': '/'},
+    });
+
+    final file = await QuestImageSource.resolve(questId, _uuid);
+
+    expect(file?.path, endsWith('res/images/$_uuid'));
+    expect(await QuestImageSource.resolveOnDisk(questId, _uuid), isNotEmpty);
+  });
+
   test('одно имя на два файла — не угадываем', () async {
     stubPathProvider();
     final questId = newQuest();

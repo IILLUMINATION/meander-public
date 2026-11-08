@@ -121,6 +121,22 @@ void main() {
       });
       expect(weird.pathCandidates('Записка'), isEmpty);
     });
+
+    // Реальный квест: картинку импортировали из источника без расширения,
+    // файл лёг в res/images/<uuid>, в backgroundAssetId — то же имя. Раньше
+    // каталог выбирался только по расширению, кандидатов не было вовсе, и фон
+    // ноды/главы молча не показывался.
+    test('файл без расширения — кандидаты во всех каталогах ресурсов', () {
+      const name = 'aa31e0fa-c801-4861-8ad8-2cd5553228ef';
+      final index = QuestResourceIndex.fromMetadata({
+        name: {'name': 'jpg(2)', 'folder': '/'},
+      });
+      final candidates = index.pathCandidates(name);
+      expect(candidates, contains('res/images/$name'));
+      expect(candidates, contains('res/audio/$name'));
+      expect(candidates, contains('res/videos/$name'));
+      expect(candidates, contains('res/fonts/$name'));
+    });
   });
 
   group('resourceReference — что вставляет пикер и «Копировать id»', () {
