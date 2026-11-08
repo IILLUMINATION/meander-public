@@ -38,6 +38,9 @@ where
     S::Future: Send + 'static,
 {
     let (service, io) = SocketIo::builder()
+        // Node's socket.io advertises `maxPayload: 1000000` in the Engine.IO
+        // handshake.
+        .max_payload(1_000_000)
         .with_state(state.clone())
         .build_with_inner_svc(inner);
     // The middleware rejects the handshake before the connection handler runs,
