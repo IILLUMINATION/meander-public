@@ -106,8 +106,14 @@ class InfiniteCanvasPainter extends CustomPainter {
     final bool isSearching = state.searchQuery.isNotEmpty;
     final matchingNodeIds = state.matchingNodeIds;
 
-    // --- СВЯЗИ --- (батчинг + LOD, геометрия из провайдера)
-    final isLowDetail = state.scale < 0.5;
+    // --- СВЯЗИ --- (батчинг, геометрия из провайдера)
+    //
+    // Кривые и стрелки рисуются при любом зуме: направление связи — часть
+    // графа, без него отдалённый канвас нечитаем. Толщина и размер стрелки
+    // в мировых координатах подобраны так, чтобы на экране они почти не
+    // истончались: при зуме 1 это 3 и 12, при отдалении — до 8 и 28.
+    final strokeWidth = (3.0 / state.scale).clamp(3.0, 8.0);
+    final arrowSize = (12.0 / state.scale).clamp(12.0, 28.0);
     final kindFilteredConnections = state.connections
         .where((connection) => visibleConnectionKinds.contains(connection.kind))
         .toList();
@@ -138,19 +144,14 @@ class InfiniteCanvasPainter extends CustomPainter {
         } else {
           target = solidContent;
         }
-        if (isLowDetail) {
+        if (c.isVirtual) {
+          // Служебные связи (таймер/скрипт) без стрелок: их рисовал и раньше.
           target.moveTo(g.start.dx, g.start.dy);
           target.lineTo(g.end.dx, g.end.dy);
         } else {
-          if (c.isVirtual) {
-            // В LOD-дальности пунктир — визуальный мусор, рисуем сплошной тонкой
-            target.moveTo(g.start.dx, g.start.dy);
-            target.lineTo(g.end.dx, g.end.dy);
-          } else {
-            target.moveTo(g.start.dx, g.start.dy);
-            target.cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
-            _addArrowToPath(arrowPath, g.cp2, g.end);
-          }
+          target.moveTo(g.start.dx, g.start.dy);
+          target.cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+          _addArrowToPath(arrowPath, g.cp2, g.end, size: arrowSize);
         }
       }
       // content — синий, timer — amber, script — violet; все 3 батча — 3 draw calls
@@ -159,26 +160,24 @@ class InfiniteCanvasPainter extends CustomPainter {
           Paint()
             ..color = CanvasTheme.connectionContent
             ..style = PaintingStyle.stroke
-            ..strokeWidth = isLowDetail ? 1.2 : 3);
+            ..strokeWidth = strokeWidth);
       canvas.drawPath(
           solidScript,
           Paint()
             ..color = CanvasTheme.connectionScript
             ..style = PaintingStyle.stroke
-            ..strokeWidth = isLowDetail ? 1.2 : 3);
+            ..strokeWidth = strokeWidth);
       canvas.drawPath(
           solidTimer,
           Paint()
             ..color = CanvasTheme.connectionTimer
             ..style = PaintingStyle.stroke
-            ..strokeWidth = isLowDetail ? 1.2 : 3);
-      if (!isLowDetail) {
-        canvas.drawPath(
-            arrowPath,
-            Paint()
-              ..color = CanvasTheme.connectionContent
-              ..style = PaintingStyle.fill);
-      }
+            ..strokeWidth = strokeWidth);
+      canvas.drawPath(
+          arrowPath,
+          Paint()
+            ..color = CanvasTheme.connectionContent
+            ..style = PaintingStyle.fill);
     }
 
     if (state.connectionMode &&
@@ -190,10 +189,11 @@ class InfiniteCanvasPainter extends CustomPainter {
       _drawConnectionPreview(canvas, startNode, state.connectionPreviewEnd!);
     }
 
-    // --- НОДЫ --- (LOD: при отдалении падают описание/пилюли/якоря, название
-    // остаётся — оно нужно для ориентира. Экономим только когда кадр не влезает:
-    // подписи нормируются бюджетом из измеренной цены кадра.)
-    final bool showDetails = CanvasLod.showDetails(state.scale);
+    // --- НОДЫ --- (тело карточки прячется по числу нод в кадре и цене кадра,
+    // а не по зуму; подписи нормируются бюджетом из измеренной цены кадра)
+    final bool showDetails =
+        CanvasLod.showDetailsFor(visibleNodes.length) &&
+        frameCost.detailsAllowed;
     final List<({Node node, bool dimmed})> priorityTitles = [];
     final List<({Node node, bool dimmed})> otherTitles = [];
     for (final node in visibleNodes) {
@@ -438,11 +438,16 @@ class InfiniteCanvasPainter extends CustomPainter {
     canvas.drawPath(path, paint);
   }
 
-  void _addArrowToPath(Path arrowPath, Offset from, Offset to) {
+  void _addArrowToPath(
+    Path arrowPath,
+    Offset from,
+    Offset to, {
+    double size = 12.0,
+  }) {
     final d = to - from;
     if (d.distance == 0) return;
     final angle = math.atan2(d.dy, d.dx);
-    const sz = 12.0;
+    final sz = size;
     const ang = math.pi / 6;
     arrowPath.moveTo(to.dx, to.dy);
     arrowPath.lineTo(to.dx - sz * math.cos(angle - ang), to.dy - sz * math.sin(angle - ang));
