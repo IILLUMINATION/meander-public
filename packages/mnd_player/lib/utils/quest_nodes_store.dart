@@ -109,6 +109,15 @@ class QuestNodesStore {
   /// Версия per-node формата. Монолит без индекса — версия 1.
   static const int perNodeFormatVersion = 2;
 
+  /// Версия превью карточек в индексе.
+  ///
+  /// Раньше сводка ноды выбрасывала `content` целиком, и канвас не мог
+  /// показать на карточке ни реплик, ни кнопок. Теперь в сводке лежит
+  /// `preview`, а версия говорит, что индекс уже пересобран: старые индексы
+  /// дособираются один раз при первом чтении.
+  static const int cardPreviewVersion = 1;
+  static const String cardPreviewVersionKey = 'card_preview_version';
+
   /// Ключ версии в `nodes/index.json`.
   static const String formatVersionKey = 'format_version';
 
@@ -129,10 +138,59 @@ class QuestNodesStore {
     if (await qs.exists(indexPath)) {
       try {
         final data = await qs.readJson(indexPath);
-        if (data != null && data.isNotEmpty) return data;
+        if (data != null && data.isNotEmpty) {
+          return await _withCardPreviews(questId, data);
+        }
       } catch (_) {}
     }
     return buildIndex(await _readMonolith(questId));
+  }
+
+  /// Дособрать превью карточек в индексе, собранном до появления `preview`.
+  ///
+  /// Читаем тела нод один раз и переписываем индекс: иначе канвас на каждом
+  /// открытии главы читал бы все тела сам.
+  static Future<Map<String, dynamic>> _withCardPreviews(
+    String questId,
+    Map<String, dynamic> index,
+  ) async {
+    if ((index[cardPreviewVersionKey] as num?) == cardPreviewVersion) {
+      return index;
+    }
+    final qs = await QuestStore.defaultInstance();
+    final summaries = <dynamic>[];
+    for (final raw in (index['nodes'] as List<dynamic>? ?? [])) {
+      if (raw is! Map) {
+        summaries.add(raw);
+        continue;
+      }
+      final summary = Map<String, dynamic>.from(raw);
+      final id = summary['id']?.toString();
+      final body = id == null || id.isEmpty
+          ? null
+          : await _readNodeBody(qs, questId, id);
+      if (body == null) {
+        summaries.add(summary);
+        continue;
+      }
+      final rebuilt = buildNodeSummary(body);
+      // Раскладка — из индекса: тело могло отстать после сбоя записи.
+      for (final key in const ['chapterId', 'title', 'x', 'y', 'color']) {
+        if (summary.containsKey(key)) rebuilt[key] = summary[key];
+      }
+      summaries.add(rebuilt);
+    }
+    final next = <String, dynamic>{
+      ...index,
+      'nodes': summaries,
+      cardPreviewVersionKey: cardPreviewVersion,
+    };
+    try {
+      await qs.writeJson(QuestPaths.nodesIndex(questId), next);
+    } catch (_) {
+      // Индекс только для чтения — превью останутся в памяти этого чтения.
+    }
+    return next;
   }
 
   /// Тело одной ноды. В per-node формате — отдельный файл; в legacy —
@@ -463,6 +521,7 @@ class QuestNodesStore {
     }
     return {
       formatVersionKey: perNodeFormatVersion,
+      cardPreviewVersionKey: cardPreviewVersion,
       'nodes': summaries,
       'groups': data['groups'] ?? <dynamic>[],
       'comments': data['comments'] ?? <dynamic>[],
@@ -471,6 +530,9 @@ class QuestNodesStore {
   }
 
   /// Метаданные ноды для канваса: всё, кроме содержимого реплик.
+  ///
+  /// Вместо `content` кладём компактное [buildCardPreview]: карточке нужны
+  /// первые реплики и подписи кнопок, а не весь контент ноды.
   static Map<String, dynamic> buildNodeSummary(Map<String, dynamic> node) {
     final summary = <String, dynamic>{};
     for (final entry in node.entries) {
@@ -478,11 +540,128 @@ class QuestNodesStore {
       summary[entry.key] = entry.value;
     }
     final content = node['content'];
-    if (content is Map && content['description'] is String) {
-      summary['description'] = content['description'];
+    if (content is Map) {
+      summary['preview'] = buildCardPreview(content);
+      if (content['description'] is String) {
+        summary['description'] = content['description'];
+      }
     }
     summary.putIfAbsent('type', () => 'node');
     return summary;
+  }
+
+  /// Сколько строк реплик и подписей веток держим в индексе.
+  static const int cardPreviewLines = 6;
+  static const int cardPreviewBranches = 6;
+  static const int cardPreviewLineChars = 120;
+
+  /// Бюджет текста превью на ноду: тяжёлые квесты не должны раздувать индекс.
+  static const int cardPreviewChars = 600;
+
+  /// Снимает markdown-разметку: карточка рисует текст обычным `TextPainter`.
+  ///
+  /// `_` внутри `{Def_Стопы}` не трогаем — это имена переменных.
+  static String plainPreviewText(String text) {
+    var s = text;
+    s = s.replaceAllMapped(RegExp(r'\*\*(.+?)\*\*', dotAll: true), (m) => m[1]!);
+    s = s.replaceAllMapped(RegExp(r'__(.+?)__', dotAll: true), (m) => m[1]!);
+    s = s.replaceAllMapped(RegExp(r'~~(.+?)~~', dotAll: true), (m) => m[1]!);
+    s = s.replaceAllMapped(
+      RegExp(r'(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])', dotAll: true),
+      (m) => m[1]!,
+    );
+    s = s.replaceAll('`', '');
+    s = s.replaceFirst(RegExp(r'^#+\s*'), '');
+    // BBCode: в игре `[color=...]` красит текст, карточка рисует его плоско.
+    s = s.replaceAll(
+      RegExp(
+        r'\[/?(?:color|b|i|u|s|size|font|url|img|center|left|right|quote)'
+        r'(?:=[^\]]*)?\]',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    return s;
+  }
+
+  /// Компактное описание содержимого для карточки канваса.
+  ///
+  /// Канвас не читает тела нод, поэтому текст, подписи кнопок и счётчики
+  /// должны быть в индексе. Обход рекурсивный: реплики у авторов живут во
+  /// вложенных row/column.
+  static Map<String, dynamic> buildCardPreview(Map<dynamic, dynamic> content) {
+    final lines = <String>[];
+    final branches = <String>[];
+    var branchesTotal = 0;
+    var replies = 0;
+    var scripts = 0;
+    var images = 0;
+    var audio = 0;
+
+    var usedChars = 0;
+
+    void addLines(String text) {
+      if (text.isEmpty || lines.length >= cardPreviewLines) return;
+      for (final raw in plainPreviewText(text).split('\n')) {
+        if (lines.length >= cardPreviewLines) return;
+        if (usedChars >= cardPreviewChars) return;
+        final line = raw.trim();
+        if (line.isEmpty) continue;
+        final capped = line.length > cardPreviewLineChars
+            ? '${line.substring(0, cardPreviewLineChars)}…'
+            : line;
+        usedChars += capped.length;
+        lines.add(capped);
+      }
+    }
+
+    void walk(List<dynamic> items) {
+      for (final raw in items) {
+        if (raw is! Map) continue;
+        final type = raw['type'];
+        final text = (raw['text'] as String? ?? '').trim();
+        switch (type) {
+          case 'text':
+            replies++;
+            addLines(text);
+          case 'chat':
+            replies++;
+            final sender = (raw['senderName'] as String? ?? '').trim();
+            addLines(sender.isEmpty ? text : '$sender: $text');
+          case 'input':
+            replies++;
+            addLines(text);
+          case 'button':
+            if (text.isNotEmpty) {
+              branchesTotal++;
+              if (branches.length < cardPreviewBranches) {
+                branches.add(plainPreviewText(text));
+              }
+            }
+          case 'script':
+            scripts++;
+          case 'image':
+            images++;
+          case 'audio':
+            audio++;
+        }
+        final children = raw['children'];
+        if (children is List) walk(children);
+      }
+    }
+
+    final items = content['items'];
+    if (items is List) walk(items);
+
+    return {
+      'lines': lines,
+      'branches': branches,
+      'branchesTotal': branchesTotal,
+      'replies': replies,
+      'scripts': scripts,
+      'images': images,
+      'audio': audio,
+    };
   }
 
   static Future<Map<String, dynamic>?> _readNodeBody(

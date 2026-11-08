@@ -200,6 +200,52 @@ NodeColorRole nodeColorRoleFromLegacyColor(Color color) {
 // ================================================================
 // === МОДЕЛЬ НОДЫ (для UI) ===
 // ================================================================
+/// Компактное содержимое ноды из индекса канваса.
+///
+/// Канвас не читает тела нод: `quests/<id>/nodes/index.json` несёт готовые
+/// строки реплик и подписи кнопок. Здесь они приводятся к виду, который
+/// нужен карточке, — без повторного обхода `content.items`.
+class NodeCardPreview {
+  const NodeCardPreview({
+    this.lines = const [],
+    this.branches = const [],
+    this.branchTotal = 0,
+    this.replies = 0,
+    this.scripts = 0,
+    this.hasImage = false,
+    this.hasAudio = false,
+  });
+
+  /// Реплики (уже обрезанные по длине строки).
+  final List<String> lines;
+
+  /// Подписи первых кнопок; полное число — [branchTotal].
+  final List<String> branches;
+  final int branchTotal;
+  final int replies;
+  final int scripts;
+  final bool hasImage;
+  final bool hasAudio;
+
+  static NodeCardPreview? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final branches = (raw['branches'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toList();
+    return NodeCardPreview(
+      lines: (raw['lines'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
+      branches: List<String>.unmodifiable(branches),
+      branchTotal: ((raw['branchesTotal'] as num?)?.toInt() ?? branches.length),
+      replies: (raw['replies'] as num?)?.toInt() ?? 0,
+      scripts: (raw['scripts'] as num?)?.toInt() ?? 0,
+      hasImage: ((raw['images'] as num?)?.toInt() ?? 0) > 0,
+      hasAudio: ((raw['audio'] as num?)?.toInt() ?? 0) > 0,
+    );
+  }
+}
+
 class Node {
   String id;
   String? chapterId;
@@ -209,6 +255,9 @@ class Node {
   String label;
   String description;
   Map<String, dynamic>? content;
+
+  /// Готовое превью из индекса. Если задано, обход [content] не нужен.
+  NodeCardPreview? preview;
   String? backgroundAssetId;
   String? backgroundAudioId;
   double? backgroundAudioVolume;
@@ -247,6 +296,7 @@ class Node {
 
   List<String>? _textLines;
   List<String>? _branchLabels;
+  int _branchTotal = 0;
   String? _countersLabel;
   int _replyCount = 0;
   int _scriptCount = 0;
@@ -267,6 +317,7 @@ class Node {
     required this.label,
     required this.description,
     this.content,
+    this.preview,
     this.backgroundAssetId,
     this.backgroundAudioId,
     this.backgroundAudioVolume,
@@ -307,6 +358,7 @@ class Node {
     String? label,
     String? description,
     Map<String, dynamic>? content,
+    NodeCardPreview? preview,
     String? backgroundAssetId,
     String? backgroundAudioId,
     double? backgroundAudioVolume,
@@ -325,6 +377,7 @@ class Node {
       label: label ?? this.label,
       description: description ?? this.description,
       content: content ?? this.content,
+      preview: preview ?? this.preview,
       backgroundAssetId: backgroundAssetId ?? this.backgroundAssetId,
       backgroundAudioId: backgroundAudioId ?? this.backgroundAudioId,
       backgroundAudioVolume:
@@ -354,6 +407,12 @@ class Node {
     return _replyCount;
   }
 
+  /// Полное число кнопок-веток: рисуем не все, но счётчик должен быть честным.
+  int get branchTotal {
+    _ensureSummary();
+    return _branchTotal;
+  }
+
   int get scriptCount {
     _ensureSummary();
     return _scriptCount;
@@ -376,7 +435,7 @@ class Node {
     if (replyCount > 0) {
       parts.add('$replyCount ${trp(['реплика', 'реплики', 'реплик'], replyCount)}');
     }
-    final branches = branchLabels.length;
+    final branches = _branchTotal;
     if (branches > 0) {
       parts.add('$branches ${trp(['ветка', 'ветки', 'веток'], branches)}');
     }
@@ -391,6 +450,27 @@ class Node {
   /// при полной сцене.
   void _ensureSummary() {
     if (_textLines != null) return;
+
+    // Превью из индекса уже содержит строки и счётчики: канвас не читает
+    // тела нод, поэтому обход `content` здесь — только для старых данных.
+    final preview = this.preview;
+    if (preview != null) {
+      final lines = List<String>.of(preview.lines);
+      if (lines.isEmpty) _appendLines(lines, description);
+      var scripts = preview.scripts;
+      if ((scriptAssetId ?? '').trim().isNotEmpty) scripts++;
+      _textLines = lines;
+      _branchLabels = preview.branches;
+      _branchTotal = preview.branchTotal > 0
+          ? preview.branchTotal
+          : preview.branches.length;
+      _replyCount = preview.replies;
+      _scriptCount = scripts;
+      _hasImageItem = preview.hasImage;
+      _hasAudioItem = preview.hasAudio;
+      return;
+    }
+
     final lines = <String>[];
     final branches = <String>[];
     var replies = 0;
@@ -435,6 +515,7 @@ class Node {
 
     _textLines = lines;
     _branchLabels = branches;
+    _branchTotal = branches.length;
     _replyCount = replies;
     _scriptCount = scripts;
     _hasImageItem = hasImage;
@@ -1272,7 +1353,9 @@ class NodeRenderer {
     }
 
     // Скрытые ветки не должны пропадать молча: у нод-меню их бывает 20+.
-    final hiddenBranches = branches.length - layout.chips;
+    // Счётчик — по полному числу веток: из индекса приходят только первые
+    // `cardPreviewBranches` подписей, а «+N» должно быть честным.
+    final hiddenBranches = node.branchTotal - layout.chips;
     if (hiddenBranches > 0 && lastChipRect != null) {
       final more = TextPainter(
         text: TextSpan(

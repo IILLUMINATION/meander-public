@@ -72,6 +72,48 @@ void main() {
       expect(n.countersLabel, '1 реплика · 2 ветки');
     });
 
+    test('превью из индекса заменяет обход content', () {
+      final n = Node(
+        id: 'n1',
+        position: Offset.zero,
+        color: const Color(0xFF26C6DA),
+        label: 'Стопы',
+        description: '',
+        preview: NodeCardPreview.fromJson({
+          'lines': ['{Eq_Feet}', '**Походные сапоги**'],
+          'branches': ['< Экипировка', 'Выйти'],
+          'branchesTotal': 22,
+          'replies': 13,
+          'scripts': 1,
+          'images': 1,
+          'audio': 0,
+        }),
+        scriptAssetId: 'scripts/x.json',
+      );
+
+      expect(n.textLines, ['{Eq_Feet}', '**Походные сапоги**']);
+      expect(n.branchLabels, ['< Экипировка', 'Выйти']);
+      expect(n.replyCount, 13);
+      expect(n.scriptCount, 2);
+      expect(n.hasImageItem, isTrue);
+      expect(n.hasAudioItem, isFalse);
+      expect(n.countersLabel, '13 реплик · 22 ветки');
+    });
+
+    test('превью без строк показывает описание ноды', () {
+      final n = Node(
+        id: 'n1',
+        position: Offset.zero,
+        color: const Color(0xFF26C6DA),
+        label: 'Заметки',
+        description: 'Заметки автора',
+        preview: NodeCardPreview.fromJson({'lines': <String>[], 'replies': 0}),
+      );
+
+      expect(n.textLines, ['Заметки автора']);
+      expect(n.countersLabel, '');
+    });
+
     test('правка контента пересобирает карточку', () {
       final n = node(
         content: {

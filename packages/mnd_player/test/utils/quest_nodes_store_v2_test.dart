@@ -126,6 +126,102 @@ void main() {
     );
   });
 
+  test('buildNodeSummary кладёт превью карточки вместо content', () {
+    final summary = QuestNodesStore.buildNodeSummary({
+      'id': 'n',
+      'title': 'Сцена',
+      'chapterId': 'ch',
+      'content': {
+        'items': [
+          {'type': 'text', 'text': 'Первая реплика'},
+          {
+            'type': 'row',
+            'children': [
+              {
+                'type': 'chat',
+                'senderName': 'Стражник',
+                'text': 'Стоять!',
+              },
+              {'type': 'input', 'text': 'Строка многострочного\nввода'},
+              {'type': 'button', 'text': 'Уйти', 'targetNodeId': 'n2'},
+            ],
+          },
+          for (var i = 0; i < 10; i++)
+            {'type': 'button', 'text': 'Ветка $i'},
+          for (var i = 0; i < 6; i++) {'type': 'text', 'text': 'Строка $i'},
+          {'type': 'script'},
+          {'type': 'image'},
+          {'type': 'audio'},
+        ],
+      },
+    });
+
+    expect(summary.containsKey('content'), isFalse);
+    final preview = summary['preview'] as Map;
+    expect(
+      preview['lines'],
+      containsAll(<String>['Первая реплика', 'Стражник: Стоять!', 'Строка многострочного']),
+    );
+    expect(preview['lines'], hasLength(QuestNodesStore.cardPreviewLines));
+    expect(preview['lines'][5], 'Строка 1');
+    expect(preview['branches'], contains('Уйти'));
+    expect(preview['branches'], hasLength(QuestNodesStore.cardPreviewBranches));
+    expect(preview['branchesTotal'], 11);
+    expect(preview['replies'], 9);
+    expect(preview['scripts'], 1);
+    expect(preview['images'], 1);
+    expect(preview['audio'], 1);
+  });
+
+  test('plainPreviewText снимает разметку, не ломая имена переменных', () {
+    expect(
+      QuestNodesStore.plainPreviewText('**{Eq_Feet}** и __важно__'),
+      '{Eq_Feet} и важно',
+    );
+    expect(
+      QuestNodesStore.plainPreviewText('{Def_Стопы_Без оружия}'),
+      '{Def_Стопы_Без оружия}',
+    );
+    expect(QuestNodesStore.plainPreviewText('# Заголовок'), 'Заголовок');
+    expect(QuestNodesStore.plainPreviewText('код `x` и *курсив*'), 'код x и курсив');
+    expect(
+      QuestNodesStore.plainPreviewText('[color=#FF0000]{HP}[/color] / 5'),
+      '{HP} / 5',
+    );
+  });
+
+  test('старый индекс без превью дособирается при чтении', () async {
+    const q = 'preview-migrate';
+    await seedLegacy(q);
+    await QuestNodesStore.migrateToPerNode(q);
+
+    // Индекс «прошлой версии»: без превью и без отметки версии.
+    final indexFile = file(QuestPaths.nodesIndex(q));
+    final old = jsonDecode(indexFile.readAsStringSync()) as Map<String, dynamic>;
+    old.remove(QuestNodesStore.cardPreviewVersionKey);
+    for (final raw in (old['nodes'] as List)) {
+      (raw as Map).remove('preview');
+    }
+    indexFile.writeAsStringSync(jsonEncode(old));
+    FileStorage.invalidateJsonCache([QuestPaths.nodesIndex(q)]);
+
+    final index = await QuestNodesStore.readIndex(q);
+    final n2 = (index['nodes'] as List)
+        .map((e) => e as Map)
+        .firstWhere((e) => e['id'] == 'n2');
+    expect((n2['preview'] as Map)['lines'], contains('Привет'));
+    expect(index[QuestNodesStore.cardPreviewVersionKey], 1);
+    expect(n2.containsKey('content'), isFalse);
+
+    final saved = jsonDecode(indexFile.readAsStringSync()) as Map;
+    expect(saved[QuestNodesStore.cardPreviewVersionKey], 1);
+    final savedNodes = (saved['nodes'] as List).map((e) => e as Map);
+    expect(
+      savedNodes.firstWhere((e) => e['id'] == 'n2')['preview']['lines'],
+      contains('Привет'),
+    );
+  });
+
   test('readNode отдаёт тело, readAll собирает документ', () async {
     const q = 'read';
     await seedLegacy(q);
