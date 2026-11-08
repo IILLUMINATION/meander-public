@@ -1106,7 +1106,6 @@ final Map<String, String> itStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Lo script non è stato trovato nei riferimenti dei nodi/contenuti.',
   'Скрипт не читается: {p0}': 'Script illeggibile: {p0}',
   'Слои': 'Livelli',
-  'Сохранить HTML': 'Salva HTML',
   'Сохранить PDF': 'Salva PDF',
   'Сохранить квест': 'Salva quest',
   'Сохранить логи': 'Salva log',

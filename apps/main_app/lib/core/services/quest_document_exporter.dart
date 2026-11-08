@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -10,36 +9,17 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'quest_book_models.dart';
-import 'quest_html_builder.dart';
 import 'quest_pdf_builder.dart';
 import 'quest_pdf_options.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 
-/// Экспорт квестов Meander в HTML и PDF документы.
+/// Экспорт квестов Meander в PDF документы.
+///
+/// Игровой веб-экспорт — это оболочка `apps/web_player` плюс `quest.mnd`
+/// (`scripts/build_quest_web.sh`): один рендерер и один движок с плеером,
+/// никакого второго JS-проигрывателя.
 class QuestDocumentExporter {
-  /// Самодостаточный HTML «как у плеера», оптимизированный для мобилок.
-  static Future<bool> exportQuestAsHtml(
-    String questId,
-    String questTitle,
-  ) async {
-    try {
-      final book = await _loadQuestBook(questId);
-      final html = await QuestHtmlBuilder.build(book);
-      final bytes = Uint8List.fromList(utf8.encode(html));
-      return await _saveBytes(
-        bytes: bytes,
-        suggestedFileName: '${_sanitize(questTitle)}.html',
-        dialogTitle: tr('Сохранить HTML'),
-        extensions: const ['html'],
-      );
-    } catch (e, st) {
-      // ignore: avoid_print
-      print('❌ [HTMLExport] Ошибка: $e\n$st');
-      rethrow;
-    }
-  }
-
   /// PDF-книга. Скрипты полностью игнорируются по требованию.
   /// [options] определяет тему, размер шрифта и другие настройки оформления.
   static Future<bool> exportQuestAsPdf(

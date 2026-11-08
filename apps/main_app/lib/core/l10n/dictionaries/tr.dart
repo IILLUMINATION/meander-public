@@ -1307,7 +1307,6 @@ final Map<String, String> trStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Betik, düğüm/içerik referanslarında bulunamadı.',
   'Скрипт не читается: {p0}': 'Betik okunamıyor: {p0}',
   'Слои': 'Katmanlar',
-  'Сохранить HTML': 'HTML kaydet',
   'Сохранить PDF': 'PDF kaydet',
   'Сохранить квест': 'Quest\'i kaydet',
   'Сохранить логи': 'Günlükleri kaydet',

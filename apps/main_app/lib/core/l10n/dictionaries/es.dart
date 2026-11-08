@@ -1106,7 +1106,6 @@ final Map<String, String> esStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Script no encontrado en las referencias de nodos/contenido.',
   'Скрипт не читается: {p0}': 'No se puede leer el script: {p0}',
   'Слои': 'Capas',
-  'Сохранить HTML': 'Guardar HTML',
   'Сохранить PDF': 'Guardar PDF',
   'Сохранить квест': 'Guardar aventura',
   'Сохранить логи': 'Guardar registros',

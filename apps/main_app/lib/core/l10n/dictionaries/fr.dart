@@ -1106,7 +1106,6 @@ final Map<String, String> frStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Script introuvable dans les liens nœud/contenu.',
   'Скрипт не читается: {p0}': 'Script illisible : {p0}',
   'Слои': 'Calques',
-  'Сохранить HTML': 'Enregistrer HTML',
   'Сохранить PDF': 'Enregistrer PDF',
   'Сохранить квест': 'Enregistrer la quête',
   'Сохранить логи': 'Enregistrer les journaux',

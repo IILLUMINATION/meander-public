@@ -1106,7 +1106,6 @@ final Map<String, String> ptBrStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Script não encontrado nas referências de nós/conteúdo.',
   'Скрипт не читается: {p0}': 'Script ilegível: {p0}',
   'Слои': 'Camadas',
-  'Сохранить HTML': 'Salvar HTML',
   'Сохранить PDF': 'Salvar PDF',
   'Сохранить квест': 'Salvar quest',
   'Сохранить логи': 'Salvar logs',

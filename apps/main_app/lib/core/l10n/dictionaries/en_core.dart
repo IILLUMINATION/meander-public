@@ -70,7 +70,6 @@ final Map<String, String> enCore = {
   'Скрипт не найден в ссылках нод/контента.': 'The script was not found in node/content references.',
   'Скрипт не читается: {p0}': 'Script is unreadable: {p0}',
   'Слои': 'Layers',
-  'Сохранить HTML': 'Save HTML',
   'Сохранить PDF': 'Save PDF',
   'Сохранить квест': 'Save quest',
   'Сохранить логи': 'Save logs',

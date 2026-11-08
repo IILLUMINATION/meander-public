@@ -1106,7 +1106,6 @@ final Map<String, String> deStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Skript in den Referenzen von Knoten/Inhalten nicht gefunden.',
   'Скрипт не читается: {p0}': 'Skript ist unlesbar: {p0}',
   'Слои': 'Ebenen',
-  'Сохранить HTML': 'HTML speichern',
   'Сохранить PDF': 'PDF speichern',
   'Сохранить квест': 'Quest speichern',
   'Сохранить логи': 'Logs speichern',
