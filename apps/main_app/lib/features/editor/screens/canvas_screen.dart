@@ -31,6 +31,7 @@ import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:collection/collection.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
+import 'package:canvas_app/shared/widgets/canvas_thumbnail_cache.dart';
 
 class CanvasScreen extends ConsumerStatefulWidget {
   final String questId;
@@ -69,6 +70,11 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
 
   /// Цена кадра канваса — переживает перестройку виджета, поэтому живёт в State.
   final CanvasFrameCost _canvasFrameCost = CanvasFrameCost();
+
+  /// Миниатюры нод (фон сцены под текстом). Художник читает кэш синхронно,
+  /// а грузится он асинхронно — поэтому канвас слушает кэш и перерисовывается,
+  /// когда картинка пришла.
+  final CanvasThumbnailCache _thumbnails = CanvasThumbnailCache();
   bool _showOnlyProblematic = false;
   Set<ConnectionKind> _visibleConnectionKinds = ConnectionKind.values.toSet();
   List<String> _problemSearchResults = <String>[];
@@ -119,6 +125,7 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _thumbnails.dispose();
     super.dispose();
   }
 
@@ -1499,22 +1506,29 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
                                         offset: camOffset,
                                         scale: camScale,
                                       );
-                                return CustomPaint(
-                                  painter: InfiniteCanvasPainter(
-                                    displayState,
-                                    frameCost: _canvasFrameCost,
-                                    problematicNodeIds: _problemNodeIds,
-                                    showOnlyProblematic: _showOnlyProblematic,
-                                    visibleConnectionKinds:
-                                        _visibleConnectionKinds,
-                                    resizingGroupId: _resizingGroupId,
-                                    temporaryGroupRect: _tempGroupRect,
-                                    resizingCommentId: _resizingCommentId,
-                                    temporaryCommentSize: _tempCommentSize,
-                                    movingItemId: _movingItemId,
-                                    temporaryItemPosition: _tempItemPosition,
+                                return AnimatedBuilder(
+                                  animation: _thumbnails,
+                                  builder: (ctx3, _) => CustomPaint(
+                                    painter: InfiniteCanvasPainter(
+                                      displayState,
+                                      frameCost: _canvasFrameCost,
+                                      problematicNodeIds: _problemNodeIds,
+                                      showOnlyProblematic:
+                                          _showOnlyProblematic,
+                                      visibleConnectionKinds:
+                                          _visibleConnectionKinds,
+                                      resizingGroupId: _resizingGroupId,
+                                      temporaryGroupRect: _tempGroupRect,
+                                      resizingCommentId: _resizingCommentId,
+                                      temporaryCommentSize: _tempCommentSize,
+                                      movingItemId: _movingItemId,
+                                      temporaryItemPosition:
+                                          _tempItemPosition,
+                                      thumbnails: _thumbnails,
+                                      questId: widget.questId,
+                                    ),
+                                    size: Size.infinite,
                                   ),
-                                  size: Size.infinite,
                                 );
                               },
                             ),

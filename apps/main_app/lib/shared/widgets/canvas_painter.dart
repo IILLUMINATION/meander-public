@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:canvas_app/models/canvas_lod.dart';
 import 'package:canvas_app/models/canvas_models.dart';
 import 'package:canvas_app/features/editor/providers/canvas_provider.dart';
+import 'package:canvas_app/shared/widgets/canvas_thumbnail_cache.dart';
 
 class InfiniteCanvasPainter extends CustomPainter {
   final CanvasState state;
@@ -17,6 +18,11 @@ class InfiniteCanvasPainter extends CustomPainter {
   final Set<String> problematicNodeIds;
   final bool showOnlyProblematic;
   final Set<ConnectionKind> visibleConnectionKinds;
+
+  /// Миниатюры карточек: фон сцены под текстом. Художник только читает кэш,
+  /// загрузку он лишь запрашивает — она асинхронная.
+  final CanvasThumbnailCache? thumbnails;
+  final String questId;
 
   // --- НОВЫЕ ПОЛЯ ДЛЯ ЛОКАЛЬНОЙ ОТРИСОВКИ (Плавность) ---
   final String? resizingGroupId;
@@ -41,6 +47,8 @@ class InfiniteCanvasPainter extends CustomPainter {
       ConnectionKind.timer,
       ConnectionKind.script,
     },
+    this.thumbnails,
+    this.questId = '',
     this.resizingGroupId,
     this.temporaryGroupRect,
     this.resizingCommentId,
@@ -196,9 +204,20 @@ class InfiniteCanvasPainter extends CustomPainter {
       final bool isDimmed = isSearchDimmed || isProblemDimmed;
       final bool isSelected = state.selectedNodeIds.contains(node.id);
 
+      final thumbnailSource =
+          showDetails && state.scale >= CanvasLod.thumbnailMinScale
+          ? NodeRenderer.thumbnailSource(node)
+          : null;
+      if (thumbnailSource != null) {
+        thumbnails?.ensure(questId, thumbnailSource);
+      }
+
       nodeRenderer.drawNode(
         canvas,
         node,
+        thumbnail: thumbnailSource == null
+            ? null
+            : thumbnails?.imageFor(thumbnailSource),
         isSelected: isSelected && !isDimmed,
         isHovered: node.id == state.hoveredNodeId && !isDimmed,
         isConnectionStart: node.id == state.connectionStartNodeId,
@@ -554,6 +573,10 @@ class InfiniteCanvasPainter extends CustomPainter {
         !visibleConnectionKinds.containsAll(
           oldDelegate.visibleConnectionKinds,
         )) {
+      return true;
+    }
+    if (thumbnails != oldDelegate.thumbnails ||
+        questId != oldDelegate.questId) {
       return true;
     }
     return oldDelegate.state != state;
