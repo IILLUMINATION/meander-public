@@ -141,33 +141,6 @@ void main() {
       expect(n.replyCount, 0);
     });
 
-    test('фон выигрывает у картинки контента, иначе берётся первая картинка', () {
-      final withBackground = Node(
-        id: 'a',
-        position: Offset.zero,
-        color: const Color(0xFF26C6DA),
-        label: 'A',
-        description: '',
-        backgroundAssetId: 'bg.png',
-        content: {
-          'items': [
-            {'type': 'image', 'resourcePath': 'res/images/item.jpg'},
-          ],
-        },
-      );
-      expect(NodeRenderer.thumbnailSource(withBackground), 'bg.png');
-
-      final withImage = node(
-        content: {
-          'items': [
-            {'type': 'text', 'text': 'Текст'},
-            {'type': 'image', 'resourcePath': 'res/images/item.jpg'},
-          ],
-        },
-      );
-      expect(NodeRenderer.thumbnailSource(withImage), 'res/images/item.jpg');
-      expect(NodeRenderer.thumbnailSource(node()), isNull);
-    });
   });
 
   group('раскладка тела', () {

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -111,13 +109,6 @@ class CanvasTheme {
   static Color surface = const Color(0xFF1A1A1A);
   static Color commentBody = const Color(0xFF2A2A1E);
   static Color commentText = Colors.white;
-
-  /// Тень подписи поверх картинки: без неё белый текст тонет на светлых
-  /// участках кадра, а поднимать затемнение нельзя — картинка должна быть
-  /// различима.
-  static const List<Shadow> _cardShadows = [
-    Shadow(color: Color(0xCC000000), blurRadius: 3),
-  ];
 
   /// Семейство шрифта подписей на холсте. `null` — системное по умолчанию.
   /// Тесты подставляют загруженный шрифт: иначе Flutter рисует заглушки Ahem,
@@ -281,16 +272,13 @@ class Node {
   double _bodyWidth = -1;
   int _bodyPaintersCount = -1;
   int _bodyPaintersColor = 0;
-  bool _bodyPaintersShadow = false;
   List<TextPainter> _chipPainters = const [];
   double _chipsWidth = -1;
   int _chipsCount = -1;
   int _chipsColor = 0;
-  bool _chipsShadow = false;
   TextPainter? _countersPainter;
   double _countersWidth = -1;
   int _countersColor = 0;
-  bool _countersShadow = false;
   bool _titleDirty = true;
   bool _bodyDirty = true;
 
@@ -567,13 +555,11 @@ class Node {
     double maxWidth,
     int count, {
     required Color color,
-    bool shadows = false,
   }) {
     final shown = count < branchLabels.length ? count : branchLabels.length;
     if (_chipsWidth == maxWidth &&
         _chipsCount == shown &&
-        _chipsColor == color.value &&
-        _chipsShadow == shadows) {
+        _chipsColor == color.value) {
       return _chipPainters;
     }
     for (final painter in _chipPainters) {
@@ -588,7 +574,6 @@ class Node {
               color: color,
               fontSize: 10.5,
               fontFamily: CanvasTheme.cardFontFamily,
-              shadows: shadows ? CanvasTheme._cardShadows : null,
             ),
           ),
           textDirection: TextDirection.ltr,
@@ -599,7 +584,6 @@ class Node {
     _chipsWidth = maxWidth;
     _chipsCount = shown;
     _chipsColor = color.value;
-    _chipsShadow = shadows;
     return _chipPainters;
   }
 
@@ -607,13 +591,11 @@ class Node {
   TextPainter countersPainter(
     double maxWidth, {
     required Color color,
-    bool shadows = false,
   }) {
     final cached = _countersPainter;
     if (cached != null &&
         _countersWidth == maxWidth &&
-        _countersColor == color.value &&
-        _countersShadow == shadows) {
+        _countersColor == color.value) {
       return cached;
     }
     cached?.dispose();
@@ -624,7 +606,6 @@ class Node {
           color: color,
           fontSize: 9.5,
           fontFamily: CanvasTheme.cardFontFamily,
-          shadows: shadows ? CanvasTheme._cardShadows : null,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -633,7 +614,6 @@ class Node {
     )..layout(maxWidth: maxWidth);
     _countersWidth = maxWidth;
     _countersColor = color.value;
-    _countersShadow = shadows;
     return _countersPainter!;
   }
 
@@ -642,14 +622,12 @@ class Node {
     double maxWidth,
     int maxLines, {
     required Color color,
-    bool shadows = false,
   }) {
     final count = maxLines < textLines.length ? maxLines : textLines.length;
     if (!_bodyDirty &&
         _bodyWidth == maxWidth &&
         _bodyPaintersCount == count &&
-        _bodyPaintersColor == color.value &&
-        _bodyPaintersShadow == shadows) {
+        _bodyPaintersColor == color.value) {
       return _bodyPainters;
     }
     for (final painter in _bodyPainters) {
@@ -665,7 +643,6 @@ class Node {
               fontSize: 12.5,
               height: 1.2,
               fontFamily: CanvasTheme.cardFontFamily,
-              shadows: shadows ? CanvasTheme._cardShadows : null,
             ),
           ),
           textDirection: TextDirection.ltr,
@@ -676,7 +653,6 @@ class Node {
     _bodyWidth = maxWidth;
     _bodyPaintersCount = count;
     _bodyPaintersColor = color.value;
-    _bodyPaintersShadow = shadows;
     _bodyDirty = false;
     return _bodyPainters;
   }
@@ -1049,7 +1025,6 @@ class NodeRenderer {
     bool isDimmed = false,
     bool hasValidationIssue = false,
     bool showDetails = true,
-    ui.Image? thumbnail,
   }) {
     final rect = node.rect;
     const radius = Radius.circular(18);
@@ -1115,14 +1090,7 @@ class NodeRenderer {
       node.headerRightInset = 0;
       return;
     }
-    _drawThumbnail(canvas, node, rect, thumbnail, opacity);
-    _drawBodyContent(
-      canvas,
-      node,
-      rect,
-      opacity,
-      hasThumbnail: thumbnail != null,
-    );
+    _drawBodyContent(canvas, node, rect, opacity);
     _drawHeaderIndicators(
       canvas,
       node,
@@ -1131,21 +1099,6 @@ class NodeRenderer {
       opacity,
       hasValidationIssue: hasValidationIssue,
     );
-  }
-
-  /// Источник подложки карточки: фон ноды, иначе первая картинка контента.
-  static String? thumbnailSource(Node node) {
-    final background = (node.backgroundAssetId ?? '').trim();
-    if (background.isNotEmpty) return background;
-    final items = node.content?['items'];
-    if (items is List) {
-      for (final item in items) {
-        if (item is! Map || item['type'] != 'image') continue;
-        final path = (item['resourcePath'] as String? ?? '').trim();
-        if (path.isNotEmpty) return path;
-      }
-    }
-    return null;
   }
 
   /// Заголовок ноды. Вызывается отдельно от тела ноды: художник решает, сколько
@@ -1203,74 +1156,13 @@ class NodeRenderer {
     );
   }
 
-  /// Подложка карточки: фон сцены (или первая картинка контента), приглушённая
-  /// настолько, чтобы текст поверх оставался читаемым.
-  void _drawThumbnail(
-    Canvas canvas,
-    Node node,
-    Rect rect,
-    ui.Image? image,
-    double opacity,
-  ) {
-    if (image == null) return;
-    final bodyRect = Rect.fromLTRB(
-      rect.left,
-      rect.top + headerHeight,
-      rect.right,
-      rect.bottom,
-    );
-    if (bodyRect.isEmpty) return;
-
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
-    if (imageWidth <= 0 || imageHeight <= 0) return;
-    final cover = math.max(
-      bodyRect.width / imageWidth,
-      bodyRect.height / imageHeight,
-    );
-    final source = Rect.fromCenter(
-      center: Offset(imageWidth / 2, imageHeight / 2),
-      width: bodyRect.width / cover,
-      height: bodyRect.height / cover,
-    );
-
-    canvas.save();
-    canvas.clipRRect(
-      RRect.fromRectAndCorners(
-        bodyRect,
-        bottomLeft: const Radius.circular(18),
-        bottomRight: const Radius.circular(18),
-      ),
-    );
-    canvas.drawImageRect(
-      image,
-      source,
-      bodyRect,
-      Paint()
-        ..filterQuality = FilterQuality.low
-        ..colorFilter = opacity < 1
-            ? ColorFilter.mode(
-                Colors.white.withOpacity(opacity),
-                BlendMode.dstIn,
-              )
-            : null,
-    );
-    // Затемнение под текст: картинка — подсказка к сцене, а не фон игры.
-    canvas.drawRect(
-      bodyRect,
-      Paint()..color = CanvasTheme.nodeBody.withOpacity(0.48),
-    );
-    canvas.restore();
-  }
-
   /// Тело карточки: реплики, подписи веток и сводка состава.
   void _drawBodyContent(
     Canvas canvas,
     Node node,
     Rect rect,
-    double opacity, {
-    bool hasThumbnail = false,
-  }) {
+    double opacity,
+  ) {
     final width = rect.width - 2 * _bodyPadX;
     if (width <= 0) return;
     final branches = node.branchLabels;
@@ -1295,8 +1187,7 @@ class NodeRenderer {
       final painters = node.bodyPainters(
         width,
         layout.lines,
-        color: hasThumbnail ? Colors.white : CanvasTheme.nodePreview,
-        shadows: hasThumbnail,
+        color: CanvasTheme.nodePreview,
       );
       var y = top;
       for (final painter in painters) {
@@ -1313,8 +1204,7 @@ class NodeRenderer {
         ? node.chipPainters(
             width,
             layout.chips,
-            color: hasThumbnail ? Colors.white : CanvasTheme.nodePreview,
-            shadows: hasThumbnail,
+            color: CanvasTheme.nodePreview,
           )
         : const <TextPainter>[];
     for (var i = 0; i < chipPainters.length; i++) {
@@ -1361,10 +1251,9 @@ class NodeRenderer {
         text: TextSpan(
           text: '+$hiddenBranches',
           style: TextStyle(
-            color: hasThumbnail ? Colors.white : CanvasTheme.nodePreview,
+            color: CanvasTheme.nodePreview,
             fontSize: 9.5,
             fontFamily: CanvasTheme.cardFontFamily,
-            shadows: hasThumbnail ? CanvasTheme._cardShadows : null,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -1382,8 +1271,7 @@ class NodeRenderer {
     if (layout.counters && counters.isNotEmpty) {
       final painter = node.countersPainter(
         width,
-        color: hasThumbnail ? Colors.white : CanvasTheme.nodePreview,
-        shadows: hasThumbnail,
+        color: CanvasTheme.nodePreview,
       );
       painter.paint(
         canvas,

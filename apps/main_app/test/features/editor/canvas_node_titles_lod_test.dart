@@ -36,7 +36,6 @@ class _SpyRenderer extends NodeRenderer {
     bool isDimmed = false,
     bool hasValidationIssue = false,
     bool showDetails = true,
-    ui.Image? thumbnail,
   }) {
     showDetailsFlags.add(showDetails);
     // Тело ноды рисуем по-настоящему, а вот подпись считаем отдельно.
@@ -52,7 +51,6 @@ class _SpyRenderer extends NodeRenderer {
       isDimmed: isDimmed,
       hasValidationIssue: hasValidationIssue,
       showDetails: showDetails,
-      thumbnail: thumbnail,
     );
   }
 
