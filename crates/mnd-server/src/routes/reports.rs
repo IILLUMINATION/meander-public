@@ -46,24 +46,27 @@ async fn create_report(
 ) -> ApiResult {
     let user_id = auth.id;
 
-    let reported_type = match body.str("reported_type") {
+    // Node's `if (!reported_type)` treats `""`, `null`, `false` and `0` as
+    // missing; every other JSON value is coerced by `pg` when it reaches a text
+    // column. `Body::str` only accepts strings, so coerce explicitly.
+    let reported_type = match js_truthy_text(body.get("reported_type")) {
         Some(v) => v,
         None => return Err(ApiError::bad_request("Missing required fields")),
     };
-    let reported_id_raw = match body.str("reported_id") {
+    let reported_id_raw = match js_truthy_text(body.get("reported_id")) {
         Some(v) => v,
         None => return Err(ApiError::bad_request("Missing required fields")),
     };
-    let reason = match body.str("reason") {
+    let reason = match js_truthy_text(body.get("reason")) {
         Some(v) => v,
         None => return Err(ApiError::bad_request("Missing required fields")),
     };
 
-    if !REPORTED_TYPES.contains(&reported_type) {
+    if !REPORTED_TYPES.contains(&reported_type.as_str()) {
         return Err(ApiError::bad_request("Invalid reported_type"));
     }
 
-    let reported_id = match Uuid::parse_str(reported_id_raw) {
+    let reported_id = match Uuid::parse_str(&reported_id_raw) {
         Ok(id) => id,
         Err(_) => return Err(ApiError::bad_request("Invalid reported_id format")),
     };
@@ -72,14 +75,14 @@ async fn create_report(
         return Err(ApiError::bad_request("Cannot report yourself"));
     }
 
-    check_reported_exists(&state, reported_type, reported_id, user_id).await?;
+    check_reported_exists(&state, &reported_type, reported_id, user_id).await?;
 
     let existing = sqlx::query(
         "SELECT id FROM reports
          WHERE reporter_id = $1 AND reported_type = $2 AND reported_id = $3 AND status = 'pending'",
     )
     .bind(user_id)
-    .bind(reported_type)
+    .bind(&reported_type)
     .bind(reported_id)
     .fetch_optional(&state.db)
     .await?;
@@ -96,12 +99,28 @@ async fn create_report(
     .bind(user_id)
     .bind(reported_type)
     .bind(reported_id)
-    .bind(reason)
-    .bind(body.str("description"))
+    .bind(&reason)
+    .bind(js_truthy_text(body.get("description")))
     .fetch_one(&state.db)
     .await?;
 
     ok_created(json!({"success": true, "report": pg_row_to_json(&row)}))
+}
+
+/// JavaScript `Boolean(value)` for a JSON value, rendered the way `pg`
+/// stringifies it for a text column.
+fn js_truthy_text(value: Option<&serde_json::Value>) -> Option<String> {
+    use serde_json::Value;
+    match value? {
+        Value::Null => None,
+        Value::Bool(false) => None,
+        Value::Bool(true) => Some("true".into()),
+        Value::Number(n) if n.as_f64() == Some(0.0) => None,
+        Value::Number(n) => Some(n.to_string()),
+        Value::String(s) if s.is_empty() => None,
+        Value::String(s) => Some(s.clone()),
+        other => Some(other.to_string()),
+    }
 }
 
 async fn check_reported_exists(

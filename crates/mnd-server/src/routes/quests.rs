@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
-use axum::body::Body as HttpBody;
 use axum::body::to_bytes;
 use axum::extract::{FromRequest, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, header};
@@ -38,7 +37,7 @@ use crate::services::market_tiers::{
 use crate::services::moderation::moderate_quest_content;
 use crate::services::moderation::moderate_review;
 use crate::services::notifications::{
-    NewNotification, create_bulk_notifications, create_notification,
+    NewNotification, create_bulk_notifications_tx, create_notification,
 };
 use crate::services::publish_errors::{
     VERIFIED_USER_MAX_FILE_SIZE_BYTES, archive_unreadable, content_rejected,
@@ -633,8 +632,9 @@ async fn publish(
 
         let payload = json!({ "title": title, "version": version, "is_demo": is_demo });
         if is_new_quest {
-            create_bulk_notifications(
+            create_bulk_notifications_tx(
                 &state,
+                &mut tx,
                 &follower_ids,
                 Some(user_id),
                 "quest_published",
@@ -672,8 +672,9 @@ async fn publish(
                         recipients.push(id);
                     }
                 }
-                create_bulk_notifications(
+                create_bulk_notifications_tx(
                     &state,
+                    &mut tx,
                     &recipients,
                     Some(user_id),
                     "quest_updated",
@@ -971,6 +972,7 @@ async fn quest_file(
     State(state): State<Arc<AppState>>,
     OptionalAuth(auth): OptionalAuth,
     Path(id): Path<String>,
+    request: axum::extract::Request,
 ) -> ApiResult {
     let quest_id = parse_id(&id)?;
     let user_id = auth.as_ref().map(|u| u.id);
@@ -994,19 +996,14 @@ async fn quest_file(
         .public_dir
         .join("quests_files")
         .join(format!("{quest_id}.mnd"));
-    let bytes = match tokio::fs::read(&file_path).await {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            tracing::warn!(error = %err, path = %file_path.display(), "quest file missing");
-            return Err(ApiError::not_found("Quest file not found"));
-        }
-    };
-
-    Ok((
-        [(header::CONTENT_TYPE, "application/octet-stream")],
-        HttpBody::from(bytes),
+    crate::routes::static_files::file_response(
+        &file_path,
+        request.headers(),
+        "public, max-age=0",
+        "Quest file not found",
+        "application/octet-stream",
     )
-        .into_response())
+    .await
 }
 
 // ---------------------------------------------------------------------------

@@ -209,6 +209,8 @@ pub fn build_push_from_notification(
     payload: Option<&Value>,
     actor_name: Option<&str>,
 ) -> Option<PushMessage> {
+    // JS checks `actorName ? ... : ...`, so an empty full_name is "unknown".
+    let actor_name = actor_name.filter(|name| !name.is_empty());
     let title_of = |v: Option<&Value>| {
         v.and_then(|p| p.get("title"))
             .and_then(Value::as_str)

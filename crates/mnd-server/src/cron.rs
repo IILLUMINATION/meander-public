@@ -48,10 +48,10 @@ pub fn spawn_all(state: Arc<AppState>) {
 
     let s = state.clone();
     tokio::spawn(async move {
-        // Reward sweep: every 10 minutes, first pass immediately.
+        // Reward sweep: every 15 minutes, first pass immediately.
         loop {
             crate::cron_jobs::run_reward_sweep(&s).await;
-            tokio::time::sleep(Duration::from_secs(10 * 60)).await;
+            tokio::time::sleep(Duration::from_secs(15 * 60)).await;
         }
     });
 

@@ -643,12 +643,22 @@ async fn like_post(
             .bind(auth.id)
             .execute(&state.db)
             .await;
+        let _ = sqlx::query(
+            "UPDATE author_posts SET likes_count = GREATEST(likes_count - 1, 0) WHERE id = $1",
+        )
+        .bind(post_id)
+        .execute(&state.db)
+        .await;
         emit_post_stats(&state, post_id).await;
         ok_json(json!({"liked": false}))
     } else {
         let _ = sqlx::query("INSERT INTO author_post_likes (post_id, user_id) VALUES ($1, $2)")
             .bind(post_id)
             .bind(auth.id)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query("UPDATE author_posts SET likes_count = likes_count + 1 WHERE id = $1")
+            .bind(post_id)
             .execute(&state.db)
             .await;
         emit_post_stats(&state, post_id).await;
@@ -1073,23 +1083,30 @@ async fn reply_review(
     Path((quest_id, review_id)): Path<(String, String)>,
     body: Body,
 ) -> ApiResult {
-    let quest_id =
-        Uuid::parse_str(&quest_id).map_err(|_| ApiError::bad_request("Invalid quest ID"))?;
-    let review_id =
-        Uuid::parse_str(&review_id).map_err(|_| ApiError::bad_request("Invalid review ID"))?;
-
     let text = body.str("text").unwrap_or("").trim();
     if text.is_empty() {
         return Err(missing_field("Text"));
     }
 
+    // Node passes both ids straight into a UUID query, so a malformed id is an
+    // SQL error caught by the route's generic handler.
+    let quest_id =
+        Uuid::parse_str(&quest_id).map_err(|_| ApiError::internal("Internal server error"))?;
+    let review_id =
+        Uuid::parse_str(&review_id).map_err(|_| ApiError::internal("Internal server error"))?;
+
     let quest = sqlx::query("SELECT author_id, title FROM quests WHERE id = $1")
         .bind(quest_id)
         .fetch_optional(&state.db)
-        .await?;
+        .await
+        .map_err(|_| ApiError::internal("Internal server error"))?;
     let quest = quest.ok_or_else(|| ApiError::not_found("Quest not found"))?;
-    let quest_author_id: Uuid = quest.try_get("author_id")?;
-    let title: String = quest.try_get("title")?;
+    let quest_author_id: Uuid = quest
+        .try_get("author_id")
+        .map_err(|_| ApiError::internal("Internal server error"))?;
+    let title: String = quest
+        .try_get("title")
+        .map_err(|_| ApiError::internal("Internal server error"))?;
 
     if quest_author_id != auth.id {
         return Err(ApiError::forbidden(
@@ -1104,10 +1121,13 @@ async fn reply_review(
     .bind(review_id)
     .bind(quest_id)
     .fetch_optional(&state.db)
-    .await?;
+    .await
+    .map_err(|_| ApiError::internal("Internal server error"))?;
 
     let row = result.ok_or_else(|| ApiError::not_found("Review not found"))?;
-    let review_author_id: Uuid = row.try_get("author_id")?;
+    let review_author_id: Uuid = row
+        .try_get("author_id")
+        .map_err(|_| ApiError::internal("Internal server error"))?;
 
     if review_author_id != auth.id {
         let _ = create_notification(

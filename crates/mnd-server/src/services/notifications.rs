@@ -73,6 +73,10 @@ async fn author_muted(
 }
 
 pub async fn create_notification(state: &Arc<AppState>, n: NewNotification<'_>) -> bool {
+    // Node skips self-notifications before touching the database.
+    if n.actor_id == Some(n.user_id) {
+        return false;
+    }
     if let Some(actor_id) = n.actor_id {
         if author_muted(state, n.user_id, actor_id, n.kind, None).await {
             return false;
@@ -141,6 +145,9 @@ pub async fn create_notification_tx(
     conn: &mut PgConnection,
     n: NewNotification<'_>,
 ) -> bool {
+    if n.actor_id == Some(n.user_id) {
+        return false;
+    }
     if let Some(actor_id) = n.actor_id {
         if author_muted(state, n.user_id, actor_id, n.kind, Some(&mut *conn)).await {
             return false;
@@ -212,6 +219,45 @@ pub async fn create_bulk_notifications(
     review_id: Option<Uuid>,
     payload: Option<Value>,
 ) -> u64 {
+    let Ok(mut conn) = state.db.acquire().await else {
+        return 0;
+    };
+    create_bulk_notifications_with_conn(
+        state, &mut conn, user_ids, actor_id, kind, quest_id, review_id, payload,
+    )
+    .await
+}
+
+/// Same insert as [`create_bulk_notifications`], but inside the caller's
+/// transaction. `POST /quests` must write follower notifications before the
+/// quest row is committed, exactly like Node passing its `PoolClient`.
+pub async fn create_bulk_notifications_tx(
+    state: &Arc<AppState>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_ids: &[Uuid],
+    actor_id: Option<Uuid>,
+    kind: &str,
+    quest_id: Option<Uuid>,
+    review_id: Option<Uuid>,
+    payload: Option<Value>,
+) -> u64 {
+    create_bulk_notifications_with_conn(
+        state, &mut *tx, user_ids, actor_id, kind, quest_id, review_id, payload,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn create_bulk_notifications_with_conn(
+    state: &Arc<AppState>,
+    conn: &mut PgConnection,
+    user_ids: &[Uuid],
+    actor_id: Option<Uuid>,
+    kind: &str,
+    quest_id: Option<Uuid>,
+    review_id: Option<Uuid>,
+    payload: Option<Value>,
+) -> u64 {
     let mut recipients: Vec<Uuid> = Vec::new();
     for id in user_ids {
         if actor_id == Some(*id) {
@@ -233,7 +279,7 @@ pub async fn create_bulk_notifications(
                    FROM profiles WHERE id = ANY($1)",
             )
             .bind(&recipients)
-            .fetch_all(&state.db)
+            .fetch_all(&mut *conn)
             .await
             .unwrap_or_default();
 
@@ -270,7 +316,7 @@ pub async fn create_bulk_notifications(
     .bind(quest_id)
     .bind(review_id)
     .bind(payload.as_ref())
-    .execute(&state.db)
+    .execute(&mut *conn)
     .await;
 
     if let Err(err) = result {
@@ -375,7 +421,8 @@ async fn send_push_for_notification(
             .fetch_optional(&state.db)
             .await
             .ok()
-            .flatten(),
+            .flatten()
+            .filter(|name: &String| !name.is_empty()),
         None => None,
     };
 

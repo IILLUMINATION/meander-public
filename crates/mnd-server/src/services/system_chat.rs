@@ -48,7 +48,8 @@ pub async fn mirror_to_system_chat(
             .fetch_optional(&state.db)
             .await
             .ok()
-            .flatten(),
+            .flatten()
+            .filter(|name: &String| !name.is_empty()),
         None => None,
     };
 

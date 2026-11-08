@@ -644,7 +644,12 @@ async fn update_profile(
 
     // timezone_offset
     let timezone_offset = if body.get("timezone_offset").is_some() {
-        let n = json_i64(body.get("timezone_offset")).unwrap_or(0);
+        // Node binds `Number(req.body.timezone_offset)` straight into an int4
+        // column: NaN, fractions and out-of-range values fail in Postgres and
+        // the route's catch turns that into a 500.
+        let Some(n) = js_int4(body.get("timezone_offset")) else {
+            return Err(ApiError::internal("Server error updating profile"));
+        };
         fragments.push(format!("timezone_offset = ${}", idx));
         idx += 1;
         Some(n)
@@ -664,10 +669,10 @@ async fn update_profile(
 
     let mut q = sqlx::query(&sql);
     if let Some(v) = full_name {
-        q = q.bind(v);
+        q = q.bind(json_text(&v));
     }
     if let Some(v) = bio {
-        q = q.bind(v);
+        q = q.bind(json_text(&v));
     }
     if let Some(v) = banner_style {
         q = q.bind(v);
@@ -916,7 +921,7 @@ async fn get_my_rewards(State(state): State<Arc<AppState>>, auth: AuthUser) -> A
                 "cosmetics": rule.get("cosmetics"),
                 "current": item.get("current"),
                 "done": item.get("done"),
-                "granted_at": item.get("granted_at"),
+                "granted_at": item.get("grantedAt"),
             })
         })
         .collect();
@@ -1575,19 +1580,84 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 /// `Body::i64` semantics for a value already destructured out of `Body`.
-fn json_i64(value: Option<&Value>) -> Option<i64> {
-    match value? {
-        Value::Number(n) => n.as_i64(),
-        Value::String(raw) => raw.trim().parse().ok(),
-        _ => None,
+
+/// Node's `pg` sends JS scalars to text columns as-is (a JS string is not
+/// re-quoted). Binding a `serde_json::Value` directly makes sqlx serialise the
+/// string as JSON, which stores `"Parity"` with quotes, so convert explicitly.
+fn json_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(raw) => Some(raw.clone()),
+        other => Some(other.to_string()),
     }
 }
 
 /// `Body::bool` semantics for a value already destructured out of `Body`.
 fn json_bool(value: Option<&Value>) -> bool {
     match value {
+        None | Some(Value::Null) => false,
         Some(Value::Bool(flag)) => *flag,
-        Some(Value::String(raw)) => raw == "true" || raw == "1",
-        _ => false,
+        Some(Value::Number(number)) => number
+            .as_f64()
+            .map(|n| n != 0.0 && !n.is_nan())
+            .unwrap_or(false),
+        Some(Value::String(raw)) => !raw.is_empty(),
+        Some(Value::Array(_)) => true,
+        Some(Value::Object(_)) => true,
     }
+}
+
+/// `Number(value)` for JSON, then the int4 range check Postgres applies when
+/// node-postgres binds it to an `integer` column. `None` means the request
+/// fails the way Node's does (500 from the route's catch block).
+fn js_int4(value: Option<&Value>) -> Option<i32> {
+    let number = js_number(value)?;
+    if !number.is_finite() || number.fract() != 0.0 {
+        return None;
+    }
+    if number < i32::MIN as f64 || number > i32::MAX as f64 {
+        return None;
+    }
+    Some(number as i32)
+}
+
+fn js_number(value: Option<&Value>) -> Option<f64> {
+    match value? {
+        Value::Null => Some(0.0),
+        Value::Bool(flag) => Some(if *flag { 1.0 } else { 0.0 }),
+        Value::Number(number) => number.as_f64(),
+        Value::Array(items) => match items.as_slice() {
+            [] => Some(0.0),
+            [single] => js_number(Some(single)),
+            _ => None,
+        },
+        Value::String(raw) => js_parse_number(raw),
+        Value::Object(_) => None,
+    }
+}
+
+fn js_parse_number(raw: &str) -> Option<f64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Some(0.0);
+    }
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex, 16).ok().map(|n| n as f64);
+    }
+    if let Some(bin) = trimmed
+        .strip_prefix("0b")
+        .or_else(|| trimmed.strip_prefix("0B"))
+    {
+        return u64::from_str_radix(bin, 2).ok().map(|n| n as f64);
+    }
+    if let Some(oct) = trimmed
+        .strip_prefix("0o")
+        .or_else(|| trimmed.strip_prefix("0O"))
+    {
+        return u64::from_str_radix(oct, 8).ok().map(|n| n as f64);
+    }
+    trimmed.parse::<f64>().ok()
 }

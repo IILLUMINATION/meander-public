@@ -231,7 +231,7 @@ async fn list_quests(State(state): State<Arc<AppState>>, auth: AuthUser) -> ApiR
     let rows = sqlx::query(
         "SELECT q.quest_id, q.title, q.source, q.size_bytes, q.fingerprint,
                 q.market_quest_id, q.market_version, q.updated_at,
-                mq.status AS market_status,
+                mq.status::text AS market_status,
                 mq.version AS market_current_version
            FROM cloud_sync_quests q
       LEFT JOIN quests mq ON mq.id = q.market_quest_id
@@ -331,11 +331,12 @@ async fn check_quest(
     if let Some(market_ref) = body.get("marketRef").and_then(Value::as_object) {
         if let Some(Value::String(mq)) = market_ref.get("marketQuestId") {
             if let Ok(uuid) = Uuid::parse_str(mq) {
-                let status =
-                    sqlx::query_scalar::<_, String>("SELECT status FROM quests WHERE id = $1")
-                        .bind(uuid)
-                        .fetch_optional(&state.db)
-                        .await?;
+                let status = sqlx::query_scalar::<_, String>(
+                    "SELECT status::text FROM quests WHERE id = $1",
+                )
+                .bind(uuid)
+                .fetch_optional(&state.db)
+                .await?;
                 supports_market_ref = status.as_deref() == Some("published");
             }
         }
@@ -525,10 +526,11 @@ async fn put_quest(
             return Err(ApiError::forbidden("no_quota"));
         }
 
-        let status = sqlx::query_scalar::<_, String>("SELECT status FROM quests WHERE id = $1")
-            .bind(market_quest_id)
-            .fetch_optional(&state.db)
-            .await?;
+        let status =
+            sqlx::query_scalar::<_, String>("SELECT status::text FROM quests WHERE id = $1")
+                .bind(market_quest_id)
+                .fetch_optional(&state.db)
+                .await?;
         if status.as_deref() != Some("published") {
             return Err(ApiError::not_found("market quest not available"));
         }
@@ -768,7 +770,7 @@ async fn download_quest(
 
     let row = sqlx::query(
         "SELECT q.source, q.size_bytes, q.fingerprint, q.market_quest_id,
-                mq.download_url, mq.status AS market_status
+                mq.download_url, mq.status::text AS market_status
            FROM cloud_sync_quests q
       LEFT JOIN quests mq ON mq.id = q.market_quest_id
           WHERE q.user_id = $1 AND q.quest_id = $2 AND q.deleted_at IS NULL",

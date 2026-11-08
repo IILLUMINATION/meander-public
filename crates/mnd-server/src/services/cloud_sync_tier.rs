@@ -320,7 +320,7 @@ pub async fn build_upgrade_hints(state: &AppState, user_id: Uuid) -> Result<Valu
             hints.push(json!({
                 "target": "starter",
                 "text": format!("Аккаунту {} дн. — через {} дн. получите 25 МБ.", metrics.account_age_days, 7 - metrics.account_age_days),
-                "progress": metrics.account_age_days as f64 / 7.0,
+                "progress": crate::json::js_number(metrics.account_age_days as f64 / 7.0),
             }));
         }
         if !metrics.has_any_activity {
@@ -350,7 +350,7 @@ pub async fn build_upgrade_hints(state: &AppState, user_id: Uuid) -> Result<Valu
             hints.push(json!({
                 "target": "creator",
                 "text": format!("Опубликуйте ещё {} квест(а) — 500 МБ.", need),
-                "progress": (metrics.published_count as f64 / 3.0).min(1.0),
+                "progress": crate::json::js_number((metrics.published_count as f64 / 3.0).min(1.0)),
             }));
         }
 
@@ -359,7 +359,7 @@ pub async fn build_upgrade_hints(state: &AppState, user_id: Uuid) -> Result<Valu
             hints.push(json!({
                 "target": "creator",
                 "text": format!("Соберите ещё {} лайков на квестах — 500 МБ.", need_likes),
-                "progress": (metrics.total_likes as f64 / 50.0).min(1.0),
+                "progress": crate::json::js_number((metrics.total_likes as f64 / 50.0).min(1.0)),
             }));
         }
 
@@ -368,7 +368,7 @@ pub async fn build_upgrade_hints(state: &AppState, user_id: Uuid) -> Result<Valu
             hints.push(json!({
                 "target": "creator",
                 "text": format!("Наберите ещё {} подписчиков — 500 МБ.", need_followers),
-                "progress": (metrics.followers_count as f64 / 50.0).min(1.0),
+                "progress": crate::json::js_number((metrics.followers_count as f64 / 50.0).min(1.0)),
             }));
         }
 

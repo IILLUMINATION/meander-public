@@ -69,7 +69,7 @@ fn token_with_user(row: &sqlx::postgres::PgRow, secret: &str, error_text: &str) 
 // ============================================================================
 
 async fn google_token(State(state): State<Arc<AppState>>, body: Body) -> ApiResult {
-    let Some(id_token) = body.str("idToken") else {
+    let Some(id_token) = body.str("idToken").filter(|s| !s.is_empty()) else {
         return Err(ApiError::bad_request("idToken is required"));
     };
 
@@ -341,7 +341,10 @@ async fn fetch_yandex_info(
 }
 
 async fn yandex_token(State(state): State<Arc<AppState>>, body: Body) -> ApiResult {
-    let oauth_token = body.str("yandexToken").or_else(|| body.str("token"));
+    let oauth_token = body
+        .str("yandexToken")
+        .or_else(|| body.str("token"))
+        .filter(|s| !s.is_empty());
     let Some(oauth_token) = oauth_token else {
         return Err(ApiError::bad_request("yandexToken is required"));
     };
@@ -847,7 +850,7 @@ async fn verify_apple_identity_token(
 }
 
 async fn apple_token(State(state): State<Arc<AppState>>, body: Body) -> ApiResult {
-    let Some(id_token) = body.str("idToken") else {
+    let Some(id_token) = body.str("idToken").filter(|s| !s.is_empty()) else {
         return Err(ApiError::bad_request("idToken is required"));
     };
 

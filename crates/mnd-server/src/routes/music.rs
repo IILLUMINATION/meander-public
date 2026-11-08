@@ -5,10 +5,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::body::Body as AxumBody;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
-use axum::response::Response;
 use axum::{Router, routing::get, routing::post};
 use chrono::Utc;
 use regex::Regex;
@@ -16,7 +14,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tokio::fs;
-use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 use crate::auth::{AuthUser, OptionalAuth};
@@ -303,7 +300,12 @@ async fn upload_track(
             let row = pg_row_to_json(r);
             row.get("full_name").cloned()
         }) {
-            map.insert("author_name".to_string(), Value::String(name));
+            // Node uses `author?.full_name || null`, so an empty string is null.
+            if name.is_empty() {
+                map.insert("author_name".to_string(), Value::Null);
+            } else {
+                map.insert("author_name".to_string(), Value::String(name));
+            }
         } else {
             map.insert("author_name".to_string(), Value::Null);
         }
@@ -438,6 +440,7 @@ async fn stream_music(
     State(state): State<Arc<AppState>>,
     auth: OptionalAuth,
     Path(id): Path<String>,
+    request: axum::extract::Request,
 ) -> ApiResult {
     let id = parse_uuid(Some(&id)).ok_or_else(|| ApiError::bad_request("Invalid id"))?;
     let row = sqlx::query("SELECT status, author_id FROM music_tracks WHERE id = $1")
@@ -473,17 +476,14 @@ async fn stream_music(
         format!("attachment; filename=\"{}\"", name)
     };
 
-    let file = fs::File::open(&full).await?;
-    let metadata = file.metadata().await?;
-    let stream = ReaderStream::new(file);
-    let body = AxumBody::from_stream(stream);
-
-    let mut resp = Response::new(body);
-    resp.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
+    let mut resp = crate::routes::static_files::file_response(
+        &full,
+        request.headers(),
+        "public, max-age=0",
+        "File not found on storage",
+        content_type,
+    )
+    .await?;
     resp.headers_mut().insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -492,11 +492,6 @@ async fn stream_music(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&disposition)
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
-    );
-    resp.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&metadata.len().to_string())
-            .unwrap_or_else(|_| HeaderValue::from_static("0")),
     );
     Ok(resp)
 }

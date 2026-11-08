@@ -435,7 +435,9 @@ async fn share_quest(State(state): State<Arc<AppState>>, Path(raw_id): Path<Stri
     let preview_image_url: Option<String> = row.try_get("preview_image_url")?;
 
     let default_desc = "Увлекательный текстовый квест в Meander.".to_string();
-    let description = description.unwrap_or(default_desc);
+    let description = description
+        .filter(|d| !d.is_empty())
+        .unwrap_or(default_desc);
     let body_desc = truncate_node(&description);
 
     let default_img = format!("{}/uploads/default_cover.jpg", state.cfg.base_url);
@@ -478,7 +480,7 @@ async fn share_profile(
     let avatar_url: Option<String> = row.try_get("avatar_url")?;
 
     let default_bio = "Автор и игрок в текстовые квесты Meander.".to_string();
-    let description = bio.unwrap_or(default_bio);
+    let description = bio.filter(|b| !b.is_empty()).unwrap_or(default_bio);
     let body_desc = truncate_node(&description);
 
     let default_img = format!("{}/uploads/default_avatar.jpg", state.cfg.base_url);

@@ -478,8 +478,18 @@ handlers now do the same instead of turning a transient database error into a
 ### Known deviation
 
 - Node's Express sets a weak `ETag` on `res.send`/`res.json` and answers
-  `If-None-Match` with `304`. The Rust port does not emit ETags, so caching
-  revalidates instead of returning 304; payloads, statuses and content types
-  are otherwise identical. Files served through `ServeDir` likewise have no
-  ETag (Express `static` does send one), so static caching is also a
-  revalidation rather than a 304.
+  `If-None-Match` with `304`. The Rust port does not emit ETags on JSON
+  responses, so caching revalidates instead of returning 304; payloads,
+  statuses and content types are otherwise identical. File downloads that
+  Node serves through `res.sendFile` (`/static/downloads/:file`,
+  `/quests/:id/file`, `/music/:id/file`, `/assets/:id/file`) *do* reproduce
+  sendFile's `ETag`, `Last-Modified`, `Accept-Ranges` and byte-range/304/416
+  behaviour. Files under `/uploads` are still served by `ServeDir`, which
+  does not emit the ETag Express `static` would.
+- `POST /api/messages/system/broadcast`: Node answers 500
+  `{"error":"Не удалось опубликовать новость"}` because its notifications
+  INSERT selects `$1::uuid` while also declaring an unused `$2`, and
+  node-postgres sends untyped parameters (PostgreSQL 42P18). Rust binds typed
+  parameters, so the same request succeeds with `{"success":true,"delivered":N}`.
+  This is a Node defect, not a Rust deviation; the working implementation is
+  kept.
