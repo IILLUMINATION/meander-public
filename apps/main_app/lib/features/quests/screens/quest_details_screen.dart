@@ -238,8 +238,79 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     }
   }
 
+  /// Что вообще произойдёт и как этим пользоваться: без пояснения «собрать
+  /// веб-версию» выглядит как кнопка «сделай чудо», а папку из архива ещё надо
+  /// суметь отдать в браузер.
+  Future<bool> _confirmWebExport() async {
+    final ok = await showAppDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Веб-версия квеста')),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _webExportNote(
+                Icons.inventory_2_outlined,
+                tr(
+                  'Соберётся zip: движок плеера и твой квест. Ноды, картинки, звук и скрипты работают как в приложении.',
+                ),
+              ),
+              _webExportNote(
+                Icons.devices_outlined,
+                tr(
+                  'Играть смогут с любого устройства — ПК, телефон, планшет: нужен только браузер и ссылка. Архив распаковывают на хостинг.',
+                ),
+              ),
+              _webExportNote(
+                Icons.dns_outlined,
+                tr(
+                  'Хостинг обязан отдавать заголовки COOP/COEP, иначе движок не запустится. Обычный статический хостинг для теста: python3 scripts/serve_web_export.py',
+                ),
+              ),
+              _webExportNote(
+                Icons.block_outlined,
+                tr(
+                  'Двойным щелчком по index.html не откроется, и хостинги без своих заголовков (например, GitHub Pages) не подойдут.',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(tr('Отмена')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(tr('Собрать zip')),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Widget _webExportNote(IconData icon, String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text, style: const TextStyle(fontSize: 13, height: 1.3)),
+        ),
+      ],
+    ),
+  );
+
   Future<void> _buildWeb(Quest quest) async {
     if (_isBuildingWeb) return;
+    if (!await _confirmWebExport()) return;
+    if (!mounted) return;
     setState(() => _isBuildingWeb = true);
     try {
       final result = await OfflineWebBuilder.buildAndSave(
@@ -519,7 +590,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
                   leading: const Icon(Icons.public_rounded),
                   title: Text(tr('Собрать веб-версию')),
                   subtitle: Text(
-                    tr('Сайт с квестом — zip, нужен хостинг с COOP/COEP'),
+                    tr('Zip с сайтом квеста — играется с ПК и телефона'),
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
