@@ -22,7 +22,7 @@
     </td>
     <td align="center" valign="middle">
       <a href="https://apps.apple.com/app/id6813247027">
-        <img alt="Загрузите в App Store" src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/ru-ru" height="55">
+        <img alt="Загрузите в App Store" src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/ru-ru" width="165" height="55">
       </a>
     </td>
   </tr>
