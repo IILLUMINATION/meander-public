@@ -64,6 +64,14 @@ pub enum DiagnosticKind {
     BadOnAppearTrigger,
     /// Структурная проблема скрипта (план 020-B: validate_script).
     InvalidScriptStructure,
+    /// В настройках квеста не указана стартовая нода.
+    MissingStartNode,
+    /// Нода ссылается на главу (тег), которой нет в `config.tags`.
+    UnknownChapter,
+    /// Два тега с одинаковым id — главы схлопнутся в одну.
+    DuplicateChapterId,
+    /// У квеста есть ноды, но нет ни одной главы: ноды не открываются в редакторе.
+    NoChapters,
 }
 
 /// Одна диагностика валидации.
@@ -212,6 +220,7 @@ impl Validator {
         self.collect_node_timer_edges();
         self.walk_all_items();
         self.analyze_all_scripts();
+        self.check_chapters();
         self.check_reachability();
         self.check_dead_variables();
         self.check_visibility_conflicts();
@@ -308,11 +317,7 @@ impl Validator {
             Some(raw) => {
                 let quest = Quest::from_json(&raw);
                 self.config = Some(quest);
-                self.nodes = self.load_array(
-                    &format!("{}nodes.json", self.prefix),
-                    "nodes",
-                    SavedNode::from_json,
-                );
+                self.nodes = load_nodes(self.store.as_ref(), &self.prefix);
                 self.report.stats.nodes = self.nodes.len();
                 for node in &self.nodes {
                     self.node_titles.insert(node.id.clone(), node.title.clone());
@@ -986,11 +991,84 @@ impl Validator {
         }
     }
 
+    /// Главы квеста = `config.tags`. Нода без существующей главы не
+    /// открывается в редакторе (её не к чему привязать на канвасе), поэтому
+    /// это ошибка, а не предупреждение.
+    fn check_chapters(&mut self) {
+        let Some(config) = &self.config else { return };
+        if config.tags.is_empty() && !self.nodes.is_empty() {
+            self.push(
+                Severity::Error,
+                DiagnosticKind::NoChapters,
+                format!(
+                    "В квесте {} нод(ы), но ни одной главы — ноды не открываются в редакторе",
+                    self.nodes.len()
+                ),
+                Some("Добавьте главу (тег) в настройках квеста и привяжите к ней ноды".into()),
+            );
+            return;
+        }
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut duplicates: Vec<String> = Vec::new();
+        for tag in &config.tags {
+            if !seen.insert(tag.id.clone()) {
+                duplicates.push(tag.name.clone());
+            }
+        }
+        for name in duplicates {
+            self.push(
+                Severity::Error,
+                DiagnosticKind::DuplicateChapterId,
+                format!("Глава «{name}» встречается в настройках дважды с одним id"),
+                Some("Удалите дубликат главы в настройках квеста".into()),
+            );
+        }
+        let mut unknown: Vec<(String, String, String)> = Vec::new();
+        for node in &self.nodes {
+            if node.is_template_master_node() {
+                continue;
+            }
+            if node.chapter_id.is_empty() {
+                unknown.push((
+                    node.title.clone(),
+                    node.id.clone(),
+                    "глава не указана".to_string(),
+                ));
+                continue;
+            }
+            if !seen.contains(&node.chapter_id) {
+                unknown.push((
+                    node.title.clone(),
+                    node.id.clone(),
+                    format!("глава «{}» удалена", node.chapter_id),
+                ));
+            }
+        }
+        for (title, id, reason) in unknown {
+            self.push_with(
+                Severity::Error,
+                DiagnosticKind::UnknownChapter,
+                format!("Нода «{title}» не привязана к существующей главе ({reason})"),
+                Some("Откройте ноду и выберите главу, которая есть в списке глав".into()),
+                Some(id),
+                None,
+                None,
+            );
+        }
+    }
+
     fn check_reachability(&mut self) {
         let Some(config) = &self.config else { return };
-        let Some(start) = &config.start_node_id else {
+        let Some(start) = config.start_node_id.as_deref().filter(|s| !s.is_empty()) else {
+            self.push(
+                Severity::Error,
+                DiagnosticKind::MissingStartNode,
+                "В квесте не указана стартовая нода — игрок не сможет начать квест".to_string(),
+                Some("Откройте настройки квеста и выберите ноду, с которой начинается игра".into()),
+            );
             return;
         };
+        let start = &start.to_string();
         if !self.seen_node_ids.contains(start) {
             self.push(
                 Severity::Error,
@@ -1324,6 +1402,33 @@ pub(crate) fn is_sentinel_target(s: &str) -> bool {
     s == "_CLOSE_MODAL"
 }
 
+/// Ноды квеста тем же порядком, что `GameEngine::from_disk`: v2
+/// (`nodes/index.json` + тела) — источник правды, иначе `nodes/nodes.json`,
+/// иначе legacy `nodes.json`. Без этого валидатор судил бы не то, что
+/// видит игрок: квесты в v2-раскладке выглядели бы «без нод».
+fn load_nodes(store: &dyn crate::contracts::ScriptAssetStore, prefix: &str) -> Vec<SavedNode> {
+    if let Some(nodes) = crate::engine::load_per_node_nodes(store, prefix)
+        && !nodes.is_empty()
+    {
+        return nodes;
+    }
+    let canonical = crate::engine::load_json_array(
+        store,
+        &format!("{prefix}nodes/nodes.json"),
+        "nodes",
+        SavedNode::from_json,
+    );
+    if !canonical.is_empty() {
+        return canonical;
+    }
+    crate::engine::load_json_array(
+        store,
+        &format!("{prefix}nodes.json"),
+        "nodes",
+        SavedNode::from_json,
+    )
+}
+
 fn is_system_var(name: &str) -> bool {
     name.starts_with("_internal_")
         || name.starts_with("_SYS_")
@@ -1358,6 +1463,17 @@ fn extract_variables(s: &str) -> Vec<String> {
             let name = s[i + 1..i + 1 + end].trim();
             if is_valid_var_name(name) && seen.insert(name.to_string()) {
                 out.push(name.to_string());
+                i += 1 + end + 1;
+                continue;
+            }
+            // Не имя переменной, но внутри могла быть вложенная подстановка:
+            // `{{имя}}` (редактор одел ссылку в скобки, чтобы строка не
+            // считалась формулой) и `{Таблица["Колонка"]["{var}"]}`. Раньше
+            // такие вхождения просто проглатывались, и переменная выглядела
+            // неиспользуемой.
+            if name.contains('{') {
+                i += 1;
+                continue;
             }
             i += 1 + end + 1;
             continue;
@@ -1767,10 +1883,13 @@ mod tests {
     #[test]
     fn detects_visibility_conflict_slot_bug() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"empty","type":"image","resourcePath":"res/images/a.png",
                          "scriptTriggers":{"onContentAppear":"scripts/e1.json"}},
@@ -1808,10 +1927,13 @@ mod tests {
         // Стек — такой же контейнер, как row/column: дети лежат в одной группе
         // видимости, и конфликт их onAppear-условий обязан находиться.
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"st1","type":"stack","stackHeight":240,"children":[
                         {"id":"a","type":"image","scriptTriggers":{"onContentAppear":"scripts/a.json"}},
                         {"id":"b","type":"image","scriptTriggers":{"onContentAppear":"scripts/b.json"}}
@@ -1840,10 +1962,13 @@ mod tests {
     #[test]
     fn no_conflict_when_expressions_disjoint() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"a","type":"image","scriptTriggers":{"onContentAppear":"scripts/a.json"}},
                         {"id":"b","type":"image","scriptTriggers":{"onContentAppear":"scripts/b.json"}}
@@ -1871,10 +1996,13 @@ mod tests {
     fn no_false_conflict_on_expr_boundaries() {
         // Границы-выражения с разными коэффициентами — не делаем выводов.
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"a","type":"image","scriptTriggers":{"onContentAppear":"scripts/a.json"}},
                         {"id":"b","type":"image","scriptTriggers":{"onContentAppear":"scripts/b.json"}},
@@ -1906,16 +2034,19 @@ mod tests {
     #[test]
     fn detects_broken_links_and_dead_vars() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Н1","content":{"items":[
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                         {"id":"b1","type":"button","text":"Идти","targetNodeId":"n3",
                          "scriptTriggers":{"onPress":"scripts/p.json"}},
                         {"id":"img1","type":"image","resourcePath":"res/images/нет.png"}
                     ]}},
-                    {"id":"n2","title":"Н2","content":{"items":[]}}
+                    {"id":"n2","title":"Н2","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -1946,15 +2077,56 @@ mod tests {
     }
 
     #[test]
-    fn detects_unreachable_node() {
+    fn double_braced_and_nested_variable_use_counts_as_read() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[{"id":"b1","type":"button","targetNodeId":"n2"}]}},
-                    {"id":"n2","title":"Достижима","content":{"items":[]}},
-                    {"id":"n3","title":"Заброшена","content":{"items":[]}}
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
+                        {"id":"t1","type":"text","text":"Выбор: {{выбор}}"},
+                        {"id":"b1","type":"button","text":"Взять",
+                         "scriptTriggers":{"onPress":"scripts/p.json"}}
+                    ]}}
+                ]}"#,
+            ),
+            (
+                "quests/q1/scripts/p.json",
+                r#"{"id":"p","name":"press","blocks":[{"type":"event","eventType":"onPress","children":[
+                    {"type":"assign_variable","variable":"выбор","value":"1"},
+                    {"type":"set_image","item_id":"i1","item_name":"Картинка",
+                     "source":"{{Оружие[\"Картинка\"][\"{выбор}\"]}}"}
+                ]}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        // `{{выбор}}` в тексте и вложенное `{выбор}` внутри ссылки на ячейку
+        // таблицы — это чтения: «получает значение, но не используется» ложно.
+        let unread = report_errors(&report, DiagnosticKind::UnwrittenVariable);
+        assert!(
+            unread.is_empty(),
+            "переменная читается через {{ }} и ссылку на таблицу: {unread:?}"
+        );
+        let unwritten = report_errors(&report, DiagnosticKind::UnreadVariable);
+        assert!(unwritten.is_empty(), "переменная пишется: {unwritten:?}");
+    }
+
+    #[test]
+    fn detects_unreachable_node() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[{"id":"b1","type":"button","targetNodeId":"n2"}]}},
+                    {"id":"n2","title":"Достижима","chapterId":"t1","content":{"items":[]}},
+                    {"id":"n3","title":"Заброшена","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
         ]);
@@ -1967,10 +2139,13 @@ mod tests {
     #[test]
     fn detects_broken_call_script_and_empty_script() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/caller.json"}}
                 ]}}]}"#,
             ),
@@ -1999,10 +2174,13 @@ mod tests {
     #[test]
     fn detects_broken_link_from_behaviours() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","behaviours":[
                         {"event":"onPress","kind":"action","script":"scripts/nope.json"}
                     ]}
@@ -2027,10 +2205,13 @@ mod tests {
     #[test]
     fn modal_show_timer_flag_is_not_a_script_link() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"m1","type":"modal","targetNodeId":"_CLOSE_MODAL","text":"3",
                      "showTimer":true},
                     {"id":"m2","type":"modal","targetNodeId":"_CLOSE_MODAL","text":"5",
@@ -2058,10 +2239,13 @@ mod tests {
     #[test]
     fn fn_ref_with_existing_function_is_ok() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json#fn=%D0%92%D0%BE%D0%B7%D1%80%D0%B0%D1%81%D1%82"}}
                 ]}}]}"#,
             ),
@@ -2086,10 +2270,13 @@ mod tests {
     #[test]
     fn fn_ref_with_missing_function_is_error() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json#fn=%D0%9D%D0%B5%D1%82%D1%83"}}
                 ]}}]}"#,
             ),
@@ -2115,10 +2302,13 @@ mod tests {
     #[test]
     fn script_in_internal_dir_is_ok() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json"}}
                 ]}}]}"#,
             ),
@@ -2141,10 +2331,13 @@ mod tests {
     #[test]
     fn garbage_braces_are_not_variables() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"t1","type":"text","text":"JSON: {\"items\": []} и ${ешка]\\{y}"},
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json"}}
                 ]}}]}"#,
@@ -2180,10 +2373,13 @@ mod tests {
     #[test]
     fn broken_script_link_has_node_and_item_context() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Бой с боссом","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Бой с боссом","chapterId":"t1","content":{"items":[
                     {"id":"btn1","type":"button","text":"Атака и Защита","scriptTriggers":{"onPress":"scripts/no-such.json"}}
                 ]}}]}"#,
             ),
@@ -2202,12 +2398,15 @@ mod tests {
     #[test]
     fn reachability_via_on_node_enter_script() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","scriptAssetId":"scripts/enter.json","content":{"items":[]}},
-                    {"id":"n2","title":"Через скрипт","content":{"items":[]}}
+                    {"id":"n1","title":"Старт","chapterId":"t1","scriptAssetId":"scripts/enter.json","content":{"items":[]}},
+                    {"id":"n2","title":"Через скрипт","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -2232,14 +2431,17 @@ mod tests {
     #[test]
     fn reachability_via_script_item() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[
                         {"id":"s1","type":"script","resourcePath":"scripts/inline.json"}
                     ]}},
-                    {"id":"n2","title":"Через script-айтем","content":{"items":[]}}
+                    {"id":"n2","title":"Через script-айтем","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -2262,12 +2464,15 @@ mod tests {
     #[test]
     fn reachability_via_timer_default_action() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","timerDuration":5.0,"defaultActionNodeId":"n2","content":{"items":[]}},
-                    {"id":"n2","title":"По таймеру","content":{"items":[]}}
+                    {"id":"n1","title":"Старт","chapterId":"t1","timerDuration":5.0,"defaultActionNodeId":"n2","content":{"items":[]}},
+                    {"id":"n2","title":"По таймеру","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
         ]);
@@ -2285,12 +2490,15 @@ mod tests {
     #[test]
     fn no_unreachable_warning_when_dynamic_target() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[{"id":"b1","type":"button","targetNodeId":"={next}"}]}},
-                    {"id":"n2","title":"Динамическая цель","content":{"items":[]}}
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[{"id":"b1","type":"button","targetNodeId":"={next}"}]}},
+                    {"id":"n2","title":"Динамическая цель","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
         ]);
@@ -2308,18 +2516,21 @@ mod tests {
     #[test]
     fn shared_script_edges_from_every_owner() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[
                         {"id":"b0","type":"button","text":"Во вторую","targetNodeId":"n2"},
                         {"id":"b1","type":"button","text":"Действие","scriptTriggers":{"onPress":"scripts/shared.json"}}
                     ]}},
-                    {"id":"n2","title":"Вторая","content":{"items":[
+                    {"id":"n2","title":"Вторая","chapterId":"t1","content":{"items":[
                         {"id":"b2","type":"button","text":"Действие","scriptTriggers":{"onPress":"scripts/shared.json"}}
                     ]}},
-                    {"id":"n3","title":"Финал","content":{"items":[]}}
+                    {"id":"n3","title":"Финал","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -2362,6 +2573,101 @@ mod tests {
             "найденные конфликты должны касаться слотов: {conflicts:?}"
         );
     }
+
+    // ---------- Стартовая нода и главы ----------
+
+    #[test]
+    fn missing_start_node_is_error() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","tags":[{"id":"t1","name":"Г"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let found = report_errors(&report, DiagnosticKind::MissingStartNode);
+        assert_eq!(found.len(), 1, "квест без стартовой ноды обязан ругаться");
+        assert_eq!(found[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn node_without_chapter_is_error() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Г"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}},
+                    {"id":"n2","title":"Н2","chapterId":"deleted","content":{"items":[]}},
+                    {"id":"n3","title":"Н3","chapterId":"","content":{"items":[]}}
+                ]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let found = report_errors(&report, DiagnosticKind::UnknownChapter);
+        assert_eq!(
+            found.len(),
+            2,
+            "ноды с удалённой и пустой главой должны быть найдены"
+        );
+        assert!(found.iter().any(|d| d.node_id.as_deref() == Some("n2")));
+        assert!(found.iter().any(|d| d.node_id.as_deref() == Some("n3")));
+    }
+
+    #[test]
+    fn empty_chapter_list_with_nodes_is_error() {
+        // Ровно тот случай, из-за которого ноды не открываются в редакторе.
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        assert_eq!(
+            report_errors(&report, DiagnosticKind::NoChapters).len(),
+            1,
+            "квест с нодами без глав должен ругаться"
+        );
+    }
+
+    #[test]
+    fn per_node_layout_nodes_are_validated() {
+        // v2-раскладка (`nodes/index.json` + тела) — источник правды движка,
+        // валидатор обязан читать её так же, иначе квест выглядит пустым.
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Г"}]}"#,
+            ),
+            (
+                "quests/q1/nodes/index.json",
+                r#"{"format_version":2,"card_preview_version":1,"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","x":0,"y":0}]}"#,
+            ),
+            (
+                "quests/q1/nodes/n1.json",
+                r#"{"id":"n1","title":"Н1","chapterId":"t1","x":0,"y":0,"content":{"items":[{"id":"i1","type":"text","text":"привет"}]}}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        assert_eq!(
+            report.stats.nodes, 1,
+            "нода из v2-раскладки должна читаться"
+        );
+        assert_eq!(report.stats.items, 1, "айтемы тела ноды должны читаться");
+        assert_eq!(report.stats.errors, 0, "{:?}", report.diagnostics);
+    }
 }
 
 #[cfg(test)]
@@ -2391,10 +2697,13 @@ mod script_structure_tests {
     fn validator_reports_invalid_script_structure_and_normalizes_legacy() {
         // Легаси-условие (variable/comparison) + call_lua без function.
         let store = store_with(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н","chapterId":"t1","content":{"items":[
                     {"id":"it","type":"text","text":"привет",
                      "scriptTriggers":{"onContentAppear":"scripts/s1.json"}}
                 ]}}]}"#,
