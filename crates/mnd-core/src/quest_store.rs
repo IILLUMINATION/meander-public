@@ -105,7 +105,8 @@ impl FsQuestStore {
     }
 
     /// Валидация относительного пути (root-guard) + абсолютный путь.
-    fn resolve(&self, rel: &str) -> StoreResult<PathBuf> {
+    /// `pub(crate)` — нужен сборщику квеста (копирование ресурсов) и тестам.
+    pub(crate) fn resolve(&self, rel: &str) -> StoreResult<PathBuf> {
         let p = Path::new(rel);
         if p.is_absolute()
             || p.components().any(|c| {
@@ -140,6 +141,16 @@ impl FsQuestStore {
     pub fn read_text(&self, rel: &str) -> Option<String> {
         let file = self.resolve(rel).ok()?;
         std::fs::read_to_string(file).ok()
+    }
+
+    /// Создать каталог внутри квеста (например, `res/images` при создании).
+    ///
+    /// Путь проходит тот же root-guard, что и записи: наружу из корня
+    /// хранилища не выйти.
+    pub fn create_dir(&self, rel: &str) -> StoreResult<()> {
+        let dir = self.resolve(rel)?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| StoreError::new("io", format!("mkdir {}: {e}", dir.display())))
     }
 
     pub fn list_files(&self, rel_dir: &str, extension: Option<&str>) -> Vec<String> {

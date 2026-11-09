@@ -41,6 +41,7 @@ uuid = { version = "1", features = ["v4", "js"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tempfile = "3"
 
 # Каждую опцию включает нативная сборка; веб собирается с
 # `--no-default-features` и получает заглушки с теми же сигнатурами.

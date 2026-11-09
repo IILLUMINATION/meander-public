@@ -1,18 +1,16 @@
-//! Консольный headless-раннер квестов Meander.
+//! Консольный headless-раннер и редактор квестов Meander.
 //!
 //! Загружает квест с диска через `GameEngine::from_disk()`, исполняет
 //! команды из stdin или файла скрипта, выводит раскрытые айтемы,
-//! переходы и текущее состояние переменных.
+//! переходы и текущее состояние переменных. Также позволяет создавать
+//! и редактировать квесты через подкоманду `quest`.
 //!
 //! ```bash
-//! # Просто показать все айтемы стартовой ноды
+//! # Показать все айтемы стартовой ноды
 //! mnd-cli --quest-root ~/quests --quest-id <uuid> reveal
 //!
-//! # Исполнить скрипт команд
-//! mnd-cli --quest-root ~/quests --quest-id <uuid> run commands.txt
-//!
-//! # Интерактивный режим
-//! mnd-cli --quest-root ~/quests --quest-id <uuid> repl
+//! # Создать квест из терминала
+//! mnd-cli --quest-root ~/quests quest new --title "Новый квест"
 //! ```
 
 use std::io::{BufRead, Write};
@@ -21,8 +19,11 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use mnd_core::engine::{GameEngine, NextStep};
+use serde_json::Value;
 
-/// Консольный раннер квестов Meander.
+mod quest_cmds;
+
+/// Консольный раннер и редактор квестов Meander.
 #[derive(Parser)]
 #[command(name = "mnd-cli", version, about)]
 struct Cli {
@@ -30,9 +31,11 @@ struct Cli {
     #[arg(long, default_value = ".")]
     quest_root: String,
 
-    /// ID квеста (uuid-каталог внутри `quests/`).
+    /// ID квеста (uuid-каталог внутри `quests/`). Необязателен;
+    /// обязателен для старых команд `reveal|run|repl`, а новые подкоманды
+    /// `quest …` могут принимать `--quest-id` локально.
     #[arg(long)]
-    quest_id: String,
+    quest_id: Option<String>,
 
     /// Сейв-слот для загрузки (вместо новой игры).
     #[arg(long)]
@@ -53,6 +56,9 @@ enum Command {
     },
     /// Интерактивный REPL-режим.
     Repl,
+    /// Создание и редактирование квеста.
+    #[command(subcommand)]
+    Quest(quest_cmds::QuestCmd),
 }
 
 struct Session {
@@ -138,11 +144,36 @@ impl Session {
         Ok(())
     }
 
-    /// Нажать айтем по id или тексту (частичное совпадение).
-    fn press(&mut self, _target: &str) -> Result<()> {
-        // In headless mode we don't store revealed items explicitly.
-        // Use handle_interaction if the item ID is known.
-        bail!("press: интерактивный режим пока не реализован")
+    /// Нажать айтем по id (кнопка/айтем со скриптом).
+    ///
+    /// Работает без отрисовки: ядро находит JSON айтема в текущей ноде и
+    /// исполняет его `onPress`. Если скрипт увёл игру дальше — печатаем и
+    /// грузим новую ноду, чтобы `press` в скрипте команд вёл себя как в игре.
+    fn press(&mut self, target: &str) -> Result<()> {
+        let item_id = target.trim();
+        if item_id.is_empty() {
+            bail!("press: укажите id айтема (см. reveal)");
+        }
+        if self.engine.item_json_by_id(item_id).is_none() {
+            bail!("press: айтем '{item_id}' не найден в текущей ноде");
+        }
+        let transition = self.engine.press_item(item_id);
+        match &transition {
+            Some(node_id) => {
+                println!("{} {}", "↳".yellow(), node_id.yellow());
+                match self.engine.load_node(node_id) {
+                    Some(view) => {
+                        println!("{} {}", "▶".green().bold(), view.title.bold());
+                    }
+                    None => println!(
+                        "  {} нода '{node_id}' не найдена — квест остался на месте",
+                        "!".red()
+                    ),
+                }
+            }
+            None => println!("{}", "перехода нет".dimmed()),
+        }
+        Ok(())
     }
 
     fn print_state(&self) {
@@ -177,20 +208,49 @@ impl Session {
             };
             println!("  {} = {}", k, val_str);
         }
+        // Источники картинок, назначенные блоком «Сменить картинку»: без них
+        // headless-проверка скриптов молчит о самом частом сценарии.
+        if let Some(sources) = vars
+            .get("_internal_item_sources")
+            .and_then(Value::as_object)
+            && !sources.is_empty()
+        {
+            println!("{}", "Источники айтемов (set_image):".dimmed());
+            let mut ids: Vec<&String> = sources.keys().collect();
+            ids.sort();
+            for id in ids {
+                let src = sources[id].as_str().unwrap_or("");
+                println!("  {} = {}", id, src);
+            }
+        }
     }
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let mut session = Session::new(&cli.quest_root, &cli.quest_id)?;
-    session.start(cli.save_slot.as_deref())?;
+    let quest_cmd = cli.quest_id.as_deref();
+    let root = cli.quest_root;
+    let save_slot = cli.save_slot;
 
     match cli.command {
+        Command::Quest(cmd) => {
+            quest_cmds::run_quest_cmd(cmd, &root, quest_cmd)?;
+            Ok(())
+        }
         Command::Reveal => {
+            let quest_id =
+                quest_cmd.ok_or_else(|| anyhow::anyhow!("--quest-id обязателен для reveal"))?;
+            let mut session = Session::new(&root, quest_id)?;
+            session.start(save_slot.as_deref())?;
             session.reveal_all()?;
             session.print_state();
+            Ok(())
         }
         Command::Run { file } => {
+            let quest_id =
+                quest_cmd.ok_or_else(|| anyhow::anyhow!("--quest-id обязателен для run"))?;
+            let mut session = Session::new(&root, quest_id)?;
+            session.start(save_slot.as_deref())?;
             let reader: Box<dyn BufRead> = if let Some(path) = file {
                 let f = std::fs::File::open(&path)
                     .with_context(|| format!("не могу открыть {path}"))?;
@@ -200,13 +260,17 @@ fn main() -> Result<()> {
             };
             run_script(&mut session, reader)?;
             session.print_state();
+            Ok(())
         }
         Command::Repl => {
+            let quest_id =
+                quest_cmd.ok_or_else(|| anyhow::anyhow!("--quest-id обязателен для repl"))?;
+            let mut session = Session::new(&root, quest_id)?;
+            session.start(save_slot.as_deref())?;
             repl(&mut session)?;
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 fn run_script(session: &mut Session, reader: impl BufRead) -> Result<()> {

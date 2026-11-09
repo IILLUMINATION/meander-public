@@ -2213,6 +2213,7 @@ dependencies = [
  "colored",
  "mnd-core",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -2237,6 +2238,7 @@ dependencies = [
  "serde_json",
  "sha1 0.10.7",
  "sha2",
+ "tempfile",
  "thiserror",
  "ureq",
  "url",
