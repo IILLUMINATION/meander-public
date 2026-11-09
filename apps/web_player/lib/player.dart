@@ -29,15 +29,20 @@ import 'package:mnd_core/models/value_format.dart';
 import 'package:mnd_core/rust_bootstrap.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'quest_bundle.dart';
+import 'quest_source.dart';
 
 /// Нода ещё не выбрана, квест грузится.
 enum PlayPhase { loading, playing, failed }
 
 class QuestPlayer extends ChangeNotifier {
-  QuestPlayer(this.bundle);
+  QuestPlayer(this.bundle) {
+    // Потоковый источник догружает ресурсы в фоне, и его уведомление означает
+    // «в памяти появились новые байты» — кадр надо перерисовать. Плеер только
+    // пропускает его дальше: подписчики у него уже есть.
+    bundle.addListener(notifyListeners);
+  }
 
-  final QuestBundle bundle;
+  final QuestAssets bundle;
 
   MeanderGameEngine? _engine;
 
@@ -199,6 +204,7 @@ class QuestPlayer extends ChangeNotifier {
 
   @override
   void dispose() {
+    bundle.removeListener(notifyListeners);
     for (final t in _timers) {
       t.cancel();
     }

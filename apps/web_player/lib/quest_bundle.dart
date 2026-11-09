@@ -19,8 +19,10 @@ import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:mnd_core/engine/quest_resource_index.dart';
 
+import 'quest_source.dart';
+
 /// Квест целиком в памяти браузера.
-class QuestBundle {
+class QuestBundle extends QuestAssets {
   QuestBundle({
     required this.questId,
     required this.config,
@@ -31,17 +33,23 @@ class QuestBundle {
     QuestResourceIndex? resourceIndex,
   }) : _index = resourceIndex ?? QuestResourceIndex.empty();
 
+  @override
   final String questId;
+  @override
   final Map<String, dynamic> config;
 
   /// Сырой `nodes.json` — движок сам вытаскивает поле `nodes`.
+  @override
   final Map<String, dynamic> nodesJson;
+  @override
   final List<dynamic> templates;
 
   /// `scripts/<uuid>.json` → JSON-строка (то, что читает движок с диска).
+  @override
   final Map<String, String> embeddedScripts;
 
   /// Относительный путь внутри архива → байты (ресурсы: картинки, звук, шрифты).
+  @override
   final Map<String, Uint8List> assets;
 
   /// Индекс `res/metadata.json`: имя/uuid ресурса → файлы.
@@ -51,21 +59,26 @@ class QuestBundle {
   String get author => config['author'] as String? ?? '';
   String? get startNodeId => config['startNodeId'] as String?;
 
-  /// Байты ресурса по «источнику», который написал автор квеста: путь в
-  /// каталоге (`res/images/<uuid>.png`), имя из библиотеки («закат») или
-  /// uuid. Те же три формы и тот же порядок кандидатов, что у нативного
-  /// `QuestImageSource.resolve` — иначе квест показывал бы в браузере другую
-  /// картинку, чем в приложении.
-  Uint8List? assetBytes(String? source) {
+  /// Пути-кандидаты записи для «источника», который написал автор квеста: путь
+  /// в каталоге (`res/images/<uuid>.png`), имя из библиотеки («закат») или
+  /// uuid. Тот же порядок кандидатов, что у нативного `QuestImageSource.resolve`
+  /// — иначе квест показывал бы в браузере другую картинку, чем в приложении.
+  ///
+  /// Существование кандидата проверяет вызывающий: у потокового источника
+  /// файла в памяти ещё нет, но путь уже известен.
+  List<String> assetPathCandidates(String? source) {
     final trimmed = _withoutSlips(source ?? '');
-    if (trimmed.isEmpty) return null;
-    for (final candidate in directResourceCandidates(trimmed)) {
-      final bytes = assets[candidate];
-      if (bytes != null) return bytes;
-    }
+    if (trimmed.isEmpty) return const [];
+    final direct = directResourceCandidates(trimmed);
+    if (direct.isNotEmpty) return direct;
     // Путь есть, но файла нет — библиотека тут не поможет.
-    if (trimmed.contains('/')) return null;
-    for (final candidate in _index.pathCandidates(trimmed)) {
+    if (trimmed.contains('/')) return const [];
+    return _index.pathCandidates(trimmed);
+  }
+
+  @override
+  Uint8List? assetBytes(String? source) {
+    for (final candidate in assetPathCandidates(source)) {
       final bytes = assets[candidate];
       if (bytes != null) return bytes;
     }
@@ -90,10 +103,12 @@ class QuestBundle {
     return path;
   }
 
+  @override
   bool get hasScripts => embeddedScripts.isNotEmpty;
 
   /// Пути шрифтов квеста (`res/fonts/…`) — их клиент регистрирует своим
   /// `FontLoader` под теми же family-именами, что у нативного `FontService`.
+  @override
   List<String> get fontPaths =>
       assets.keys.where((path) => path.startsWith('res/fonts/')).toList()..sort();
 }
@@ -106,8 +121,10 @@ class QuestLoadException implements Exception {
 }
 
 /// Открыть `.mnd` по URL (та же схема, что у загрузки из маркета).
-Future<QuestBundle> loadQuestBundle(String url) async {
-  final response = await http.get(Uri.parse(url));
+Future<QuestBundle> loadQuestBundle(String url, {http.Client? client}) async {
+  final parsed = Uri.parse(url);
+  final response =
+      client == null ? await http.get(parsed) : await client.get(parsed);
   if (response.statusCode != 200) {
     throw QuestLoadException(
       'Квест не скачался: HTTP ${response.statusCode} ($url)',

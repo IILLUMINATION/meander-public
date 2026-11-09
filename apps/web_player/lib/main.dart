@@ -15,7 +15,7 @@ import 'package:http/http.dart' as http;
 
 import 'play_screen.dart';
 import 'player.dart';
-import 'quest_bundle.dart';
+import 'quest_source.dart';
 
 /// Куда кладёт архивы раздача того же origins, что и плеер. Браузер пускает
 /// запрос только на свои домены: страница живёт под COEP, а чужой хост без
@@ -250,7 +250,7 @@ class _QuestRouteState extends State<QuestRoute> {
       _error = null;
     });
     try {
-      final bundle = await loadQuestBundle(widget.url);
+      final bundle = await openQuestAssets(widget.url);
       if (!mounted) return;
       final player = QuestPlayer(bundle);
       setState(() {
@@ -279,7 +279,7 @@ class _QuestRouteState extends State<QuestRoute> {
               const CircularProgressIndicator(),
               const SizedBox(height: 16),
               Text(
-                'Загрузка архива…',
+                'Загрузка квеста…',
                 style: TextStyle(color: Theme.of(context).primaryTextTheme.bodyMedium?.color),
               ),
             ],

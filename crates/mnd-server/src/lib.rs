@@ -63,10 +63,7 @@ pub async fn build_app(state: Arc<AppState>) -> anyhow::Result<(Router, SocketIo
         middleware::auth_rate_limit,
     ));
 
-    let quests = routes::quests::router().layer(mw::from_fn_with_state(
-        state.clone(),
-        middleware::quest_rate_limit,
-    ));
+    let quests = routes::quests::router(state.clone());
 
     let admin_routes =
         routes::admin::router()

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use axum::body::to_bytes;
 use axum::extract::{FromRequest, Multipart, Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -50,14 +50,19 @@ use crate::services::quest_genres::{
 };
 use crate::services::quest_language::normalize_quest_language;
 use crate::services::quest_scan::{analyze_quest_zip, publish_decision};
+use crate::services::quest_stream;
 use crate::services::visibility::{can_see_unpublished, is_admin, is_staff};
 use crate::state::AppState;
 
 const TEMP_DIR_NAME: &str = "meander_uploads";
 const QUEST_UPDATE_NOTIFY_COOLDOWN_HOURS: i64 = 12;
 
-pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    // Обычные маршруты `/quests` под общим на quest-лимитом (60/15мин аноним).
+    // Потоковая выдача квеста живёт ОТДЕЛЬНО (`stream_router`): ленивая
+    // подгрузка ресурсов — это десятки-сотни запросов на один квест, под
+    // общим лимитом она бы упиралась в 429.
+    let limited = Router::new()
         .route(
             "/",
             post(publish)
@@ -84,6 +89,24 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}/my-review", get(my_review))
         .route("/{id}/rate", post(rate))
         .route("/{id}/review", post(review))
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::middleware::quest_rate_limit,
+        ));
+    limited.merge(stream_router())
+}
+
+/// Потоковая раздача квеста: манифест, boot-бандл и ленивые записи.
+///
+/// Отдельно от [`router`], чтобы не попадать под общий quest-лимит.
+pub fn stream_router() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/{id}/manifest", get(quest_manifest))
+        .route("/{id}/boot", get(quest_boot))
+        // Манифест называет бандл `boot.mnd` — для клиента, который берёт имя
+        // из манифеста, тот же обработчик доступен и по этому пути.
+        .route("/{id}/boot.mnd", get(quest_boot))
+        .route("/{id}/entry/{*path}", get(quest_entry))
 }
 
 // ---------------------------------------------------------------------------
@@ -696,6 +719,26 @@ async fn publish(
     // The file takes its permanent place only for a committed publication.
     std::fs::rename(&staging_path, &perm_file_path).map_err(|err| unexpected(&err))?;
 
+    // Артефакты потоковой раздачи (манифест + boot) собираем сразу, чтобы
+    // первый запрос веб-плеера не платил за разбор архива. Ошибка не должна
+    // валить публикацию: артефакты дособерутся при первом обращении.
+    {
+        let artifacts_dir = quests_dir.clone();
+        match tokio::task::spawn_blocking(move || {
+            crate::services::quest_stream::load_or_build_manifest(&artifacts_dir, quest_id)
+        })
+        .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(reason)) => {
+                tracing::warn!(error = %reason, quest_id = %quest_id, "quest stream artifacts failed");
+            }
+            Err(err) => {
+                tracing::error!(error = %err, "quest stream artifacts task panicked");
+            }
+        }
+    }
+
     if decision.status == "published" {
         // Meander Cloud tier recompute, best-effort and not blocking the answer.
         let tier_state = state.clone();
@@ -956,6 +999,12 @@ async fn delete_quest(
         .join("quests_files")
         .join(format!("{quest_id}.mnd"));
     let _ = std::fs::remove_file(file_path);
+    // Артефакты потоковой раздачи: манифест, boot-бандл и распакованные
+    // по требованию записи — иначе остаются сиротами после удаления.
+    let quests_dir = state.cfg.public_dir.join("quests_files");
+    let _ = std::fs::remove_file(crate::services::quest_stream::manifest_path(&quests_dir, quest_id));
+    let _ = std::fs::remove_file(crate::services::quest_stream::boot_path(&quests_dir, quest_id));
+    let _ = std::fs::remove_dir_all(crate::services::quest_stream::extracted_dir(&quests_dir, quest_id));
 
     match sqlx::query("DELETE FROM quests WHERE id = $1")
         .bind(quest_id)
@@ -977,35 +1026,200 @@ async fn quest_file(
     request: axum::extract::Request,
 ) -> ApiResult {
     let quest_id = parse_id(&id)?;
-    let user_id = auth.as_ref().map(|u| u.id);
+    let quests_dir = visible_quests_dir(&state, auth.as_ref().map(|u| u.id), quest_id).await?;
+    let file_path = quest_stream::mnd_path(&quests_dir, quest_id);
+    crate::routes::static_files::file_response(
+        &file_path,
+        request.headers(),
+        "public, max-age=0",
+        QUEST_FILE_NOT_FOUND,
+        "application/octet-stream",
+    )
+    .await
+}
 
+// ---------------------------------------------------------------------------
+// Streaming delivery: manifest + boot + lazy entries
+// ---------------------------------------------------------------------------
+
+/// Сообщение то же, что у скачивания файла: различать «нет квеста» и «нет
+/// прав» наружу незачем.
+const QUEST_FILE_NOT_FOUND: &str = "Quest file not found";
+
+/// Каталог `quests_files` и гейт видимости: опубликованный квест — всем,
+/// неопубликованный — только автору/админу. Общий для `/file`, `/manifest`,
+/// `/boot` и `/entry`, чтобы правила доступа не разъезжались.
+async fn visible_quests_dir(
+    state: &Arc<AppState>,
+    viewer: Option<Uuid>,
+    quest_id: Uuid,
+) -> Result<PathBuf, ApiError> {
     let meta = sqlx::query("SELECT status, author_id FROM quests WHERE id = $1")
         .bind(quest_id)
         .fetch_optional(&state.db)
         .await?;
     let Some(meta) = meta else {
-        return Err(ApiError::not_found("Quest file not found"));
+        return Err(ApiError::not_found(QUEST_FILE_NOT_FOUND));
     };
     let author_id: Uuid = meta.get("author_id");
     let status = crate::json::text_col(&meta, "status").unwrap_or_default();
-    let privileged = can_see_unpublished(&state, user_id, Some(author_id)).await;
-    if status != "published" && !privileged {
-        return Err(ApiError::not_found("Quest file not found"));
+    if status != "published" && !can_see_unpublished(state, viewer, Some(author_id)).await {
+        return Err(ApiError::not_found(QUEST_FILE_NOT_FOUND));
+    }
+    let quests_dir = state.cfg.public_dir.join("quests_files");
+    if !quest_stream::mnd_path(&quests_dir, quest_id).is_file() {
+        return Err(ApiError::not_found(QUEST_FILE_NOT_FOUND));
+    }
+    Ok(quests_dir)
+}
+
+/// Манифест, а при его отсутствии — сборка артефактов. Работа с диском и
+/// распаковкой ZIP уходит в blocking-пул: чтение всего архива не должно
+/// занимать async-поток.
+async fn ensure_stream_artifacts(quests_dir: PathBuf, quest_id: Uuid) -> Result<Value, ApiError> {
+    tokio::task::spawn_blocking(move || quest_stream::load_or_build_manifest(&quests_dir, quest_id))
+        .await
+        .map_err(|err| {
+            tracing::error!(error = %err, "quest stream task panicked");
+            ApiError::internal("Server error")
+        })?
+        .map_err(|reason| {
+            tracing::warn!(error = %reason, quest_id = %quest_id, "quest stream artifacts failed");
+            ApiError::not_found(QUEST_FILE_NOT_FOUND)
+        })
+}
+
+fn apply_stream_headers(response: &mut Response, etag: Option<&str>) {
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=300"),
+    );
+    if let Some(etag) = etag
+        && let Ok(value) = HeaderValue::from_str(etag)
+    {
+        headers.insert(header::ETAG, value);
+    }
+    headers.insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+}
+
+fn weak_etag_match(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(|raw| {
+            raw.split(',')
+                .any(|part| part.trim().trim_start_matches("W/") == etag.trim_start_matches("W/"))
+        })
+        .unwrap_or(false)
+}
+
+/// `GET /quests/{id}/manifest` — список записей архива и хеш содержимого.
+async fn quest_manifest(
+    State(state): State<Arc<AppState>>,
+    OptionalAuth(auth): OptionalAuth,
+    Path(id): Path<String>,
+    request: axum::extract::Request,
+) -> ApiResult {
+    let quest_id = parse_id(&id)?;
+    let quests_dir = visible_quests_dir(&state, auth.as_ref().map(|u| u.id), quest_id).await?;
+    let manifest = ensure_stream_artifacts(quests_dir, quest_id).await?;
+
+    let etag = format!(
+        "\"{}\"",
+        manifest
+            .get("contentHash")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    );
+    if weak_etag_match(request.headers(), &etag) {
+        let mut response = Response::new(axum::body::Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        apply_stream_headers(&mut response, Some(&etag));
+        return Ok(response);
     }
 
-    let file_path = state
-        .cfg
-        .public_dir
-        .join("quests_files")
-        .join(format!("{quest_id}.mnd"));
-    crate::routes::static_files::file_response(
-        &file_path,
+    let body = serde_json::to_vec(&manifest).unwrap_or_else(|_| b"{}".to_vec());
+    let mut response = Response::new(axum::body::Body::from(body));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    apply_stream_headers(&mut response, Some(&etag));
+    Ok(response)
+}
+
+/// `GET /quests/{id}/boot` — маленький архив с текстовой частью квеста.
+async fn quest_boot(
+    State(state): State<Arc<AppState>>,
+    OptionalAuth(auth): OptionalAuth,
+    Path(id): Path<String>,
+    request: axum::extract::Request,
+) -> ApiResult {
+    let quest_id = parse_id(&id)?;
+    let quests_dir = visible_quests_dir(&state, auth.as_ref().map(|u| u.id), quest_id).await?;
+    ensure_stream_artifacts(quests_dir.clone(), quest_id).await?;
+
+    let boot = quest_stream::boot_path(&quests_dir, quest_id);
+    let mut response = crate::routes::static_files::file_response(
+        &boot,
         request.headers(),
-        "public, max-age=0",
-        "Quest file not found",
+        "public, max-age=300",
+        QUEST_FILE_NOT_FOUND,
         "application/octet-stream",
     )
+    .await?;
+    let etag = response
+        .headers()
+        .get(header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    apply_stream_headers(&mut response, etag.as_deref());
+    Ok(response)
+}
+
+/// `GET /quests/{id}/entry/{*path}` — одна запись архива по требованию.
+async fn quest_entry(
+    State(state): State<Arc<AppState>>,
+    OptionalAuth(auth): OptionalAuth,
+    Path((id, entry_path)): Path<(String, String)>,
+    request: axum::extract::Request,
+) -> ApiResult {
+    let quest_id = parse_id(&id)?;
+    let quests_dir = visible_quests_dir(&state, auth.as_ref().map(|u| u.id), quest_id).await?;
+    let content_type = quest_stream::content_type_for(&entry_path);
+
+    let path = tokio::task::spawn_blocking(move || {
+        quest_stream::ensure_entry(&quests_dir, quest_id, &entry_path)
+    })
     .await
+    .map_err(|err| {
+        tracing::error!(error = %err, "quest entry task panicked");
+        ApiError::internal("Server error")
+    })?
+    .map_err(|reason| {
+        tracing::warn!(error = %reason, "quest entry failed");
+        ApiError::not_found(QUEST_FILE_NOT_FOUND)
+    })?;
+
+    let mut response = crate::routes::static_files::file_response(
+        &path,
+        request.headers(),
+        "public, max-age=300",
+        QUEST_FILE_NOT_FOUND,
+        content_type,
+    )
+    .await?;
+    // `file_response` уже поставил ETag/Last-Modified/Cache-Control; здесь
+    // только CORS-режим страницы под COEP.
+    response.headers_mut().insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    Ok(response)
 }
 
 // ---------------------------------------------------------------------------
@@ -1956,6 +2170,14 @@ async fn review(
 mod tests {
     use super::*;
     use axum::http::StatusCode;
+
+    /// `Router::route`/`merge` паникуют на конфликте путей: сборка таблицы
+    /// маршрутов и есть проверка, что потоковые маршруты не пересекаются с
+    /// обычными `/quests`.
+    #[tokio::test]
+    async fn streaming_routes_build_without_conflicts() {
+        let _ = router(crate::state::AppState::for_tests());
+    }
 
     #[test]
     fn strip_html_matches_the_node_regex() {
