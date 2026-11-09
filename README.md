@@ -13,11 +13,20 @@
   <strong>Русский</strong> · <a href="README.en.md">English</a>
 </p>
 
-<p align="center">
-  <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
-    <img alt="Доступно в Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/ru_badge_web_generic.png" height="72">
-  </a>
-</p>
+<table align="center">
+  <tr>
+    <td align="center" valign="middle">
+      <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
+        <img alt="Доступно в Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/ru_badge_web_generic.png" height="72">
+      </a>
+    </td>
+    <td align="center" valign="middle">
+      <a href="https://apps.apple.com/app/id6813247027">
+        <img alt="Загрузите в App Store" src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/ru-ru" height="55">
+      </a>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="#установка"><img alt="Платформы: Android, iOS, Linux, Windows, macOS" src="https://img.shields.io/badge/Android%20%C2%B7%20iOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20macOS-2f2f2f"></a>
@@ -44,7 +53,7 @@
 | Android | [Google Play](https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner). APK собирается из исходников, ключ подписи в репозиторий не входит |
 | Linux (Arch) | AUR [`meander-bin`](https://aur.archlinux.org/packages/meander-bin) |
 | Linux, Windows, macOS | сборка из исходников, раздел ниже |
-| iOS | из исходников, в App Store сборки нет |
+| iOS | [App Store](https://apps.apple.com/app/id6813247027). Сборка из исходников — в разделе ниже |
 
 
 ## Структура репозитория

@@ -13,11 +13,20 @@
   <a href="README.md">Русский</a> · <strong>English</strong>
 </p>
 
-<p align="center">
-  <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
-    <img alt="Get it on Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" height="72">
-  </a>
-</p>
+<table align="center">
+  <tr>
+    <td align="center" valign="middle">
+      <a href="https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner">
+        <img alt="Get it on Google Play" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" height="72">
+      </a>
+    </td>
+    <td align="center" valign="middle">
+      <a href="https://apps.apple.com/app/id6813247027">
+        <img alt="Download on the App Store" src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us" height="55">
+      </a>
+    </td>
+  </tr>
+</table>
 <p align="center">
   <a href="#install"><img alt="Platforms: Android, iOS, Linux, Windows, macOS" src="https://img.shields.io/badge/Android%20%C2%B7%20iOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20macOS-2f2f2f"></a>
   <a href="https://flutter.dev"><img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?logo=flutter&logoColor=white"></a>
@@ -43,7 +52,7 @@
 | Android | [Google Play](https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner). APK is built from source (the signing key is not in the repository) |
 | Linux (Arch) | AUR [`meander-bin`](https://aur.archlinux.org/packages/meander-bin) |
 | Linux, Windows, macOS | build from source, see below |
-| iOS | build from source; no App Store build |
+| iOS | [App Store](https://apps.apple.com/app/id6813247027). Building from source is described below |
 
 ## Repository layout
 
