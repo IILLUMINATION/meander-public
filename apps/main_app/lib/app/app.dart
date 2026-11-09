@@ -3,6 +3,7 @@ import 'package:canvas_app/core/l10n/app_localizations.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/l10n/l10n_provider.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
+import 'package:canvas_app/core/services/app_screenshot.dart';
 import 'package:canvas_app/core/theme/app_theme.dart';
 import 'package:canvas_app/core/theme/init_provider.dart';
 import 'package:canvas_app/core/theme/theme_preset_provider.dart';
@@ -27,6 +28,8 @@ class _AppState extends ConsumerState<App> {
   @override
   void initState() {
     super.initState();
+    // Снимок экрана по Ctrl+Shift+S — только когда задан MND_SCREENSHOT_DIR.
+    AppScreenshot.install();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(playtimeServiceProvider).init();
       ref.read(streakServiceProvider).checkAndUpdateStreak();
@@ -35,6 +38,7 @@ class _AppState extends ConsumerState<App> {
 
   @override
   void dispose() {
+    AppScreenshot.uninstall();
     ref.read(playtimeServiceProvider).dispose();
     super.dispose();
   }
@@ -68,14 +72,17 @@ class _AppState extends ConsumerState<App> {
       darkTheme: darkTheme,
       themeMode: themeMode,
       navigatorObservers: [],
-      builder: (context, child) => Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
-        child: MouseRegion(
-          onHover: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
-          child: PluginHostRunner(
-            child: DesktopNavigationWrapper(
-              child: TutorialHost(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => RepaintBoundary(
+        key: AppScreenshot.boundaryKey,
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
+          child: MouseRegion(
+            onHover: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
+            child: PluginHostRunner(
+              child: DesktopNavigationWrapper(
+                child: TutorialHost(child: child ?? const SizedBox.shrink()),
+              ),
             ),
           ),
         ),
