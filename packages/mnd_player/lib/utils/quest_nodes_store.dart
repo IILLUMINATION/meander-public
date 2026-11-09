@@ -100,6 +100,10 @@ class QuestNodesStore {
       final decoded = jsonDecode(text);
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      // Голый массив `[{...}]` — старый формат `nodes.json` (так писали
+      // сторонние генераторы). Раньше он молча превращался в пустой документ,
+      // и первая же запись затирала все ноды квеста — принимаем его как список.
+      if (decoded is List) return <String, dynamic>{'nodes': decoded};
       return <String, dynamic>{};
     } catch (_) {
       return null;
