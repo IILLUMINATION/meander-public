@@ -30,7 +30,6 @@ final Map<String, String> enCommon = {
   'Очистить': 'Clear',
   'Сбросить': 'Reset',
   'Отправить': 'Send',
-  'Вставить': 'Paste',
   'Скопировать': 'Copy',
   'Копировать': 'Copy',
   'Назад': 'Back',

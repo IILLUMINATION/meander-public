@@ -56,6 +56,7 @@ import 'en_b9_defaults.dart';
 import 'en_b10_languages.dart';
 import 'en_b11_holes.dart';
 import 'en_b12_display.dart';
+import 'en_b13_about.dart';
 import 'en_core.dart';
 import 'en_editor1.dart';
 import 'en_editor2.dart';
@@ -137,6 +138,7 @@ final Map<String, String> enStrings = {
   ...enB10Languages,
   ...enB11Holes,
   ...enB12Display,
+  ...enB13About,
   ...enCore,
   ...enEditor1,
   ...enEditor2,

@@ -2082,6 +2082,11 @@ final Map<String, String> itStrings = {
   'Видео недоступно на этом устройстве': 'Il video non è disponibile su questo dispositivo',
   'Не удалось загрузить гайд': 'Impossibile caricare la guida',
   'Гайд прочитан': 'Guida letta',
+  'Данный проект разрабатывается уже более года, за это время мы успели сделать многое и рады поделиться этим с вами.': 'Questo progetto è in sviluppo da più di un anno: in questo tempo abbiamo fatto molto e siamo felici di condividerlo con te.',
+  'МЫ ПЕРЕЕХАЛИ НА НОВЫЕ СЕРВЕРА!!! ВОЗМОЖНО ВАШ КВЕСТ, ИЛИ ЧТО-ТО ЕЩЁ НЕ БЫЛИ ПЕРЕНЕСЕНЫ СО СТАРЫХ, ПИШИТЕ В НАШ ТЕЛЕГРАМ ЧАТ @MNDchat!!!': "CI SIAMO TRASFERITI SU NUOVI SERVER!!! È POSSIBILE CHE LA TUA QUEST O QUALCOS'ALTRO NON SIA ANCORA STATO TRASFERITO DAI VECCHI, SCRIVI ALLA NOSTRA CHAT TELEGRAM @MNDchat!!!",
+  'Напоминаю, делайте почаще резервные копии ваших квестов себе на устройство! Это можно сделать в меню ваших локальных квестов.': 'Ricordati: fai più spesso copie di backup delle tue quest sul tuo dispositivo! Puoi farlo nel menu delle tue quest locali.',
+  'Если у вас не получается обновиться на новую версию, то пожалуйста напишите мне в Телеграм или другие соцсети о проблеме, приложив модель телефона': 'Se non riesci ad aggiornare alla nuova versione, scrivimi su Telegram o sugli altri social network descrivendo il problema e indicando il modello del telefono.',
+  'Если у вас возникли проблемы, вопросы, сложности и т.д, не спешите ставить 1 звезду! Напишите мне, я помогу решить вам вашу проблему!': 'Se hai problemi, domande o difficoltà, non affrettarti a mettere 1 stella! Scrivimi, ti aiuterò a risolvere il tuo problema!',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка

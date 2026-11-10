@@ -30,7 +30,6 @@ final Map<String, String> enShell = {
   'Код готов': 'Code is ready',
   'Коды с оформлением': 'Codes with cosmetics',
   'Кому выдаём': 'Who we\'re granting to',
-  'Комментарий': 'Comment',
   'Модерация': 'Moderation',
   'На что жалуются': 'What was reported',
   'Неизвестный пользователь': 'Unknown user',

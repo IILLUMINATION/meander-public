@@ -2082,6 +2082,11 @@ final Map<String, String> ptBrStrings = {
   'Видео недоступно на этом устройстве': 'O vídeo não está disponível neste dispositivo',
   'Не удалось загрузить гайд': 'Não foi possível carregar o guia',
   'Гайд прочитан': 'Guia lido',
+  'Данный проект разрабатывается уже более года, за это время мы успели сделать многое и рады поделиться этим с вами.': 'Este projeto está em desenvolvimento há mais de um ano: nesse tempo fizemos muita coisa e ficamos felizes em compartilhar com você.',
+  'МЫ ПЕРЕЕХАЛИ НА НОВЫЕ СЕРВЕРА!!! ВОЗМОЖНО ВАШ КВЕСТ, ИЛИ ЧТО-ТО ЕЩЁ НЕ БЫЛИ ПЕРЕНЕСЕНЫ СО СТАРЫХ, ПИШИТЕ В НАШ ТЕЛЕГРАМ ЧАТ @MNDchat!!!': 'MUDAMOS PARA SERVIDORES NOVOS!!! É POSSÍVEL QUE SUA QUEST OU OUTRA COISA AINDA NÃO TENHA SIDO TRANSFERIDA DOS ANTIGOS, ESCREVA NO NOSSO CHAT DO TELEGRAM @MNDchat!!!',
+  'Напоминаю, делайте почаще резервные копии ваших квестов себе на устройство! Это можно сделать в меню ваших локальных квестов.': 'Lembrete: faça backups das suas quests no seu dispositivo com mais frequência! Dá para fazer isso no menu das suas quests locais.',
+  'Если у вас не получается обновиться на новую версию, то пожалуйста напишите мне в Телеграм или другие соцсети о проблеме, приложив модель телефона': 'Se você não consegue atualizar para a nova versão, por favor me escreva no Telegram ou em outras redes sociais contando o problema e informando o modelo do celular.',
+  'Если у вас возникли проблемы, вопросы, сложности и т.д, не спешите ставить 1 звезду! Напишите мне, я помогу решить вам вашу проблему!': 'Se você tiver problemas, dúvidas ou dificuldades, não corra para dar 1 estrela! Me escreva, eu ajudo a resolver o seu problema!',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка

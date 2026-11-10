@@ -2,104 +2,18 @@
 //
 // О приложении — Material You / Material 3 редизайн.
 
-import 'dart:convert';
-
 import 'package:canvas_app/core/services/build_info_service.dart';
 import 'package:canvas_app/core/services/talker_service.dart';
+import 'package:canvas_app/features/app/data/about_content.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
-// ============================================================================
-//  МОДЕЛИ ДАННЫХ
-// ============================================================================
-
-class TesterProfile {
-  final String name;
-  final String description;
-  final String avatarAssetPath;
-
-  TesterProfile({
-    required this.name,
-    required this.description,
-    required this.avatarAssetPath,
-  });
-
-  factory TesterProfile.fromJson(Map<String, dynamic> json) {
-    return TesterProfile(
-      name: json['name'] as String,
-      description: json['description'] as String,
-      avatarAssetPath: json['avatarAssetPath'] as String,
-    );
-  }
-}
-
-class DonorProfile {
-  final String name;
-  final String message;
-
-  DonorProfile({required this.name, required this.message});
-
-  factory DonorProfile.fromJson(Map<String, dynamic> json) {
-    return DonorProfile(
-      name: json['name'] as String,
-      message: json['message'] as String? ?? '',
-    );
-  }
-}
-
-class SocialLink {
-  final String type;
-  final String url;
-
-  SocialLink({required this.type, required this.url});
-
-  factory SocialLink.fromJson(Map<String, dynamic> json) {
-    return SocialLink(type: json['type'] as String, url: json['url'] as String);
-  }
-}
-
-class AboutScreenData {
-  final List<String> changelog;
-  final List<String> notes;
-  final String developerName;
-  final List<SocialLink> socials;
-  final List<TesterProfile> testers;
-  final List<DonorProfile> donors;
-  final String aboutProject;
-
-  AboutScreenData({
-    required this.changelog,
-    required this.notes,
-    required this.developerName,
-    required this.socials,
-    required this.testers,
-    required this.donors,
-    required this.aboutProject,
-  });
-
-  factory AboutScreenData.fromJson(Map<String, dynamic> json) {
-    return AboutScreenData(
-      changelog: List<String>.from(json['changelog']),
-      notes: List<String>.from(json['notes']),
-      developerName: json['developerName'] as String,
-      socials: (json['socials'] as List)
-          .map((item) => SocialLink.fromJson(item))
-          .toList(),
-      testers: (json['testers'] as List)
-          .map((item) => TesterProfile.fromJson(item))
-          .toList(),
-      donors: (json['donors'] as List? ?? [])
-          .map((item) => DonorProfile.fromJson(item))
-          .toList(),
-      aboutProject: json['aboutProject'] as String,
-    );
-  }
-}
+// Содержимое экрана живёт в `features/app/data/about_content.dart`:
+// константы и переводимые строки, а не ассет, прочитанный в рантайме.
 
 // ============================================================================
 //  ЭКРАН
@@ -117,7 +31,6 @@ class AboutScreen extends StatefulWidget {
 }
 
 class _AboutScreenState extends State<AboutScreen> {
-  Future<AboutScreenData>? _aboutDataFuture;
   bool _testersExpanded = false;
   String _appVersion = '…';
   late final AppBuildInfo _buildInfo;
@@ -126,7 +39,6 @@ class _AboutScreenState extends State<AboutScreen> {
   void initState() {
     super.initState();
     _buildInfo = widget.buildInfo ?? AppBuildInfoService.load();
-    _aboutDataFuture = _loadAboutData();
     _loadAppVersion();
   }
 
@@ -141,14 +53,6 @@ class _AboutScreenState extends State<AboutScreen> {
     } catch (_) {
       if (mounted) setState(() => _appVersion = tr('неизвестно'));
     }
-  }
-
-  Future<AboutScreenData> _loadAboutData() async {
-    final jsonString = await rootBundle.loadString(
-      'assets/data/about_info.json',
-    );
-    final jsonMap = json.decode(jsonString);
-    return AboutScreenData.fromJson(jsonMap);
   }
 
   Future<void> _launchUrl(String url) async {
@@ -175,40 +79,16 @@ class _AboutScreenState extends State<AboutScreen> {
     return Scaffold(
       body: AdaptiveContent(
         maxWidth: 720,
-        child: SafeArea(
-          bottom: false,
-          child: FutureBuilder<AboutScreenData>(
-            future: _aboutDataFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      trf('Ошибка загрузки: {p0}', {'p0': snapshot.error}),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                );
-              }
-              if (!snapshot.hasData) {
-                return Center(child: Text(tr('Нет данных')));
-              }
-              return _buildContent(context, snapshot.data!);
-            },
-          ),
-        ),
+        child: SafeArea(bottom: false, child: _buildContent(context)),
       ),
     );
   }
 
-  Widget _buildContent(BuildContext context, AboutScreenData data) {
+  Widget _buildContent(BuildContext context) {
+    // Списки собираются здесь, а не константами: tr() смотрит на язык,
+    // выбранный сейчас, и экран обязан перерисоваться вместе с ним.
+    final notes = aboutNotes();
+    final changelog = aboutChangelog();
     return CustomScrollView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -237,13 +117,13 @@ class _AboutScreenState extends State<AboutScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
-              (_, i) => _ChangelogItem(text: data.changelog[i]),
-              childCount: data.changelog.length,
+              (_, i) => _ChangelogItem(text: changelog[i]),
+              childCount: changelog.length,
             ),
           ),
         ),
 
-        if (data.notes.isNotEmpty) ...[
+        if (notes.isNotEmpty) ...[
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
           _Header(title: tr('Примечания'), icon: Icons.info_outline_rounded),
           const SliverToBoxAdapter(child: SizedBox(height: 12)),
@@ -251,9 +131,8 @@ class _AboutScreenState extends State<AboutScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
-                (_, i) =>
-                    _ChangelogItem(text: data.notes[i], accent: Colors.amber),
-                childCount: data.notes.length,
+                (_, i) => _ChangelogItem(text: notes[i], accent: Colors.amber),
+                childCount: notes.length,
               ),
             ),
           ),
@@ -263,17 +142,14 @@ class _AboutScreenState extends State<AboutScreen> {
         _Header(title: tr('О нас'), icon: Icons.group_rounded),
         const SliverToBoxAdapter(child: SizedBox(height: 12)),
         SliverToBoxAdapter(
-          child: _DeveloperSection(
-            data: data,
-            onSocialTap: (s) => _launchUrl(s.url),
-          ),
+          child: _DeveloperSection(onSocialTap: (s) => _launchUrl(s.url)),
         ),
 
-        if (data.donors.isNotEmpty) ...[
+        if (aboutDonors().isNotEmpty) ...[
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
           _Header(title: tr('Донатёры'), icon: Icons.star_rounded),
           const SliverToBoxAdapter(child: SizedBox(height: 12)),
-          SliverToBoxAdapter(child: _DonorsSection(donors: data.donors)),
+          const SliverToBoxAdapter(child: _DonorsSection()),
         ],
 
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
@@ -281,7 +157,6 @@ class _AboutScreenState extends State<AboutScreen> {
         const SliverToBoxAdapter(child: SizedBox(height: 12)),
         SliverToBoxAdapter(
           child: _TestersSection(
-            testers: data.testers,
             expanded: _testersExpanded,
             onToggle: () =>
                 setState(() => _testersExpanded = !_testersExpanded),
@@ -291,7 +166,7 @@ class _AboutScreenState extends State<AboutScreen> {
         const SliverToBoxAdapter(child: SizedBox(height: 32)),
         _Header(title: tr('О проекте'), icon: Icons.lightbulb_outline_rounded),
         const SliverToBoxAdapter(child: SizedBox(height: 12)),
-        SliverToBoxAdapter(child: _AboutProject(text: data.aboutProject)),
+        const SliverToBoxAdapter(child: _AboutProject()),
 
         const SliverToBoxAdapter(child: SizedBox(height: 32)),
         _Header(title: tr('Поддержка'), icon: Icons.bug_report_rounded),
@@ -474,9 +349,8 @@ class _ChangelogItem extends StatelessWidget {
 // ============================================================================
 
 class _DeveloperSection extends StatelessWidget {
-  final AboutScreenData data;
   final ValueChanged<SocialLink> onSocialTap;
-  const _DeveloperSection({required this.data, required this.onSocialTap});
+  const _DeveloperSection({required this.onSocialTap});
 
   @override
   Widget build(BuildContext context) {
@@ -517,7 +391,7 @@ class _DeveloperSection extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        data.developerName,
+                        aboutDeveloperName,
                         style: textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: scheme.onSurface,
@@ -529,12 +403,12 @@ class _DeveloperSection extends StatelessWidget {
               ],
             ),
           ),
-          if (data.socials.isNotEmpty) ...[
+          if (aboutSocials.isNotEmpty) ...[
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: data.socials
+              children: aboutSocials
                   .map(
                     (s) => _SocialChip(social: s, onTap: () => onSocialTap(s)),
                   )
@@ -618,8 +492,7 @@ class _SocialChip extends StatelessWidget {
 // ============================================================================
 
 class _DonorsSection extends StatelessWidget {
-  final List<DonorProfile> donors;
-  const _DonorsSection({required this.donors});
+  const _DonorsSection();
 
   @override
   Widget build(BuildContext context) {
@@ -638,7 +511,7 @@ class _DonorsSection extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: donors
+          children: aboutDonors()
               .map(
                 (d) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -688,18 +561,14 @@ class _DonorsSection extends StatelessWidget {
 // ============================================================================
 
 class _TestersSection extends StatelessWidget {
-  final List<TesterProfile> testers;
   final bool expanded;
   final VoidCallback onToggle;
 
-  const _TestersSection({
-    required this.testers,
-    required this.expanded,
-    required this.onToggle,
-  });
+  const _TestersSection({required this.expanded, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
+    final testers = aboutTesters();
     final hasMore = testers.length > 3;
     final visible = expanded ? testers : testers.take(3).toList();
 
@@ -759,7 +628,7 @@ class _TesterCard extends StatelessWidget {
             backgroundColor: scheme.surfaceContainerHighest,
             child: ClipOval(
               child: Image.asset(
-                tester.avatarAssetPath,
+                aboutTesterAvatar,
                 width: 52,
                 height: 52,
                 fit: BoxFit.cover,
@@ -801,8 +670,7 @@ class _TesterCard extends StatelessWidget {
 // ============================================================================
 
 class _AboutProject extends StatelessWidget {
-  final String text;
-  const _AboutProject({required this.text});
+  const _AboutProject();
 
   @override
   Widget build(BuildContext context) {
@@ -816,7 +684,7 @@ class _AboutProject extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
-          text,
+          aboutProject(),
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: scheme.onSurface,
             height: 1.6,

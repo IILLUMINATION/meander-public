@@ -2332,6 +2332,11 @@ final Map<String, String> trStrings = {
   'Видео недоступно на этом устройстве': 'Video bu cihazda kullanılamıyor',
   'Не удалось загрузить гайд': 'Rehber yüklenemedi',
   'Гайд прочитан': 'Rehber okundu',
+  'Данный проект разрабатывается уже более года, за это время мы успели сделать многое и рады поделиться этим с вами.': 'Bu proje bir yıldan fazla süredir geliştiriliyor: bu sürede çok şey yaptık ve bunu sizinle paylaşmaktan mutluyuz.',
+  'МЫ ПЕРЕЕХАЛИ НА НОВЫЕ СЕРВЕРА!!! ВОЗМОЖНО ВАШ КВЕСТ, ИЛИ ЧТО-ТО ЕЩЁ НЕ БЫЛИ ПЕРЕНЕСЕНЫ СО СТАРЫХ, ПИШИТЕ В НАШ ТЕЛЕГРАМ ЧАТ @MNDchat!!!': 'YENİ SUNUCULARA TAŞINDIK!!! GÖREVİNİZ VEYA BAŞKA BİR ŞEY ESKİ SUNUCULARDAN HENÜZ AKTARILMAMIŞ OLABİLİR, TELEGRAM SOHBETİMİZE YAZIN @MNDchat!!!',
+  'Напоминаю, делайте почаще резервные копии ваших квестов себе на устройство! Это можно сделать в меню ваших локальных квестов.': 'Hatırlatma: görevlerinizin yedeklerini cihazınıza daha sık alın! Bunu yerel görevlerinizin menüsünden yapabilirsiniz.',
+  'Если у вас не получается обновиться на новую версию, то пожалуйста напишите мне в Телеграм или другие соцсети о проблеме, приложив модель телефона': 'Yeni sürüme güncelleyemiyorsanız, lütfen sorunu Telegram veya diğer sosyal ağlardan bana yazın ve telefon modelinizi ekleyin.',
+  'Если у вас возникли проблемы, вопросы, сложности и т.д, не спешите ставить 1 звезду! Напишите мне, я помогу решить вам вашу проблему!': 'Sorun, soru veya zorluk yaşarsanız 1 yıldız vermek için acele etmeyin! Bana yazın, sorununuzu çözmeye yardımcı olurum!',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка
