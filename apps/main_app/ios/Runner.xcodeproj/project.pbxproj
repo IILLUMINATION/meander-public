@@ -210,7 +210,19 @@
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				ar,
+				de,
 				en,
+				es,
+				fr,
+				hi,
+				it,
+				ja,
+				ko,
+				pt-BR,
+				ru,
+				tr,
+				zh-Hans,
 				Base,
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
