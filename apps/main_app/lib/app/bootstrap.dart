@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:canvas_app/app/app.dart';
 import 'package:canvas_app/core/l10n/custom_language_store.dart';
+import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/l10n/l10n_provider.dart';
 import 'package:canvas_app/core/services/crash_log_service.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
@@ -211,6 +212,13 @@ Future<void> bootstrap() async {
   HangWatchdog.mark('bootstrap: custom languages');
   await customLanguageStore.loadAll();
   await initAppLanguage();
+  // Жалобу «приложение открылось не на моём языке» иначе не проверить: язык
+  // выбранного интерфейса виден только на экране, а системные локали — вообще
+  // нигде. В логе обе стороны рядом.
+  debugPrint(
+    '[l10n] язык ${L10n.code}; системные локали: '
+    '${WidgetsBinding.instance.platformDispatcher.locales.map((l) => l.toLanguageTag()).join(", ")}',
+  );
 
   runApp(
     ProviderScope(

@@ -1,3 +1,5 @@
+import 'dart:ui' show Locale;
+
 import 'package:flutter/foundation.dart' show VoidCallback;
 
 import 'app_language.dart';
@@ -50,6 +52,38 @@ class L10n {
   /// Неизвестный код -> русский: приложение не должно стартовать с пустым
   /// словарём из-за опечатки в настройках.
   static AppLanguage byCode(String code) => _byCode[code] ?? _source;
+
+  /// Регионы, где китайский пишут традиционными иероглифами: подставлять им
+  /// упрощённый нельзя — это другой набор знаков, а не «почти то же».
+  static const Set<String> _traditionalChineseRegions = {'TW', 'HK', 'MO'};
+
+  /// Язык системы -> язык реестра там, где кодов у одного языка несколько.
+  /// Португальский у нас один — бразильский, поэтому `pt-PT` тоже он.
+  static const Map<String, String> _systemLanguageAliases = {'pt': 'pt-BR'};
+
+  /// Язык интерфейса для системной локали. `null` — система говорит на языке,
+  /// которого в реестре нет: что показать вместо него, решает вызывающий.
+  static AppLanguage? forSystemLocale(Locale locale) {
+    final language = locale.languageCode.toLowerCase();
+    if (language == 'zh') {
+      final traditional =
+          locale.scriptCode?.toLowerCase() == 'hant' ||
+          _traditionalChineseRegions.contains(locale.countryCode?.toUpperCase());
+      return traditional ? null : _byCode['zh-CN'];
+    }
+    return _byCode[_systemLanguageAliases[language] ?? language];
+  }
+
+  /// Первая поддерживаемая локаль из системного списка: `PlatformDispatcher
+  /// .locales` идёт в порядке предпочтения пользователя, поэтому второй язык
+  /// системы выигрывает у английского по умолчанию.
+  static AppLanguage? forSystemLocales(Iterable<Locale> locales) {
+    for (final locale in locales) {
+      final match = forSystemLocale(locale);
+      if (match != null) return match;
+    }
+    return null;
+  }
 
   static void addListener(VoidCallback listener) => _listeners.add(listener);
 
