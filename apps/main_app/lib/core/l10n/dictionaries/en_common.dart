@@ -291,6 +291,8 @@ final Map<String, String> enCommon = {
 /// Множественное число: lemma первой русской формы -> `[one, other]`.
 final Map<String, List<String>> enCommonPlurals = {
   'квест': ['quest', 'quests'],
+  'реплика': ['reply', 'replies'],
+  'ветка': ['branch', 'branches'],
   'день': ['day', 'days'],
   'слой': ['layer', 'layers'],
   'переменная': ['variable', 'variables'],

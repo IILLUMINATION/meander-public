@@ -8,6 +8,8 @@ final Map<String, String> enB4Core = {
   'Восстановление отменено.': 'Restore cancelled.',
   'Выберите файл бэкапа (.zip)...': 'Choose a backup file (.zip)...',
   'Добавление квеста "{questId}"...': 'Adding quest "{questId}"...',
+  'Архив содержит недопустимый путь файла (zip-slip). Импорт отменён.': 'The archive contains an invalid file path (zip-slip). Import cancelled.',
+  'ID квеста недопустим: «{p0}». Архив повреждён или опасен.': 'Invalid quest ID: “{p0}”. The archive is damaged or unsafe.',
   'Завершено!': 'Done!',
   'Замена квеста "{questTitle}"...': 'Replacing quest "{questTitle}"...',
   'Импорт отменён': 'Import cancelled',

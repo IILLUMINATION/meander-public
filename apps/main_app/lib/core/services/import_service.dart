@@ -200,9 +200,9 @@ class ImportService {
       }
       if (!QuestPaths.isSafeQuestId(originalQuestId)) {
         throw Exception(
-          tr(
-            'ID квеста недопустим: "$originalQuestId". Архив повреждён или опасен.',
-          ),
+          trf('ID квеста недопустим: «{p0}». Архив повреждён или опасен.', {
+            'p0': originalQuestId,
+          }),
         );
       }
       print('✨ [Import] Обнаружен ID квеста в архиве: $originalQuestId');
