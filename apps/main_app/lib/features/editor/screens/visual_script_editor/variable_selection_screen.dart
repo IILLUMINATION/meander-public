@@ -113,6 +113,10 @@ class VariableSelectionScreen extends StatefulWidget {
   final String? selectedVariable;
   final int initialTabIndex;
 
+  /// Начальный текст поиска — приходят из глобального поиска квеста, чтобы
+  /// автор сразу видел найденную переменную/таблицу, а не весь список.
+  final String initialSearch;
+
   /// Если `true`, тап по таблице возвращает её имя через `Navigator.pop`
   /// (режим пикера для скрипт-блоков и вставки данных). По умолчанию —
   /// тап открывает визуальный редактор таблицы.
@@ -128,6 +132,7 @@ class VariableSelectionScreen extends StatefulWidget {
     required this.questId,
     this.selectedVariable,
     this.initialTabIndex = 0,
+    this.initialSearch = '',
     this.pickerMode = false,
     this.cellPicker = false,
   });
@@ -187,6 +192,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     });
     _loadData();
 
+    if (widget.initialSearch.isNotEmpty) {
+      _searchController.text = widget.initialSearch;
+      _searchQuery = widget.initialSearch.toLowerCase();
+    }
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();

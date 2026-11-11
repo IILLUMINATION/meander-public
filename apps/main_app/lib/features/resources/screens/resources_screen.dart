@@ -24,7 +24,15 @@ import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 
 class ResourcesScreen extends ConsumerStatefulWidget {
   final String questId;
-  const ResourcesScreen({super.key, required this.questId});
+
+  /// Начальный текст поиска — приходит из глобального поиска квеста.
+  final String initialSearch;
+
+  const ResourcesScreen({
+    super.key,
+    required this.questId,
+    this.initialSearch = '',
+  });
   @override
   ConsumerState<ResourcesScreen> createState() => _ResourcesScreenState();
 }
@@ -66,6 +74,10 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
     } catch (_) {}
+    if (widget.initialSearch.isNotEmpty) {
+      _searchController.text = widget.initialSearch;
+      _searchQuery = widget.initialSearch;
+    }
     _loadPreferences();
     _loadResources();
   }

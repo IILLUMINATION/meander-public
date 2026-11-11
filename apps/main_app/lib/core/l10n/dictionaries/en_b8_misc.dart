@@ -2,6 +2,15 @@
 ///
 /// Ключ — русская строка ровно как в коде (регистр и знаки включно).
 final Map<String, String> enB8Misc = {
+  // features/editor/screens/quest_search_screen.dart
+  'Найти в квесте': 'Search the quest',
+  'Найти в квесте: нода, скрипт, таблица, переменная':
+      'Search the quest: node, script, table, variable',
+  'Ищу по названиям и содержимому: ноды, визуальные скрипты, Lua, таблицы, переменные, ресурсы.':
+      'Searching names and content: nodes, visual scripts, Lua, tables, variables, resources.',
+  'Визуальные скрипты': 'Visual scripts',
+  'Lua-скрипты': 'Lua scripts',
+  'Ничего не нашлось': 'Nothing found',
   // features/analytics/widgets/analytics_charts.dart
   'пусто': 'empty',
   // features/app/screens/about_screen.dart

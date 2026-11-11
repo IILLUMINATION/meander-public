@@ -16,6 +16,7 @@ import 'package:canvas_app/features/editor/utils/template_applier.dart';
 import 'package:canvas_app/features/editor/screens/canvas/widgets/canvas_tool_picker.dart';
 import 'package:canvas_app/features/editor/widgets/template_picker_sheet.dart';
 import 'package:canvas_app/features/editor/widgets/template_save_dialog.dart';
+import 'package:canvas_app/features/editor/screens/quest_search_screen.dart';
 import 'package:canvas_app/features/editor/widgets/editor_ui.dart';
 import 'package:canvas_app/features/editor/widgets/quest_validation_panel.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
@@ -237,6 +238,14 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
         _clearSearch();
       }
     });
+  }
+
+  void _openQuestSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => QuestSearchScreen(questId: widget.questId),
+      ),
+    );
   }
 
   void _clearSearch() {
@@ -2001,6 +2010,13 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
                       : scheme.onSurfaceVariant,
                   isActive: _isSearchVisible,
                   onPressed: _toggleSearch,
+                ),
+                // Поиск по всему квесту: ноды, скрипты, таблицы, ресурсы.
+                _buildToolbarButton(
+                  icon: Icons.manage_search_rounded,
+                  tooltip: tr('Найти в квесте'),
+                  color: scheme.onSurfaceVariant,
+                  onPressed: _openQuestSearch,
                 ),
                 // Ещё — выезжающая панель-пикер инструментов
                 _buildToolbarButton(
