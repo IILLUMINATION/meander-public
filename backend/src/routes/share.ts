@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import pool from '../config/database';
+import { publicBaseUrl } from '../config/public_host';
 import { validate as uuidValidate } from 'uuid'; // ИМПОРТ
 
 const router = Router();
@@ -15,7 +16,7 @@ router.get('/redirect.js', (_req: Request, res: Response) => {
 
 // Твоя ссылка на Google Play
 const GOOGLE_PLAY_LINK = "https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner";
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const BASE_URL = publicBaseUrl();
 
 const escapeHtml = (value: unknown): string =>
     String(value ?? '')

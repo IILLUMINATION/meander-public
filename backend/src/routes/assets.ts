@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import pool from '../config/database';
+import { publicUrl } from '../config/public_host';
 import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middleware/auth';
 import multer from 'multer';
 import fs from 'fs';
@@ -28,7 +29,7 @@ const ASSETS_DIR = path.join(PUBLIC_DIR, 'assets_files');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
-const getPublicAssetUrl = (id: string) => `${process.env.BASE_URL || 'http://localhost:3000'}/assets/${id}/file`;
+const getPublicAssetUrl = (id: string) => publicUrl(`/assets/${id}/file`);
 
 const ALLOWED_KINDS = ['button_preset', 'background', 'image', 'sfx', 'font', 'music'] as const;
 

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import { publicUrl } from '../config/public_host';
 
 dotenv.config();
 
@@ -111,12 +112,9 @@ export const uploadImage = async (filePath: string): Promise<string> => {
         // Используем copyFileSync, чтобы не было конфликтов с удалением временных файлов в контроллере
         fs.copyFileSync(filePath, targetPath);
         
-        // 4. Формируем ссылку
-        // БАЗОВЫЙ URL ДОЛЖЕН БЫТЬ В .env БЕЗ СЛЕША В КОНЦЕ (например: https://meander.illuminat.dev)
-        const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-        
-        // Возвращаем прямую ссылку на твой сервер
-        return `${baseUrl}/uploads/${newFileName}`;
+        // 4. Формируем ссылку. Хост берём из BASE_URL через общий
+        // хелпер: он срезает хвостовой слэш и ругается на снятые домены.
+        return publicUrl(`/uploads/${newFileName}`);
 
     } catch (error: any) {
         console.error("Local Upload Error:", error.message);

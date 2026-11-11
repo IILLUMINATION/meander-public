@@ -3,6 +3,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import pool from './database';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import { publicUrl } from './public_host';
 
 dotenv.config();
 
@@ -11,7 +12,9 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      callbackURL: `${process.env.BASE_URL}/auth/google/callback`,
+      // Тот же хелпер, что у картинок: хвостовой слэш в BASE_URL не
+      // должен давать `//auth/...` — Google сверяет redirect_uri буквально.
+      callbackURL: publicUrl('/auth/google/callback'),
     },
     async (accessToken, refreshToken, profile, done) => {
       try {

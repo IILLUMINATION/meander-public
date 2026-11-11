@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import pool from '../config/database';
+import { publicUrl } from '../config/public_host';
 import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middleware/auth';
 import multer from 'multer';
 import fs from 'fs';
@@ -36,10 +37,7 @@ const MUSIC_STORAGE_DIR = path.join(PUBLIC_DIR, 'music_files');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(MUSIC_STORAGE_DIR)) fs.mkdirSync(MUSIC_STORAGE_DIR, { recursive: true });
 
-const getPublicMusicUrl = (id: string) => {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-  return `${baseUrl}/music/${id}/file`;
-};
+const getPublicMusicUrl = (id: string) => publicUrl(`/music/${id}/file`);
 
 const allowedAudioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'];
 const allowedAudioMimeTypes = [

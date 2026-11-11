@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import pool from '../config/database';
+import { publicUrl } from '../config/public_host';
 import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middleware/auth';
 import adminAuth from '../middleware/adminAuth';
 import { canSeeUnpublished, isAdmin, isStaff } from '../services/visibility';
@@ -70,10 +71,7 @@ const QUESTS_STORAGE_DIR = path.join(PUBLIC_DIR, 'quests_files');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(QUESTS_STORAGE_DIR)) fs.mkdirSync(QUESTS_STORAGE_DIR, { recursive: true });
 
-const getPublicDownloadUrl = (questId: string) => {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-    return `${baseUrl}/quests/${questId}/file`;
-};
+const getPublicDownloadUrl = (questId: string) => publicUrl(`/quests/${questId}/file`);
 
 // moderator_comment — служебное поле модерации. В публичных ответах его нет;
 // автор и стафф получают его через privileged=true.
@@ -346,8 +344,7 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
         await fsPromises.copyFile(questFile.path, stagingPath);
         cleanupPaths.push(stagingPath);
 
-        const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-        const downloadUrl = `${baseUrl}/static/downloads/${permFileName}`;
+        const downloadUrl = publicUrl(`/static/downloads/${permFileName}`);
 
         // 7. Обложка (ЛОКАЛЬНОЕ СОХРАНЕНИЕ)
         let previewImageUrl = null;
