@@ -16,6 +16,7 @@ import 'package:canvas_app/features/editor/utils/template_applier.dart';
 import 'package:canvas_app/features/editor/screens/canvas/widgets/canvas_tool_picker.dart';
 import 'package:canvas_app/features/editor/widgets/template_picker_sheet.dart';
 import 'package:canvas_app/features/editor/widgets/template_save_dialog.dart';
+import 'package:canvas_app/features/editor/widgets/editor_ui.dart';
 import 'package:canvas_app/features/editor/widgets/quest_validation_panel.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
 import 'package:canvas_app/shared/widgets/canvas_painter.dart';
@@ -452,13 +453,10 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
         ref.invalidate(allQuestNodesProvider(widget.questId));
         await notifier.reloadData();
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name}),
-            ),
-            backgroundColor: Colors.cyan,
-          ),
+        showEditorNotice(
+          context,
+          trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name}),
+          color: Colors.cyan,
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -550,9 +548,7 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
               'p2': report.skippedExisting,
             })
           : trf('Нода «{p0}» вставлена', {'p0': newNode.title});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.blue),
-      );
+      showEditorNotice(context, msg, color: Colors.blue);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
