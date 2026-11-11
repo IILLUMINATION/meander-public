@@ -1866,7 +1866,10 @@ pub(crate) fn is_sentinel_target(s: &str) -> bool {
 /// (`nodes/index.json` + тела) — источник правды, иначе `nodes/nodes.json`,
 /// иначе legacy `nodes.json`. Без этого валидатор судил бы не то, что
 /// видит игрок: квесты в v2-раскладке выглядели бы «без нод».
-fn load_nodes(store: &dyn crate::contracts::ScriptAssetStore, prefix: &str) -> Vec<SavedNode> {
+pub(crate) fn load_nodes(
+    store: &dyn crate::contracts::ScriptAssetStore,
+    prefix: &str,
+) -> Vec<SavedNode> {
     if let Some(nodes) = crate::engine::load_per_node_nodes(store, prefix)
         && !nodes.is_empty()
     {

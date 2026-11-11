@@ -6,8 +6,6 @@ final Map<String, String> enB8Misc = {
   'Найти в квесте': 'Search the quest',
   'Найти в квесте: нода, скрипт, таблица, переменная':
       'Search the quest: node, script, table, variable',
-  'Ищу по названиям и содержимому: ноды, визуальные скрипты, Lua, таблицы, переменные, ресурсы.':
-      'Searching names and content: nodes, visual scripts, Lua, tables, variables, resources.',
   'Визуальные скрипты': 'Visual scripts',
   'Lua-скрипты': 'Lua scripts',
   'Ничего не нашлось': 'Nothing found',

@@ -132,4 +132,11 @@ final Map<String, String> enEditor3 = {
   'Мёртвый скрипт': 'Dead script',
   'Колонки таблицы не совпадают': 'Table columns mismatch',
   'Цикл без задержки': 'Loop without delay',
-};
+  'Показано {p0} из {p1}': 'Showing {p0} of {p1}',
+  'Найдено: {p0}': 'Found: {p0}',
+  '{p0} мс': '{p0} ms',
+  'Ищу по названиям и содержимому': 'Searching titles and content',
+  'Поиск недоступен': 'Search unavailable',
+  'Обновите страницу и попробуйте ещё раз.': 'Reload the page and try again.',
+  'Попробуйте другое слово — поиск идёт по всему квесту.': 'Try another word — the search covers the whole quest.',
+  'Ноды, визуальные и Lua-скрипты, таблицы, переменные и ресурсы — всё сразу.': 'Nodes, visual and Lua scripts, tables, variables and resources — all at once.',};

@@ -21,6 +21,7 @@ pub mod network_safety;
 pub mod quest_archive;
 pub mod quest_build;
 pub mod quest_plan;
+pub mod quest_search;
 pub mod quest_spec;
 pub mod quest_store;
 pub mod runtime;

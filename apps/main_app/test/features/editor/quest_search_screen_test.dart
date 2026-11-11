@@ -14,9 +14,21 @@ class _FakeSearchService extends QuestSearchService {
   final List<String> queries = [];
 
   @override
-  Future<List<QuestSearchHit>> search(String query) async {
+  Future<QuestSearchReport> search(String query) async {
     queries.add(query.trim());
-    return hits;
+    final totals = <QuestSearchKind, int>{};
+    for (final hit in hits) {
+      totals[hit.kind] = (totals[hit.kind] ?? 0) + 1;
+    }
+    return QuestSearchReport(
+      query: query.trim(),
+      hits: hits,
+      totals: totals,
+      total: hits.length,
+      matches: hits.length,
+      elapsedMs: 4,
+      limitPerKind: QuestSearchService.limitPerKind,
+    );
   }
 }
 
@@ -65,21 +77,21 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'маяк');
-    // Дебаунс 220 мс: до него запроса ещё нет.
-    await tester.pump(const Duration(milliseconds: 100));
+    // Дебаунс 160 мс: до него запроса ещё нет.
+    await tester.pump(const Duration(milliseconds: 80));
     expect(service.queries, isEmpty);
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pumpAndSettle();
 
     expect(service.queries, ['маяк']);
     expect(find.text('Ноды'), findsOneWidget);
     expect(find.text('Визуальные скрипты'), findsOneWidget);
-    expect(find.text('Берег'), findsOneWidget);
-    expect(find.text('зажечь маяк ночью'), findsOneWidget);
+    expect(find.textContaining('Берег'), findsWidgets);
+    expect(find.textContaining('зажечь маяк ночью'), findsOneWidget);
 
     // Переход: экран поиска уходит со стека. Документ ноды может остаться
     // на загрузке (в тесте нет данных), поэтому settle не ждём.
-    await tester.tap(find.text('Берег'));
+    await tester.tap(find.textContaining('Берег').first);
     await tester.pump();
     for (var i = 0; i < 6; i++) {
       await tester.pump(const Duration(milliseconds: 250));
