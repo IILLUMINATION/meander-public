@@ -44,13 +44,15 @@ void main() {
     expect(find.text('Снимок сцены'), findsOneWidget);
     expect(frames, [QuestShotFrame.phone]);
 
-    await tester.tap(find.text('iPad'));
+    await tester.ensureVisible(find.text('iPad Pro'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('iPad Pro'));
     await tester.pumpAndSettle();
     expect(frames, [QuestShotFrame.phone, QuestShotFrame.tablet]);
 
-    await tester.ensureVisible(find.text('Ноутбук'));
+    await tester.ensureVisible(find.text('MacBook'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Ноутбук'));
+    await tester.tap(find.text('MacBook'));
     await tester.pumpAndSettle();
     expect(frames.last, QuestShotFrame.laptop);
   });

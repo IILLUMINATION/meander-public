@@ -38,19 +38,21 @@ void main() {
     // Сама растеризация карточки в тестовом биндинге не завершается
     // (см. QuestShot.testScene), поэтому проверяем проводку: меню доходит до
     // захвата кадра, а сборку PNG и сохранение покрывают отдельные тесты.
-    var frameRequests = 0;
-    final composedFrames = <QuestShotFrame>[];
-    QuestShot.testScene = () async {
-      frameRequests++;
+    // Офскрин-рендер под устройство поднимает второй GameScreen — в тесте
+    // подменяем его готовым кадром.
+    final deviceRequests = <QuestShotFrame>[];
+    QuestShot.testDeviceScene = (frame) async {
+      deviceRequests.add(frame);
       return _scene();
     };
     // Растеризация PNG в фейковом времени не завершается — подменяем сборку.
+    final composedFrames = <QuestShotFrame>[];
     QuestShot.testCompose = (_, frame) async {
       composedFrames.add(frame);
       return _tinyPng;
     };
     addTearDown(() {
-      QuestShot.testScene = null;
+      QuestShot.testDeviceScene = null;
       QuestShot.testCompose = null;
     });
     var hostCalls = 0;
@@ -88,22 +90,68 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(frameRequests, 1);
-    // Сначала превью: кадр собирается под выбранную рамку.
+    // Широкое тестовое окно (800×600) открывает MacBook.
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Снимок сцены'), findsOneWidget);
-    expect(composedFrames, [QuestShot.lastFrame]);
+    expect(composedFrames, [QuestShotFrame.laptop]);
+    expect(deviceRequests, [QuestShotFrame.laptop]);
     expect(hostCalls, 0, reason: 'без подтверждения ничего не сохраняется');
 
-    // Смена рамки в превью пересобирает кадр.
-    await tester.tap(find.text('iPad'));
+    // Смена рамки перерисовывает квест в размерах устройства и собирает кадр.
+    await tester.tap(find.text('iPhone 17'));
     await tester.pump();
-    expect(composedFrames.last, QuestShotFrame.tablet);
+    expect(deviceRequests.last, QuestShotFrame.phone);
+    expect(composedFrames.last, QuestShotFrame.phone);
 
     await tester.tap(find.text('В скриншоты'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(hostCalls, 1);
+  });
+
+  testWidgets('кадр для мокапа не запускает и не гасит игровую сессию', (
+    tester,
+  ) async {
+    var started = 0;
+    var ended = 0;
+    final container = ProviderContainer(
+      overrides: [
+        gameScreenHooksProvider.overrideWithValue(
+          GameScreenHooks(
+            onGameSessionStarted: (_) => started++,
+            onGameSessionEnded: (_) => ended++,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: SizedBox(
+            width: 402,
+            height: 874,
+            child: GameScreen(
+              questId: 'test-quest',
+              shotOnly: true,
+              isTesting: true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    // Копия только рисует состояние — старт сессии пропущен.
+    expect(started, 0);
+
+    // Убираем копию: настоящая сессия (и её хук завершения) не должна
+    // пострадать.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(ended, 0);
   });
 
   testWidgets('без хоста пункта снимка нет', (tester) async {

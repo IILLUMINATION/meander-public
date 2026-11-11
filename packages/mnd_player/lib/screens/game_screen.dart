@@ -76,6 +76,14 @@ class GameScreen extends ConsumerStatefulWidget {
   final VoidCallback? onEditNode;
   final VoidCallback? onFinish;
 
+  /// Режим «только кадр»: виджет не запускает и не завершает игровую сессию,
+  /// а рисует текущую ноду в переданных размерах — из него собирается снимок
+  /// для мокапа нужного устройства.
+  final bool shotOnly;
+
+  /// Ключ `RepaintBoundary` кадра в режиме [shotOnly].
+  final GlobalKey? shotBoundaryKey;
+
   /// Асинхронная очистка при выходе из игры (например, закрыть вкладку
   /// workspace). По умолчанию — autosave + `Navigator.pop`.
   final Future<void> Function()? onExit;
@@ -95,6 +103,8 @@ class GameScreen extends ConsumerStatefulWidget {
     this.isTesting = false,
     this.onEditNode,
     this.onFinish,
+    this.shotOnly = false,
+    this.shotBoundaryKey,
     this.onExit,
     this.preflight,
     this.additionalAppBarActions,
@@ -189,6 +199,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     _hooks = ref.read(gameScreenHooksProvider);
     _sessionNotifier = ref.read(gameScreenProvider(_key).notifier);
 
+    // Снимок под устройство: сессия уже запущена настоящим экраном — копия
+    // только рисует её текущее состояние и не должна её трогать.
+    if (widget.shotOnly) return;
+
     // Пересборка по изменению состояния сессии — через listenManual с guard'ом
     // context.mounted, а НЕ ref.watch: riverpod 2.6.1 в колбэке watch вызывает
     // markNeedsBuild() безусловно, и при гонке «нотификатор эмитит, а элемент
@@ -270,6 +284,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   void dispose() {
+    if (!widget.shotOnly) {
+      _disposeSessionWidget();
+    }
+    _listController.removeListener(_onListScroll);
+    _listController.dispose();
+    _focusNode.dispose();
+    _varsSearchController.dispose();
+    super.dispose();
+  }
+
+  /// Очистка настоящего экрана: сессию гасим только здесь, не в копии для
+  /// снимка — иначе снимок останавливал бы игру.
+  void _disposeSessionWidget() {
     if (kDebugMode) {
       final st = StackTrace.current.toString().split('\n').take(14).join('\n');
       print(
@@ -293,11 +320,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     }
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
-    _listController.removeListener(_onListScroll);
-    _listController.dispose();
-    _focusNode.dispose();
-    _varsSearchController.dispose();
-    super.dispose();
   }
 
   // Флаг для предотвращения лишних вызовов stop(), которые крашат Windows
@@ -1082,6 +1104,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Widget build(BuildContext context) {
     // Чтение без подписки: пересборку обеспечивает listenManual в initState.
     final screenState = ref.read(gameScreenProvider(_key));
+    if (widget.shotOnly) {
+      // Без Scaffold: кадр собирается из чистого тела игры в заданном размере.
+      return RepaintBoundary(
+        key: widget.shotBoundaryKey ?? _shotKey,
+        child: Material(
+          type: MaterialType.transparency,
+          child: _buildBody(screenState),
+        ),
+      );
+    }
     _currentPresentationId = screenState.presentationId;
 
     // После live-перезагрузки той же ноды айтемы ре-ривилятся заново —
@@ -1196,23 +1228,39 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   /// Снимок сцены для маркета: кадр без интерфейса игры, превью с выбором
   /// рамки и только потом решение — в скриншоты квеста или наружу.
+  ///
+  /// Для каждой рамки квест перерисовывается в размерах её экрана: телефон
+  /// получает мобильную вёрстку, планшет — планшетную, а не растянутый
+  /// десктопный кадр.
   Future<void> _captureShot() async {
     final save = _hooks.onScreenshot;
     if (save == null) return;
     final export = _hooks.onExportScreenshot;
-    ui.Image? frame;
     try {
-      frame = await (QuestShot.testScene?.call() ?? _sceneImage());
-      if (frame == null) return;
-      final scene = frame;
       final result = await showQuestShotPreview(
         context,
-        initialFrame: QuestShot.lastFrame,
+        // Рамка под текущее окно: широкий экран — MacBook, вертикальный —
+        // iPhone; дальше устройство выбирается в превью.
+        initialFrame: QuestShot.frameForAspect(
+          MediaQuery.sizeOf(context).aspectRatio,
+        ),
         canExport: export != null,
-        // Каждая сборка владеет своей копией: `compose` освобождает кадр.
-        compose: (shotFrame) =>
-            QuestShot.testCompose?.call(scene, shotFrame) ??
-            QuestShot.compose(scene.clone(), frame: shotFrame),
+        compose: (shotFrame) async {
+          final shot = await _shotForFrame(shotFrame);
+          if (shot == null) {
+            throw StateError('Нет кадра для снимка');
+          }
+          // Подмена в тестах: без растеризации в фейковом времени.
+          final testCompose = QuestShot.testCompose;
+          if (testCompose != null) {
+            try {
+              return await testCompose(shot, shotFrame);
+            } finally {
+              shot.dispose();
+            }
+          }
+          return QuestShot.compose(shot, frame: shotFrame);
+        },
       );
       if (result == null || !mounted) return;
       if (result.action == QuestShotAction.save) {
@@ -1228,8 +1276,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _hooks.onError?.call(e, stack, 'captureShot');
       if (!mounted) return;
       _showShotSnack('Не удалось сделать снимок');
-    } finally {
-      frame?.dispose();
     }
   }
 
@@ -1239,6 +1285,34 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 1600),
+      ),
+    );
+  }
+
+  /// Кадр текущей ноды под конкретное устройство.
+  ///
+  /// Поднимает невидимую копию экрана в размерах устройства (она не трогает
+  /// игровую сессию) и снимает её `RepaintBoundary`. `none` — обычный кадр
+  /// текущего окна.
+  Future<ui.Image?> _shotForFrame(QuestShotFrame frame) async {
+    if (frame.logicalSize == null) {
+      return QuestShot.testScene?.call() ?? _sceneImage();
+    }
+    final testDeviceScene = QuestShot.testDeviceScene;
+    if (testDeviceScene != null) return testDeviceScene(frame);
+
+    final size = frame.logicalSize!;
+    return QuestShot.captureOffscreen(
+      context,
+      logicalSize: size,
+      pixelRatio: frame.pixelRatio,
+      builder: (key) => GameScreen(
+        questId: widget.questId,
+        docKey: widget.docKey,
+        startNodeId: widget.startNodeId,
+        isOnboarding: widget.isOnboarding,
+        shotOnly: true,
+        shotBoundaryKey: key,
       ),
     );
   }
@@ -1550,20 +1624,33 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                     effectivePad = 24.0;
                   }
                   return RepaintBoundary(
+                    // В копии для снимка колбэки — заглушки: блоки
+                    // автозавершаются в первом кадре и раскрывали бы
+                    // следующие элементы настоящей игры.
                     child: ContentDisplayFactory.build(
                       item: item,
                       questId: widget.questId,
-                      onInteract: _onItemInteract,
-                      onInputSubmitted: _onInputSubmitted,
-                      onComplete: () => ref
-                          .read(gameScreenProvider(_key).notifier)
-                          .revealNextItem(fromPresentationId: presentationId),
-                      onTransition: (id) => ref
-                          .read(gameScreenProvider(_key).notifier)
-                          .loadNode(id),
-                      onNavigateToNode: (id) => ref
-                          .read(gameScreenProvider(_key).notifier)
-                          .loadNode(id),
+                      onInteract:
+                          widget.shotOnly ? (_) {} : _onItemInteract,
+                      onInputSubmitted:
+                          widget.shotOnly ? (_, _) {} : _onInputSubmitted,
+                      onComplete: widget.shotOnly
+                          ? () {}
+                          : () => ref
+                                .read(gameScreenProvider(_key).notifier)
+                                .revealNextItem(
+                                  fromPresentationId: presentationId,
+                                ),
+                      onTransition: widget.shotOnly
+                          ? (_) {}
+                          : (id) => ref
+                                .read(gameScreenProvider(_key).notifier)
+                                .loadNode(id),
+                      onNavigateToNode: widget.shotOnly
+                          ? (_) {}
+                          : (id) => ref
+                                .read(gameScreenProvider(_key).notifier)
+                                .loadNode(id),
                       audioVolume: contentVolume,
                       bottomPadding: effectivePad,
                       fontFamily: screenState.fontFamily,
@@ -1650,13 +1737,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     Widget content(ContentItem item) => ContentDisplayFactory.build(
       item: item,
       questId: widget.questId,
-      onInteract: _onItemInteract,
-      onInputSubmitted: _onInputSubmitted,
-      onComplete: () => notifier.revealNextItem(
-        fromPresentationId: screenState.presentationId,
-      ),
-      onTransition: (id) => notifier.loadNode(id),
-      onNavigateToNode: (id) => notifier.loadNode(id),
+      onInteract: widget.shotOnly ? (_) {} : _onItemInteract,
+      onInputSubmitted: widget.shotOnly ? (_, _) {} : _onInputSubmitted,
+      onComplete: widget.shotOnly
+          ? () {}
+          : () => notifier.revealNextItem(
+              fromPresentationId: screenState.presentationId,
+            ),
+      onTransition: widget.shotOnly ? (_) {} : (id) => notifier.loadNode(id),
+      onNavigateToNode:
+          widget.shotOnly ? (_) {} : (id) => notifier.loadNode(id),
       audioVolume: contentVolume,
       fontFamily: fontFamily,
       scriptEngineMode: scriptEngineMode,

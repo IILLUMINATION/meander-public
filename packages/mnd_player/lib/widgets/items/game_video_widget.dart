@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import 'package:mnd_player/utils/quest_shot.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -271,14 +273,18 @@ class _GameVideoWidgetState extends ConsumerState<GameVideoWidget> {
         } else {
           await _applyVolumeTo(player);
         }
-        if (item.videoAutoplay ?? true) {
+        // Офскрин-копия для снимка не должна звучать и играть.
+        if ((item.videoAutoplay ?? true) && !QuestShot.renderingShot) {
           await player.play();
         } else {
           await player.pause();
         }
       } else {
         final media = isNetwork ? Media(source) : Media('file://$source');
-        await player.open(media, play: item.videoAutoplay ?? true);
+        await player.open(
+          media,
+          play: (item.videoAutoplay ?? true) && !QuestShot.renderingShot,
+        );
         if (item.videoLoop ?? false) {
           await player.setPlaylistMode(PlaylistMode.single);
         }

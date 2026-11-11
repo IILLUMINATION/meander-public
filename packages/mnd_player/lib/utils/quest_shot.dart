@@ -1,8 +1,11 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart' show Colors;
+import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
+import 'package:flutter/widgets.dart';
 
 /// Красивый снимок сцены квеста: карточка в мягкой рамке с подписью Meander.
 ///
@@ -18,15 +21,29 @@ import 'package:flutter/painting.dart';
 /// так они остаются резкими на любом размере, не зависят от сторонних
 /// SVG-ассетов и лицензий и не требуют ассет-бандла в плеере.
 enum QuestShotFrame {
-  none('Без рамки'),
-  phone('iPhone'),
-  tablet('iPad'),
-  laptop('Ноутбук');
+  none('Без рамки', null, 1),
+  phone('iPhone 17', Size(402, 874), 3),
+  tablet('iPad Pro', Size(1032, 1376), 2),
+  laptop('MacBook', Size(1512, 982), 2);
 
-  const QuestShotFrame(this.label);
+  const QuestShotFrame(this.label, this.logicalSize, this.pixelRatio);
 
   /// Подпись для интерфейса.
   final String label;
+
+  /// Логический размер экрана устройства (pt/dp): под него кадр
+  /// перерисовывается заново, чтобы интерфейс квеста адаптировался, как на
+  /// реальном устройстве.
+  final Size? logicalSize;
+
+  /// Во сколько раз экран устройства плотнее логических единиц. Вместе с
+  /// [logicalSize] даёт реальное разрешение (402×874 @3x → 1206×2622).
+  final double pixelRatio;
+
+  /// Подсказка кэша кадров по устройству.
+  String get cacheKey => logicalSize == null
+      ? 'none'
+      : '${logicalSize!.width.toInt()}x${logicalSize!.height.toInt()}';
 
   static QuestShotFrame fromName(String? raw) {
     for (final frame in values) {
@@ -53,6 +70,15 @@ class QuestShot {
   static Future<Uint8List> Function(ui.Image shot, QuestShotFrame frame)?
   testCompose;
 
+  /// Идёт офскрин-снятие: видео и звук в копии не должны оживать.
+  static int _shotDepth = 0;
+  static bool get renderingShot => _shotDepth > 0;
+
+  /// Подмена рендера кадра под устройство в тестах: настоящий офскрин-рендер
+  /// поднимает второй `GameScreen`, а в тестовом биндинге кадры его
+  /// растеризация не завершается. В рабочем коде остаётся `null`.
+  static Future<ui.Image?> Function(QuestShotFrame frame)? testDeviceScene;
+
   /// Ширина готового снимка: вдвое больше типичной карточки маркета, чтобы
   /// снимок не мылил на Retina-экранах.
   static const double outputWidth = 1440;
@@ -66,20 +92,46 @@ class QuestShot {
   /// Радиус карточки.
   static const double radius = 32;
 
-  /// Последняя выбранная рамка: диалог снимка открывается с ней же, чтобы
-  /// автор не выбирал «iPhone» заново после каждого снимка.
-  static QuestShotFrame lastFrame = QuestShotFrame.phone;
+  /// Ближайшая к кадру рамка: широкий кадр уходит в MacBook, вертикальный —
+  /// в iPhone 17. Так диалог сразу открывается с рамкой, под которую кадр
+  /// не надо резать; автор всё равно может переключить её вручную.
+  static QuestShotFrame frameForAspect(double aspect) {
+    var best = QuestShotFrame.phone;
+    var bestDelta = double.infinity;
+    for (final frame in const [
+      QuestShotFrame.phone,
+      QuestShotFrame.tablet,
+      QuestShotFrame.laptop,
+    ]) {
+      final delta = math.log(_geometry(frame).aspect / aspect).abs();
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = frame;
+      }
+    }
+    return best;
+  }
 
   /// Пропорции экрана устройства (ширина / высота) и доля безеля.
+  ///
+  /// Разрешения — актуальной линейки Apple: iPhone 17 / 17 Pro (1206×2622),
+  /// iPad Pro 13" M4 (2064×2752), MacBook Pro 14" (3024×1964). Пропорции
+  /// берутся реальные, а не «под кадр»: кадр с другими пропорциями
+  /// вписывается целиком, а не обрезается.
   static ({double aspect, double bezel, double bodyShare}) _geometry(
     QuestShotFrame frame,
   ) => switch (frame) {
-    // 1290×2796 — пропорции iPhone 15 Pro.
-    QuestShotFrame.phone => (aspect: 1290 / 2796, bezel: 0.032, bodyShare: 0.52),
-    // 1668×2388 — iPad Pro 11".
-    QuestShotFrame.tablet => (aspect: 1668 / 2388, bezel: 0.045, bodyShare: 0.74),
-    // 2560×1600 — крышка ноутбука.
-    QuestShotFrame.laptop => (aspect: 1.6, bezel: 0.03, bodyShare: 0.96),
+    QuestShotFrame.phone => (
+      aspect: 1206 / 2622,
+      bezel: 0.024,
+      bodyShare: 0.52,
+    ),
+    QuestShotFrame.tablet => (
+      aspect: 2064 / 2752,
+      bezel: 0.035,
+      bodyShare: 0.74,
+    ),
+    QuestShotFrame.laptop => (aspect: 3024 / 1964, bezel: 0.022, bodyShare: 0.96),
     QuestShotFrame.none => (aspect: 1, bezel: 0, bodyShare: 1),
   };
 
@@ -95,7 +147,6 @@ class QuestShot {
     String watermark = 'Meander',
     QuestShotFrame frame = QuestShotFrame.phone,
   }) async {
-    lastFrame = frame;
     final recorder = ui.PictureRecorder();
     // Размер холста считаем до рисования: от рамки зависит высота карточки.
     final layout = _Layout.of(shot, frame, outputWidth, padding, captionHeight);
@@ -211,17 +262,18 @@ class QuestShot {
         ..color = Colors.white.withValues(alpha: 0.18),
     );
 
-    // Боковые кнопки: две слева, одна справа — узнаваемый силуэт iPhone.
+    // Боковые кнопки iPhone 17 Pro: действие, качелька громкости слева,
+    // питание и Camera Control справа.
     if (frame == QuestShotFrame.phone) {
       final buttonPaint = Paint()..color = const Color(0xFF3A3A42);
-      final w = layout.body.width * 0.012;
+      final w = layout.body.width * 0.011;
       final r = Radius.circular(w / 2);
       final left = layout.body.left - w * 0.35;
       final right = layout.body.right - w * 0.65;
       for (final (dy, h) in [
-        (0.17, 0.045),
-        (0.29, 0.075),
-        (0.39, 0.075),
+        (0.15, 0.03),
+        (0.27, 0.075),
+        (0.37, 0.075),
       ]) {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
@@ -240,9 +292,22 @@ class QuestShot {
         RRect.fromRectAndRadius(
           Rect.fromLTWH(
             right,
-            layout.body.top + layout.body.height * 0.25,
+            layout.body.top + layout.body.height * 0.22,
             w,
-            layout.body.height * 0.12,
+            layout.body.height * 0.11,
+          ),
+          r,
+        ),
+        buttonPaint,
+      );
+      // Camera Control — плоская кнопка у правого торца ниже питания.
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            right,
+            layout.body.top + layout.body.height * 0.355,
+            w,
+            layout.body.height * 0.045,
           ),
           r,
         ),
@@ -250,12 +315,14 @@ class QuestShot {
       );
     }
 
-    // Экран: кадр сцены с обрезкой по скруглению.
+    // Экран: кадр целиком (fit), остальное — размытая подложка того же
+    // кадра. Обрезки по краям экрана нет: на широком кадре в телефоне
+    // пропадали края интерфейса.
     final screenClip = RRect.fromRectAndRadius(
       layout.screen,
       Radius.circular(layout.screenRadius),
     );
-    _drawShotCover(canvas, shot, layout.screen, screenClip, layout.screenRadius);
+    _drawShotFit(canvas, shot, layout.screen, screenClip);
 
     // Динамический остров (iPhone) или точка камеры (iPad/ноутбук).
     switch (frame) {
@@ -278,11 +345,30 @@ class QuestShot {
           Paint()..color = const Color(0xFF1B2A3A),
         );
       case QuestShotFrame.tablet:
-      case QuestShotFrame.laptop:
         canvas.drawCircle(
-          Offset(layout.body.center.dx, (layout.body.top + layout.screen.top) / 2),
+          Offset(
+            layout.body.center.dx,
+            (layout.body.top + layout.screen.top) / 2,
+          ),
           layout.body.width * 0.006,
           Paint()..color = const Color(0xFF15161B),
+        );
+      case QuestShotFrame.laptop:
+        // У MacBook камера в вырезе сверху экрана, а не в безеле.
+        final notch = RRect.fromRectAndCorners(
+          Rect.fromCenter(
+            center: Offset(layout.screen.center.dx, layout.screen.top),
+            width: layout.screen.width * 0.11,
+            height: layout.body.height * 0.022,
+          ),
+          bottomLeft: Radius.circular(layout.body.height * 0.008),
+          bottomRight: Radius.circular(layout.body.height * 0.008),
+        );
+        canvas.drawRRect(notch, Paint()..color = const Color(0xFF0D0D11));
+        canvas.drawCircle(
+          Offset(layout.screen.center.dx, layout.screen.top + layout.body.height * 0.013),
+          layout.body.width * 0.0035,
+          Paint()..color = const Color(0xFF1B2A3A),
         );
       case QuestShotFrame.none:
         break;
@@ -356,6 +442,77 @@ class QuestShot {
     canvas.restore();
   }
 
+  /// Вписать кадр в экран целиком (contain), без обрезки краёв.
+  ///
+  /// Поля вокруг кадра закрывает размытая копия того же кадра: снимок не
+  /// выглядит как письмо с чёрными полосами, но и не теряет части
+  /// интерфейса, как при cover-обрезке.
+  static void _drawShotFit(
+    Canvas canvas,
+    ui.Image shot,
+    Rect target,
+    RRect clip,
+  ) {
+    canvas.save();
+    canvas.clipRRect(clip);
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      shot.width.toDouble(),
+      shot.height.toDouble(),
+    );
+
+    // Подложка: cover + размытие, чуть крупнее экрана, чтобы размытые края
+    // не обнажали фон за скруглением.
+    final coverScale =
+        math.max(target.width / shot.width, target.height / shot.height) *
+        1.12;
+    canvas.drawImageRect(
+      shot,
+      src,
+      Rect.fromCenter(
+        center: target.center,
+        width: shot.width * coverScale,
+        height: shot.height * coverScale,
+      ),
+      Paint()
+        ..filterQuality = FilterQuality.medium
+        ..imageFilter = ui.ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+    );
+    canvas.drawRect(
+      target,
+      Paint()..color = Colors.black.withValues(alpha: 0.42),
+    );
+
+    // Сам кадр: contain, по центру.
+    final fitScale = math.min(
+      target.width / shot.width,
+      target.height / shot.height,
+    );
+    canvas.drawImageRect(
+      shot,
+      src,
+      Rect.fromCenter(
+        center: target.center,
+        width: shot.width * fitScale,
+        height: shot.height * fitScale,
+      ),
+      Paint()..filterQuality = FilterQuality.high,
+    );
+
+    // Затемнение к низу кадра: айтемы у края не сливаются с подписью.
+    canvas.drawRect(
+      target,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, target.bottom - target.height * 0.18),
+          Offset(0, target.bottom),
+          [Colors.transparent, Colors.black.withValues(alpha: 0.28)],
+        ),
+    );
+    canvas.restore();
+  }
+
   /// Подпись справа внизу: слово Meander тонким начертанием и точка-акцент.
   static void _paintWatermark(Canvas canvas, String text, Offset anchor) {
     const double fontSize = 34;
@@ -377,6 +534,63 @@ class QuestShot {
       4,
       Paint()..color = Colors.white.withValues(alpha: 0.5),
     );
+  }
+
+  /// Снять виджет вне экрана в заданном логическом размере.
+  ///
+  /// Поднимает невидимую копию дерева за пределами окна и фотографирует её
+  /// `RepaintBoundary` в реальном разрешении устройства. Нужен для мокапов:
+  /// квест перерисовывается под телефон/планшет и адаптирует вёрстку, а не
+  /// растягивается из уже снятого десктопного кадра.
+  static Future<ui.Image?> captureOffscreen(
+    BuildContext context, {
+    required Size logicalSize,
+    required double pixelRatio,
+    required Widget Function(GlobalKey boundaryKey) builder,
+  }) async {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final media = MediaQuery.of(context);
+    final theme = Theme.of(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    final key = GlobalKey();
+    final entry = OverlayEntry(
+      builder: (_) => Positioned(
+        // За пределами окна: дерево рисуется, но не мелькает на экране.
+        left: -logicalSize.width - 32,
+        top: 0,
+        width: logicalSize.width,
+        height: logicalSize.height,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: theme,
+          locale: locale,
+          home: MediaQuery(
+            data: media.copyWith(
+              size: logicalSize,
+              devicePixelRatio: pixelRatio,
+              padding: EdgeInsets.zero,
+              viewPadding: EdgeInsets.zero,
+              viewInsets: EdgeInsets.zero,
+            ),
+            child: builder(key),
+          ),
+        ),
+      ),
+    );
+    _shotDepth++;
+    overlay.insert(entry);
+    try {
+      // Первый кадр строит дерево, второй — декодирует фон и картинки.
+      await WidgetsBinding.instance.endOfFrame;
+      await WidgetsBinding.instance.endOfFrame;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final boundary = key.currentContext?.findRenderObject();
+      if (boundary is! RenderRepaintBoundary) return null;
+      return await boundary.toImage(pixelRatio: pixelRatio);
+    } finally {
+      entry.remove();
+      _shotDepth--;
+    }
   }
 
   /// Средний цвет кадра по сетке 8×8: усреднять все пиксели дорого, а для
@@ -468,14 +682,14 @@ class _Layout {
         screenHeight,
       ),
       bodyRadius: switch (frame) {
-        QuestShotFrame.phone => bodyWidth * 0.145,
-        QuestShotFrame.tablet => bodyWidth * 0.06,
-        QuestShotFrame.laptop => bodyWidth * 0.022,
+        QuestShotFrame.phone => bodyWidth * 0.135,
+        QuestShotFrame.tablet => bodyWidth * 0.055,
+        QuestShotFrame.laptop => bodyWidth * 0.02,
         QuestShotFrame.none => 0,
       },
       screenRadius: switch (frame) {
-        QuestShotFrame.phone => screenWidth * 0.10,
-        QuestShotFrame.tablet => screenWidth * 0.03,
+        QuestShotFrame.phone => screenWidth * 0.092,
+        QuestShotFrame.tablet => screenWidth * 0.028,
         QuestShotFrame.laptop => screenWidth * 0.012,
         QuestShotFrame.none => 0,
       },
