@@ -22,6 +22,11 @@ class MirrorRegistry {
   static final MirrorRegistry instance = MirrorRegistry._();
 
   static const _activeUrlKey = 'mirror_active_url';
+
+  /// Зеркала, снятые из сборки. Они могут остаться в настройках у тех, кто
+  /// обновился: такое зеркало отвечает 530, а зонд/приложение продолжали
+  /// считать его живым и уводили на него весь трафик.
+  static const retiredUrls = {'https://meander.elitrycraft.workers.dev'};
   static const _customUrlsKey = 'mirror_custom_urls';
   // Старый формат одиночного зеркала; читаем один раз для миграции.
   static const _legacyCustomUrlKey = 'mirror_custom_url';
@@ -80,6 +85,11 @@ class MirrorRegistry {
         _customUrlsKey,
         jsonEncode(_customUrls),
       );
+    }
+    if (_customUrls.any(retiredUrls.contains)) {
+      _customUrls =
+          _customUrls.where((u) => !retiredUrls.contains(u)).toList();
+      await prefs.setString(_customUrlsKey, jsonEncode(_customUrls));
     }
     _activeUrl = prefs.getString(_activeUrlKey);
     if (_activeUrl == null || !allUrls.contains(_activeUrl)) {
@@ -173,19 +183,32 @@ class MirrorRegistry {
 
   Future<int?> _probeOnce(String url) async {
     final sw = Stopwatch()..start();
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
       final request = await client
           .headUrl(Uri.parse('$url/'))
           .timeout(const Duration(seconds: 8));
-      await request.close().timeout(const Duration(seconds: 8));
-      client.close();
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+      // Сбрасываем тело, иначе соединение висит до таймаута.
+      await response.drain<void>().timeout(const Duration(seconds: 2));
+      final status = response.statusCode;
+      if (status >= 500) {
+        // Прошлый зонд считал «ответил» живым зеркалом: мёртвый
+        // Cloudflare-worker отдавал 530, приложение переключалось на него
+        // и получало SERVER_MAINTENANCE на всей ленте.
+        debugPrint('[Mirror] probe FAIL: $url (HTTP $status)');
+        return null;
+      }
       final ms = sw.elapsedMilliseconds;
       debugPrint('[Mirror] probe OK: $url (${ms}ms)');
       return ms;
     } catch (e) {
       debugPrint('[Mirror] probe FAIL: $url ($e)');
       return null;
+    } finally {
+      client.close(force: true);
     }
   }
 

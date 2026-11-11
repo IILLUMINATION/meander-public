@@ -1,6 +1,8 @@
 // Тесты книги зеркал: нормализация адреса, порядок зеркал, добавление и
 // удаление пользовательских серверов, миграция старого одиночного зеркала,
 // маркер все-зеркала-недоступны и текст ошибки.
+import 'dart:io';
+
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -45,10 +47,7 @@ void main() {
         reason: 'все пользовательские серверы в переборе');
     expect(
       urls,
-      containsAll([
-        AppConfig.vpsApiBaseUrl,
-        'https://meander.elitrycraft.workers.dev',
-      ]),
+      contains(AppConfig.vpsApiBaseUrl),
       reason: 'встроенные зеркала остаются в переборе',
     );
   });
@@ -133,4 +132,77 @@ void main() {
     final text = friendlyError(Exception('SERVER_MAINTENANCE'));
     expect(text, contains('обслуживании'));
   });
+
+  group('мёртвое зеркало', () {
+    test('встроенный список не содержит снятого Cloudflare-зеркала', () {
+      // Оно отвечало 530, а зонд считал его живым и переключал весь API
+      // (включая socket.io) на нерабочий хост.
+      expect(
+        AppConfig.defaultMirrorUrls,
+        isNot(contains('https://meander.elitrycraft.workers.dev')),
+      );
+      expect(AppConfig.defaultMirrorUrls.first, AppConfig.vpsApiBaseUrl);
+    });
+
+    test('зонд отвергает зеркало с 5xx, живое — принимает', () async {
+      // Flutter-тест подменяет HttpClient заглушкой, отвечающей 400 на всё:
+      // для зонда нужен настоящий клиент к локальному серверу.
+      final saved = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = saved);
+      final dead = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      dead.listen((req) async {
+        // Ровно то, что отдавал Cloudflare для снятого worker'а.
+        req.response.statusCode = 530;
+        await req.response.close();
+      });
+      final alive = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      alive.listen((req) async {
+        req.response.statusCode = HttpStatus.noContent;
+        await req.response.close();
+      });
+      addTearDown(() async {
+        await dead.close(force: true);
+        await alive.close(force: true);
+      });
+
+      expect(
+        await MirrorRegistry.instance
+            .probeUrl('http://127.0.0.1:${dead.port}'),
+        isNull,
+        reason: 'ответ 530 — это не «зеркало живо»',
+      );
+      expect(
+        await MirrorRegistry.instance
+            .probeUrl('http://127.0.0.1:${alive.port}'),
+        isNotNull,
+      );
+    });
+
+    test('сохранённое активное мёртвое зеркало сбрасывается на основной домен',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'mirror_active_url': 'https://meander.elitrycraft.workers.dev',
+      });
+      MirrorRegistry.instance.resetForTests();
+      await MirrorRegistry.instance.ensureLoaded();
+      expect(MirrorRegistry.instance.activeUrl, AppConfig.vpsApiBaseUrl);
+    });
+  });
+
+    test('мёртвое зеркало вычищается и из сохранённых пользовательских',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'mirror_custom_urls': '["https://meander.elitrycraft.workers.dev",'
+            '"https://a.server"]',
+        'mirror_active_url': 'https://meander.elitrycraft.workers.dev',
+      });
+      MirrorRegistry.instance.resetForTests();
+      await MirrorRegistry.instance.ensureLoaded();
+      expect(MirrorRegistry.instance.customUrls, ['https://a.server']);
+      expect(MirrorRegistry.instance.activeUrl, AppConfig.vpsApiBaseUrl);
+      expect(MirrorRegistry.instance.allUrls, isNot(
+        contains('https://meander.elitrycraft.workers.dev'),
+      ));
+    });
 }
