@@ -10,6 +10,10 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:flutter/foundation.dart';
+import 'package:canvas_app/core/utils/archive_entry_paths.dart'
+    as archive_entry_paths;
+import 'package:canvas_app/core/utils/quest_folder_swap.dart';
 
 // Перечисление для действий при конфликте во время восстановления
 enum RestoreAction { replace, skip, cancelAll }
@@ -94,11 +98,17 @@ class BackupService {
     // Группируем файлы по директориям квестов
     final Map<String, List<ArchiveFile>> questsInArchive = {};
     for (final file in archive) {
-      final parts = p.split(file.name);
-      if (parts.isNotEmpty) {
-        final questId = parts.first;
-        questsInArchive.putIfAbsent(questId, () => []).add(file);
+      // Имя записи становится id квеста, а папку квеста перед заменой
+      // удаляют рекурсивно: `../x` стёр бы каталог приложения. Недопустимые
+      // записи не разбираем вовсе.
+      final clean = archive_entry_paths.sanitizeArchiveEntryPath(file.name);
+      if (clean == null) {
+        print('⚠️ [Backup] Пропущена запись архива с недопустимым путём: '
+            '${file.name}');
+        continue;
       }
+      final questId = clean.split('/').first;
+      questsInArchive.putIfAbsent(questId, () => []).add(file);
     }
 
     for (final entry in questsInArchive.entries) {
@@ -123,6 +133,7 @@ class BackupService {
         } catch (_) {}
       }
 
+      var replaced = false;
       if (localQuestIds.contains(questId)) {
         // Конфликт!
         onProgress(
@@ -141,14 +152,10 @@ class BackupService {
           continue;
         }
         if (action == RestoreAction.replace) {
+          replaced = true;
           onProgress(
             trf('Замена квеста "{questTitle}"...', {'questTitle': questTitle}),
           );
-          // Удаляем старую папку целиком перед записью новой
-          final targetDir = Directory(p.join(questsPath, questId));
-          if (await targetDir.exists()) {
-            await targetDir.delete(recursive: true);
-          }
         }
       } else {
         onProgress(
@@ -156,28 +163,93 @@ class BackupService {
         );
       }
 
-      // Восстановление файлов
-      for (final file in questFiles) {
-        final targetPath = p.join(questsPath, file.name);
-        if (file.isFile) {
-          final outFile = File(targetPath);
-          await outFile.parent.create(recursive: true);
-
-          // Исправление бага: принудительно удаляем файл, если он есть (на всякий случай)
-          if (await outFile.exists()) {
-            await outFile.delete();
-          }
-
-          // ВАЖНО: flush: true гарантирует запись на диск, решая проблему кэширования
-          await outFile.writeAsBytes(file.content as List<int>, flush: true);
-        } else {
-          await Directory(targetPath).create(recursive: true);
-        }
+      final restored = await restoreQuestEntries(
+        questsPath: questsPath,
+        questId: questId,
+        files: questFiles,
+        replaceExisting: replaced,
+      );
+      if (!restored) {
+        print('❌ [Backup] Квест $questId не восстановлен');
+        onProgress(
+          trf('Не удалось восстановить квест "{questTitle}"', {
+            'questTitle': questTitle,
+          }),
+        );
+        continue;
       }
     }
 
     onProgress(tr('Завершено!'));
     return true;
+  }
+
+
+  /// Восстанавливает файлы одного квеста из записей архива.
+  ///
+  /// Запись идёт в промежуточную папку рядом с целевой, и только после
+  /// успешной распаковки она подменяет каталог квеста. Раньше старая папка
+  /// удалялась до записи: сбой посреди распаковки (кончилось место, слетело
+  /// приложение) оставлял квест наполовину перезаписанным — и старой копии
+  /// уже не было.
+  ///
+  /// `false` — запись не удалась; на диске остался прежний квест.
+  @visibleForTesting
+  static Future<bool> restoreQuestEntries({
+    required String questsPath,
+    required String questId,
+    required List<ArchiveFile> files,
+    required bool replaceExisting,
+  }) async {
+    final targetDir = Directory(p.join(questsPath, questId));
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final stagingDir = Directory(
+      p.join(questsPath, '.restore_${questId}_$stamp'),
+    );
+    try {
+      await stagingDir.create(recursive: true);
+      for (final file in files) {
+        final clean = archive_entry_paths.sanitizeArchiveEntryPath(file.name);
+        if (clean == null) {
+          print('⚠️ [Backup] Пропущена запись с недопустимым путём: '
+              '${file.name}');
+          continue;
+        }
+        final segments = clean.split('/');
+        if (segments.length < 2 || segments.first != questId) continue;
+        final targetPath = archive_entry_paths.resolveArchiveTarget(
+          stagingDir.path,
+          segments.sublist(1).join('/'),
+        );
+        if (targetPath == null) continue;
+
+        if (file.isFile) {
+          final outFile = File(targetPath);
+          await outFile.parent.create(recursive: true);
+          await outFile.writeAsBytes(file.content as List<int>, flush: true);
+        } else {
+          await Directory(targetPath).create(recursive: true);
+        }
+      }
+
+      if (await targetDir.exists() && !replaceExisting) {
+        await stagingDir.delete(recursive: true);
+        return false;
+      }
+      // Старая папка уходит в сторону целиком — до этого момента она на
+      // месте, даже если распаковка упала.
+      await replaceDirectoryAtomically(staging: stagingDir, target: targetDir);
+
+      // Файлы записаны в обход кэша JSON (см. FileStorage.invalidateJsonCache).
+      FileStorage.invalidateJsonCache([QuestPaths.questRoot(questId)]);
+      return true;
+    } catch (error) {
+      print('❌ [Backup] Восстановление $questId не удалось: $error');
+      try {
+        if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
+      } catch (_) {}
+      return false;
+    }
   }
 
   /// Вспомогательная рекурсивная функция для добавления директории в архив.

@@ -14,6 +14,7 @@ import 'package:canvas_app/features/editor/screens/node_selection_screen.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_session.dart';
+import 'package:canvas_app/core/services/quest_data_guard.dart';
 import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
 import 'package:canvas_app/features/game/screens/load_game_screen.dart';
 import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
@@ -469,11 +470,18 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     }
   }
 
-  void _openWorkspace(
+  Future<void> _openWorkspace(
     String questId,
     EditorDocumentDescriptor initialDocument,
-  ) {
-    Navigator.push(
+  ) async {
+    // Целостность данных проверяется до сборки рабочего стола: если прошлый
+    // сбой оставил обрезанный JSON, откат должен произойти раньше, чем
+    // документы прочтут файлы.
+    final protection = await QuestDataGuard.protect(questId);
+    if (!mounted) return;
+    await notifyQuestDataProtection(context, protection);
+    if (!mounted) return;
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => QuestEditorShell(
@@ -489,15 +497,27 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     if (tutorial.step == TutorialStep.openEditor) {
       ref.read(tutorialControllerProvider.notifier).next();
     }
-    _openWorkspace(quest.id, EditorDocumentDescriptor.chapters(quest.id));
+    unawaited(
+      _openWorkspace(quest.id, EditorDocumentDescriptor.chapters(quest.id)),
+    );
   }
 
   Future<void> _openSettings(Quest quest) async {
-    _openWorkspace(quest.id, EditorDocumentDescriptor.questSettings(quest.id));
+    unawaited(
+      _openWorkspace(
+        quest.id,
+        EditorDocumentDescriptor.questSettings(quest.id),
+      ),
+    );
   }
 
   void _openResources(Quest quest) {
-    _openWorkspace(quest.id, EditorDocumentDescriptor.resources(quest.id));
+    unawaited(
+      _openWorkspace(
+        quest.id,
+        EditorDocumentDescriptor.resources(quest.id),
+      ),
+    );
   }
 
   Future<void> _openHistory(Quest quest) async {

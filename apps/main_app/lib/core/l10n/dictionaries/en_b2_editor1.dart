@@ -113,4 +113,10 @@ final Map<String, String> enB2Editor1 = {
   'Навигация по клику на элемент': 'Navigation by clicking an element',
   'Нажмите для редактирования': 'Click to edit',
   'Нажмите, чтобы ввести текст': 'Click to enter text',
+  'Квест был повреждён — восстановлена резервная копия от {p0}':
+      'Quest data was damaged — restored the backup from {p0}',
+  'Квест повреждён, а целых резервных копий нет. Битые файлы: {p0}':
+      'Quest data is damaged and there is no intact backup. Broken files: {p0}',
+  'Не удалось восстановить квест "{questTitle}"':
+      'Could not restore the quest "{questTitle}"',
 };

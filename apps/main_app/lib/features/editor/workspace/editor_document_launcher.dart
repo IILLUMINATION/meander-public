@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/services/quest_data_guard.dart';
 import 'editor_document.dart';
 import 'editor_workspace_scope.dart';
 import 'quest_editor_shell.dart';
@@ -29,6 +30,16 @@ class EditorDocumentLauncher {
     EditorDocumentDescriptor descriptor, {
     EditorOpenMode mode = EditorOpenMode.workspace,
   }) async {
+    // Данные могли испортиться при прошлом падении/записи: проверяем и,
+    // если нужно, откатываем к последней целой копии ДО того, как экраны
+    // начнут читать файлы. Проверка один раз за сессию на квест
+    // (QuestDataGuard), поэтому открытие второй и следующих вкладок
+    // диск не читает.
+    final protection = await QuestDataGuard.protect(descriptor.id.questId);
+    if (!context.mounted) return;
+    await notifyQuestDataProtection(context, protection);
+    if (!context.mounted) return;
+
     final scope = EditorWorkspaceScope.maybeOf(context);
     if (mode == EditorOpenMode.workspace) {
       if (scope != null) {

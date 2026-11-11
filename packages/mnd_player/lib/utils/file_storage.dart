@@ -88,6 +88,15 @@ class FileStorage {
     return _appDirectoryFuture!;
   }
 
+  /// Подмена корня приложения в тестах (в приложении не вызывается):
+  /// путь от `path_provider` в юнит-тестах недоступен. `null` возвращает
+  /// штатное поведение.
+  @visibleForTesting
+  static void overrideAppDirectory(Directory? directory) {
+    _appDirectoryFuture = directory == null ? null : Future.value(directory);
+    _jsonCache.clear();
+  }
+
   static Future<Directory> createFolder(String relativePath) async {
     final appDir = await getAppDirectory();
     final folderPath = p.join(appDir.path, relativePath);
@@ -330,6 +339,10 @@ class FileStorage {
     return entities
         .whereType<Directory>()
         .map((dir) => p.basename(dir.path))
+        // Служебные папки (`.restore_*`, `.replaced_*` от подмены квеста)
+        // точкой помечены намеренно: прерванная подмена не должна выглядеть
+        // в библиотеке как ещё один квест.
+        .where((name) => !name.startsWith('.'))
         .toList();
   }
 

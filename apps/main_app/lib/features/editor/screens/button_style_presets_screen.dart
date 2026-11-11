@@ -21,6 +21,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/utils/archive_entry_paths.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 
 // План 020-C4.5: операции над квестом — через ядро (QuestStore).
@@ -560,8 +561,10 @@ class _ButtonStylePresetsScreenState extends State<ButtonStylePresetsScreen> {
     for (final file in archive) {
       if (!file.isFile) continue;
       if (file == jsonFile) continue;
-      final normalized = _normalizeAssetPath(file.name);
-      if (normalized.isEmpty) continue;
+      // Имя записи архива — недоверенный ввод: `../<чужой квест>/config.json`
+      // писал бы в чужую папку квеста.
+      final normalized = sanitizeArchiveEntryPath(file.name);
+      if (normalized == null) continue;
       final targetPath = await FileStorage.getFilePath(
         QuestPaths.questFile(widget.questId, normalized),
       );

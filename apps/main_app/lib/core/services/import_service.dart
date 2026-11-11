@@ -8,6 +8,9 @@ import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/key_derivation_service.dart';
 import 'package:collection/collection.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/utils/archive_entry_paths.dart'
+    as archive_entry_paths;
+import 'package:canvas_app/core/utils/quest_folder_swap.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:mnd_core/utils/quest_paths.dart';
@@ -24,19 +27,8 @@ class ImportService {
   ///
   /// Отбрасывает абсолютные пути (POSIX и Windows-диски), сегменты `..` и
   /// нормализует `.`/пустые сегменты.
-  static String? sanitizeArchiveEntryPath(String rawName) {
-    final normalized = rawName.replaceAll('\\', '/');
-    if (normalized.startsWith('/')) return null;
-    if (RegExp(r'^[A-Za-z]:').hasMatch(normalized)) return null;
-    final clean = <String>[];
-    for (final seg in normalized.split('/')) {
-      if (seg.isEmpty || seg == '.') continue;
-      if (seg == '..') return null;
-      clean.add(seg);
-    }
-    if (clean.isEmpty) return null;
-    return clean.join('/');
-  }
+  static String? sanitizeArchiveEntryPath(String rawName) =>
+      archive_entry_paths.sanitizeArchiveEntryPath(rawName);
 
   static Future<String?> pickAndImportQuest() async {
     try {
@@ -215,10 +207,14 @@ class ImportService {
         print(
           '⚠️ [Import] Квест с ID $originalQuestId уже существует. Перезаписываем...',
         );
-        await Directory(newQuestPath).delete(recursive: true);
       }
 
-      await questRootInTemp.rename(newQuestPath);
+      // Подмена целиком: падение между удалением и распаковкой больше не
+      // оставляет пользователя без старой версии квеста.
+      await replaceDirectoryAtomically(
+        staging: questRootInTemp,
+        target: Directory(newQuestPath),
+      );
       print('📁 [Import] Файлы квеста перемещены в постоянное хранилище.');
 
       final finalConfigPath = p.join(

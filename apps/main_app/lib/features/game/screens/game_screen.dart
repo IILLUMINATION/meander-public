@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:canvas_app/core/services/hang_watchdog.dart';
+import 'package:canvas_app/core/services/quest_data_guard.dart';
 import 'package:canvas_app/core/services/quest_safety_service.dart';
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/features/editor/screens/node_content_screen.dart';
@@ -86,6 +87,18 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Future<bool> _preflight() async {
     if (!mounted) return false;
     HangWatchdog.mark('game init: post-frame');
+
+    // Повреждённые данные чиним до старта сессии: движок читает
+    // nodes.json/config.json, и полуразобранный квест дальше только
+    // расползается по сохранениям.
+    try {
+      final protection = await QuestDataGuard.protect(widget.questId);
+      if (!mounted) return false;
+      await notifyQuestDataProtection(context, protection);
+      if (!mounted) return false;
+    } catch (error, stack) {
+      debugPrint('[QuestGuard] проверка перед игрой пропущена: $error\n$stack');
+    }
 
     // Предупреждение показываем только в настоящем игровом режиме. Тестовый
     // запуск из редактора и debug-сессии не должны блокироваться модалками.

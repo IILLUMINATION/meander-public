@@ -5,6 +5,7 @@ import 'package:canvas_app/core/services/export_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/utils/archive_entry_paths.dart';
 import 'package:canvas_app/core/services/quest_document_exporter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -117,7 +118,11 @@ class OfflineWebBuilder {
     final archive = ZipDecoder().decodeBytes(bytes);
     for (final file in archive.files) {
       if (!file.isFile) continue;
-      final out = File(p.join(targetPath, file.name));
+      // Оболочка приходит из assets/сети — запись `../x` не должна
+      // выносить распаковку за пределы каталога сайта.
+      final outputPath = resolveArchiveTarget(targetPath, file.name);
+      if (outputPath == null) continue;
+      final out = File(outputPath);
       await out.parent.create(recursive: true);
       await out.writeAsBytes(file.readBytes() ?? Uint8List(0));
     }

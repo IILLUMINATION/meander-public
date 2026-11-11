@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:canvas_app/core/importers/qst_importer.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/utils/quest_folder_swap.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -173,10 +174,14 @@ class AsyncImportService {
             '💾 [Import] Забэкаплено сохранений: ${savedFilesBackup.length}',
           );
         }
-        await Directory(newQuestPath).delete(recursive: true);
       }
 
-      await questRootInTemp.rename(newQuestPath);
+      // Подмена целиком: падение между удалением и распаковкой больше не
+      // оставляет пользователя без старой версии квеста.
+      await replaceDirectoryAtomically(
+        staging: questRootInTemp,
+        target: Directory(newQuestPath),
+      );
       print('📁 [Import] Файлы квеста перемещены в постоянное хранилище.');
 
       // Восстанавливаем сейвы после установки новой версии

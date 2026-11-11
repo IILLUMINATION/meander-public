@@ -5,6 +5,7 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/features/editor/providers/tag_provider.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document.dart';
+import 'package:canvas_app/core/services/quest_data_guard.dart';
 import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:file_picker/file_picker.dart';
@@ -321,12 +322,18 @@ class ImportDialog extends ConsumerWidget {
 
         final firstTagId = tags.first.id;
 
+        final questId = result.quest!.id;
+        final protection = await QuestDataGuard.protect(questId);
+        if (!context.mounted) return;
+        await notifyQuestDataProtection(context, protection);
+        if (!context.mounted) return;
+
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => QuestEditorShell(
-              questId: result.quest!.id,
+              questId: questId,
               initialDocument: EditorDocumentDescriptor.canvas(
-                result.quest!.id,
+                questId,
                 firstTagId,
               ),
             ),

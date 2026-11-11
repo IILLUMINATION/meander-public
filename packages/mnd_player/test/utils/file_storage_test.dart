@@ -76,4 +76,19 @@ void main() {
       );
     });
   });
+
+  group('FileStorage.listFolders', () {
+    test('служебные папки с точкой не попадают в список квестов', () async {
+      final quests = Directory('${appDir.path}/quests');
+      await Directory('${quests.path}/q1').create(recursive: true);
+      await Directory('${quests.path}/q2').create(recursive: true);
+      // Остатки прерванной подмены квеста (см. quest_folder_swap).
+      await Directory('${quests.path}/.restore_q1_123').create(recursive: true);
+      await Directory('${quests.path}/.replaced_q1_456').create(recursive: true);
+
+      final folders = await FileStorage.listFolders('quests');
+
+      expect(folders..sort(), ['q1', 'q2']);
+    });
+  });
 }

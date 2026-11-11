@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/editor/utils/template_applier.dart';
+import 'package:canvas_app/core/utils/archive_entry_paths.dart';
 import 'package:canvas_app/models/template_model.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -290,6 +291,14 @@ class TemplateBundler {
 
     for (final asset in assets) {
       try {
+        // Путь ассета приходит из манифеста шаблона (он же ездит по сети):
+        // `../<чужой квест>/config.json` записался бы в чужую папку.
+        final relativePath = sanitizeArchiveEntryPath(asset.relativePath);
+        if (relativePath == null) {
+          failed.add(asset.relativePath);
+          continue;
+        }
+
         // Получаем содержимое
         Uint8List? data;
         if (bytesBySha != null && bytesBySha.containsKey(asset.sha256)) {
@@ -310,7 +319,7 @@ class TemplateBundler {
           continue;
         }
 
-        final questFile = QuestPaths.questFile(questId, asset.relativePath);
+        final questFile = QuestPaths.questFile(questId, relativePath);
         if (await FileStorage.exists(questFile)) {
           // Сравниваем sha
           try {
@@ -324,16 +333,16 @@ class TemplateBundler {
           } catch (_) {}
 
           // Конфликт — нужно переименовать
-          final dir = p.dirname(asset.relativePath);
-          final base = p.basenameWithoutExtension(asset.relativePath);
-          final ext = p.extension(asset.relativePath);
+          final dir = p.dirname(relativePath);
+          final base = p.basenameWithoutExtension(relativePath);
+          final ext = p.extension(relativePath);
           final shortSha = asset.sha256.substring(0, 8);
           final newRel = dir == '.' || dir.isEmpty
               ? '${base}__$shortSha$ext'
               : '$dir/${base}__$shortSha$ext';
           final newFull = QuestPaths.questFile(questId, newRel);
           await _writeBytes(newFull, data);
-          remap[asset.relativePath] = newRel;
+          remap[relativePath] = newRel;
           copied++;
         } else {
           await _writeBytes(questFile, data);

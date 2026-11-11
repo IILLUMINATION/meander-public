@@ -1,4 +1,5 @@
 import 'package:canvas_app/core/services/import_service.dart';
+import 'package:canvas_app/core/utils/archive_entry_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Zip Slip в Dart-распаковке: имя записи архива подставлялось в путь
@@ -44,6 +45,35 @@ void main() {
       expect(ImportService.sanitizeArchiveEntryPath(''), isNull);
       expect(ImportService.sanitizeArchiveEntryPath('/'), isNull);
       expect(ImportService.sanitizeArchiveEntryPath('.'), isNull);
+    });
+  });
+
+  group('resolveArchiveTarget', () {
+    test('собирает путь внутри корня', () {
+      expect(
+        resolveArchiveTarget('/tmp/app/quests', 'q1/config.json'),
+        '/tmp/app/quests/q1/config.json',
+      );
+    });
+
+    test('не выпускает наружу и не принимает сам корень', () {
+      expect(resolveArchiveTarget('/tmp/app/quests', '../escape.txt'), isNull);
+      expect(
+        resolveArchiveTarget('/tmp/app/quests', 'q1/../../escape.txt'),
+        isNull,
+      );
+      expect(resolveArchiveTarget('/tmp/app/quests', '/abs.txt'), isNull);
+      expect(resolveArchiveTarget('/tmp/app/quests', 'C:/evil.txt'), isNull);
+      expect(resolveArchiveTarget('/tmp/app/quests', '..'), isNull);
+    });
+
+    test('двойная проверка ловит имя, прошедшее нормализацию', () {
+      // После санитайзера путь уже относительный — проверка isWithin
+      // остаётся страховкой от платформенных сюрпризов.
+      expect(
+        resolveArchiveTarget('/tmp/app', './a/./b.txt'),
+        '/tmp/app/a/b.txt',
+      );
     });
   });
 }
