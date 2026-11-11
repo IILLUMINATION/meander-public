@@ -311,6 +311,25 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
       context,
       questId: widget.questId,
       onJumpToNode: _jumpToNode,
+      onOpenScript: _openScriptFromValidation,
+    );
+  }
+
+  /// Переход к источнику проблемы: валидатор отдаёт путь скрипта
+  /// (`scripts/<id>.json` или `.lua`), редактор адресует скрипты по имени.
+  void _openScriptFromValidation(String scriptPath) {
+    final fileName = scriptPath.split('/').last;
+    if (fileName.endsWith('.lua')) {
+      EditorDocumentLauncher.openLua(context, widget.questId, fileName);
+      return;
+    }
+    final dot = fileName.lastIndexOf('.');
+    final scriptId = dot > 0 ? fileName.substring(0, dot) : fileName;
+    EditorDocumentLauncher.openVisualScript(
+      context,
+      widget.questId,
+      scriptId,
+      title: fileName,
     );
   }
 
