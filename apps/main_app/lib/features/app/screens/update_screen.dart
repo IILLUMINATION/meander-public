@@ -41,7 +41,7 @@ class UpdateScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr('Ссылка на загрузку не задана — зайдите на meander.sbs'),
+              tr('Ссылка на загрузку не задана — зайдите на meander.illuminat.dev'),
             ),
             behavior: SnackBarBehavior.floating,
           ),

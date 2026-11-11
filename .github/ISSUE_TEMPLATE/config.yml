@@ -5,5 +5,5 @@ contact_links:
     url: https://github.com/IILLUMINATION/meander-public/security/advisories/new
     about: Не заводите публичный issue про дыру; порядок описан в README, раздел Security.
   - name: Скачать готовое приложение
-    url: https://meander.sbs
+    url: https://meander.illuminat.dev
     about: Сборки для Android, Windows, macOS и Linux, если собирать из исходников не хочется.

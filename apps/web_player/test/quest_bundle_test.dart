@@ -61,7 +61,7 @@ void main() {
     test('голый zip без магии — так квесты лежат в каталоге маркета', () {
       final bundle = decodeMnd(
         mndBytes(_questFiles),
-        'https://meander.sbs/quest-src/quest-1.mnd',
+        'https://meander.illuminat.dev/quest-src/quest-1.mnd',
       );
       expect(bundle.title, 'Проба');
       expect(bundle.hasScripts, isTrue);
@@ -77,7 +77,7 @@ void main() {
         });
       final bundle = decodeMnd(
         mndBytes(files),
-        'https://meander.sbs/quest-src/quest-1.mnd',
+        'https://meander.illuminat.dev/quest-src/quest-1.mnd',
       );
       expect(bundle.templates, hasLength(1));
       expect((bundle.templates.single as Map)['id'], 't1');

@@ -89,7 +89,7 @@ void main() {
     test('res/templates.json карты раскрыт в движке', () async {
       final bundle = decodeMnd(
         mndBytes(_questFiles),
-        'https://meander.sbs/quest-src/tpl-quest.mnd',
+        'https://meander.illuminat.dev/quest-src/tpl-quest.mnd',
       );
       expect(bundle.templates, hasLength(1));
 

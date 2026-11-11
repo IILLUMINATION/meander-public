@@ -23,7 +23,7 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 class QuestPdfBuilder {
   static const String _googlePlayUrl =
       'https://play.google.com/store/apps/details?id=com.IILLUMINAT.meadner';
-  static const String _websiteUrl = 'https://meander.sbs/';
+  static const String _websiteUrl = 'https://meander.illuminat.dev/';
 
   static Future<Uint8List> build(
     QuestBook book, {
@@ -222,7 +222,7 @@ class QuestPdfBuilder {
                       style: pw.TextStyle(fontSize: 8.5, color: c.mutedSoft),
                     ),
                     pw.Text(
-                      'meander.sbs',
+                      'meander.illuminat.dev',
                       style: pw.TextStyle(fontSize: 8.5, color: c.mutedSoft),
                     ),
                   ],
@@ -337,7 +337,7 @@ class QuestPdfBuilder {
                 pw.Expanded(
                   child: _bannerLink(
                     c,
-                    'meander.sbs',
+                    'meander.illuminat.dev',
                     _websiteUrl,
                     primary: false,
                   ),
@@ -778,7 +778,7 @@ class QuestPdfBuilder {
                 ),
                 pw.SizedBox(width: 6),
                 pw.Text(
-                  'Meander · meander.sbs',
+                  'Meander · meander.illuminat.dev',
                   style: pw.TextStyle(
                     fontSize: 8,
                     color: c.mutedSoft,

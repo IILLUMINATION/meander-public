@@ -120,7 +120,7 @@ final Map<String, String> frStrings = {
   'Разработчик и дизайнер': 'Développeur et designer',
   'С чего начнём?': 'Par où commencer ?',
   'Скачать': 'Télécharger',
-  'Ссылка на загрузку не задана — зайдите на meander.sbs': 'Lien de téléchargement non défini — rendez-vous sur meander.sbs',
+  'Ссылка на загрузку не задана — зайдите на meander.illuminat.dev': 'Lien de téléchargement non défini — rendez-vous sur meander.illuminat.dev',
   'Текущая версия': 'Version actuelle',
   'Этот выбор решает только первый экран: квесты открываются со входа, редактор — из «Мои». Табы никуда не деваются — передумаешь в один тап.': 'Ce choix ne décide que du premier écran : les quêtes s\'ouvrent depuis l\'entrée, l\'éditeur depuis « Mes ». Les onglets ne disparaissent pas — tu changeras d\'avis en un seul tap.',
   'Будьте первым, кто оставит мнение': 'Sois le premier à laisser ton avis',

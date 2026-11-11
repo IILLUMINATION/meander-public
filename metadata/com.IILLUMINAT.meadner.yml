@@ -11,7 +11,7 @@ Categories:
   - Writing
 License: AGPL-3.0-or-later
 AuthorName: IILLUMINATION
-WebSite: https://meander.sbs
+WebSite: https://meander.illuminat.dev
 SourceCode: https://github.com/IILLUMINATION/meander-public
 IssueTracker: https://github.com/IILLUMINATION/meander-public/issues
 Changelog: https://github.com/IILLUMINATION/meander-public/releases
@@ -37,7 +37,7 @@ Description: |-
 
   The editor, the player and the quest library run locally with no account and
   no network. An account is only needed for cloud sync, publishing, forums and
-  direct messages; those are served by meander.sbs, whose backend lives in this
+  direct messages; those are served by meander.illuminat.dev, whose backend lives in this
   repository (crates/mnd-server), so you can host your own.
 
 RepoType: git

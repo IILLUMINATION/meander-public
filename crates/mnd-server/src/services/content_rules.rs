@@ -73,7 +73,7 @@ pub struct ScanOptions {
     pub allow_ads: bool,
 }
 
-const MEANDER_HOSTS: [&str; 2] = ["meander.sbs", "meander.app"];
+const MEANDER_HOSTS: [&str; 2] = ["meander.illuminat.dev", "meander.app"];
 
 const MAT_ANYWHERE: [&str; 16] = [
     "пизд",
@@ -675,7 +675,7 @@ mod tests {
         assert!(
             find(
                 &scan_text(
-                    "meander.sbs/share/abc",
+                    "meander.illuminat.dev/share/abc",
                     Scope::Description,
                     ScanOptions::default()
                 ),

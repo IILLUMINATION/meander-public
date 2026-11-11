@@ -1,5 +1,11 @@
 # ЗАКРЫТ: временный обход nginx (Cloudflare Flexible)
 
+> **2026-11-11, переезд домена.** `meander.sbs` не продлён и больше не
+> резолвится; бэкенд живёт на `https://meander.illuminat.dev` (nginx
+> `meander-illuminat`, сертификат certbot, `BASE_URL` в
+> `/var/www/mnd/backend/.env` обновлён на стороне сервера). Ниже — история
+> разбора петли Cloudflare+nginx на старом домене, оставлена как справка.
+
 **Статус: закрыт.** 2026-11-07, ~20:55 UTC. Cloudflare снова проксирует
 трафик и ходит на origin по **HTTPS** (Full/Full strict); origin-конфиги
 восстановлены: HTTP → `301`, HTTPS → `200`. Петли редиректов нет.

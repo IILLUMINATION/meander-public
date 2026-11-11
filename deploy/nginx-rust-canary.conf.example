@@ -39,7 +39,7 @@ map "$canary_read_eligible:$canary_bucket" $canary_port {
 
 server {
     listen 443 ssl;
-    server_name backend.meander.sbs;
+    server_name meander.illuminat.dev;
 
     # ... existing TLS/Cloudflare-real-ip configuration ...
 

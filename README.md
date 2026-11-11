@@ -34,7 +34,7 @@
   <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white"></a>
   <a href="LICENSE"><img alt="Лицензия: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue"></a>
   <a href="https://aur.archlinux.org/packages/meander-bin"><img alt="AUR" src="https://img.shields.io/aur/version/meander-bin?label=AUR"></a>
-  <a href="https://meander.sbs"><img alt="Сайт" src="https://img.shields.io/badge/meander.sbs-сайт-2f2f2f"></a>
+  <a href="https://meander.illuminat.dev"><img alt="Сайт" src="https://img.shields.io/badge/meander.illuminat.dev-сайт-2f2f2f"></a>
 </p>
 
 <table>

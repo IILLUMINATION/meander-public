@@ -26,14 +26,14 @@ void main() {
   group('ссылки приложения', () {
     test('share-ссылка квеста с прод-хоста', () {
       expect(
-        firstEntity('прошёл https://backend.meander.sbs/share/quest/$questId'),
+        firstEntity('прошёл https://meander.illuminat.dev/share/quest/$questId'),
         const MeanderEntity(kind: MeanderEntityKind.quest, id: questId),
       );
     });
 
     test('ссылка профиля без протокола', () {
       expect(
-        firstEntity('вот человек: meander.sbs/share/profile/$userId'),
+        firstEntity('вот человек: meander.illuminat.dev/share/profile/$userId'),
         const MeanderEntity(kind: MeanderEntityKind.profile, id: userId),
       );
     });
@@ -72,7 +72,7 @@ void main() {
   group('markdown-ссылка', () {
     test('подпись остаётся текстом, адрес становится карточкой', () {
       final segments = splitMeanderEntities(
-        'советую [вот этот квест](https://backend.meander.sbs/share/quest/$questId) всем',
+        'советую [вот этот квест](https://meander.illuminat.dev/share/quest/$questId) всем',
       );
       expect(
         segments.map((segment) => segment.isEntity ? '#card' : segment.text),
@@ -82,7 +82,7 @@ void main() {
 
     test('из одного вложения — одна карточка', () {
       final segments = splitMeanderEntities(
-        '[квест](https://backend.meander.sbs/share/quest/$questId)',
+        '[квест](https://meander.illuminat.dev/share/quest/$questId)',
       );
       expect(
         segments.where((segment) => segment.isEntity).length,
@@ -93,8 +93,8 @@ void main() {
 
     test('несколько ссылок в одном сообщении', () {
       final segments = splitMeanderEntities(
-        'квест https://backend.meander.sbs/share/quest/$questId и '
-        'профиль https://meander.sbs/share/profile/$userId',
+        'квест https://meander.illuminat.dev/share/quest/$questId и '
+        'профиль https://meander.illuminat.dev/share/profile/$userId',
       );
       expect(segments.where((segment) => segment.isEntity).map((s) => s.entity), [
         const MeanderEntity(kind: MeanderEntityKind.quest, id: questId),
@@ -137,11 +137,11 @@ void main() {
     expect(firstEntity('обычный текст без ссылок'), null);
     expect(firstEntity(''), null);
     expect(hasMeanderEntity('обычный текст без ссылок'), isFalse);
-    expect(hasMeanderEntity('https://backend.meander.sbs/share/quest/$questId'), isTrue);
+    expect(hasMeanderEntity('https://meander.illuminat.dev/share/quest/$questId'), isTrue);
   });
 
   test('текст вокруг карточки сохраняется целиком', () {
-    const source = 'до https://backend.meander.sbs/share/quest/$questId после';
+    const source = 'до https://meander.illuminat.dev/share/quest/$questId после';
     expect(texts(source).join(), isNot(contains(questId)));
     expect(texts(source).join(), 'до  после');
   });

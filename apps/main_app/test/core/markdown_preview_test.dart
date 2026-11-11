@@ -6,15 +6,15 @@ void main() {
     test('достает адрес картинки из тела', () {
       expect(
         markdownImageUrls(
-          'вот что вышло\n![Фото](https://backend.meander.sbs/uploads/1.jpg)\n',
+          'вот что вышло\n![Фото](https://meander.illuminat.dev/uploads/1.jpg)\n',
         ),
-        ['https://backend.meander.sbs/uploads/1.jpg'],
+        ['https://meander.illuminat.dev/uploads/1.jpg'],
       );
     });
 
     test('картинку не путает со ссылкой', () {
       expect(
-        markdownImageUrls('[квест](https://meander.sbs/share/quest/1)'),
+        markdownImageUrls('[квест](https://meander.illuminat.dev/share/quest/1)'),
         isEmpty,
       );
     });
@@ -28,18 +28,18 @@ void main() {
 
     test('картинка уходит из превью, адрес — в миниатюру', () {
       const body =
-          '![Фото](https://backend.meander.sbs/uploads/media/4a831d1d)\n'
+          '![Фото](https://meander.illuminat.dev/uploads/media/4a831d1d)\n'
           'красиво вышло';
       expect(markdownPlainText(body), 'красиво вышло');
       expect(markdownImageUrls(body), [
-        'https://backend.meander.sbs/uploads/media/4a831d1d',
+        'https://meander.illuminat.dev/uploads/media/4a831d1d',
       ]);
     });
 
     test('ссылка оставляет подпись человека, а не адрес', () {
       expect(
         markdownPlainText(
-          'смотри [вот этот квест](https://meander.sbs/share/quest/1)',
+          'смотри [вот этот квест](https://meander.illuminat.dev/share/quest/1)',
         ),
         'смотри вот этот квест',
       );

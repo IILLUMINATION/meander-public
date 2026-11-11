@@ -23,13 +23,13 @@ void main() {
     await pump(
       tester,
       MeanderEntityLinkText(
-        data: 'зацени https://backend.meander.sbs/share/quest/$questId',
+        data: 'зацени https://meander.illuminat.dev/share/quest/$questId',
       ),
     );
 
     expect(find.textContaining('квест · 3a84a172'), findsOneWidget);
     expect(find.textContaining(questId), findsNothing);
-    expect(find.textContaining('backend.meander.sbs'), findsNothing);
+    expect(find.textContaining('meander.illuminat.dev'), findsNothing);
   });
 
   testWidgets('у ссылки есть InkWell — по ней можно нажать', (tester) async {

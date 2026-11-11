@@ -62,11 +62,11 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data
                     android:scheme="https"
-                    android:host="backend.meander.sbs"
+                    android:host="meander.illuminat.dev"
                     android:pathPrefix="/share" />
                 <data
                     android:scheme="http"
-                    android:host="backend.meander.sbs"
+                    android:host="meander.illuminat.dev"
                     android:pathPrefix="/share" />
             </intent-filter>
 

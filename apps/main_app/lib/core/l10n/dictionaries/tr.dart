@@ -250,7 +250,7 @@ final Map<String, String> trStrings = {
   'Разработчик и дизайнер': 'Geliştirici ve tasarımcı',
   'С чего начнём?': 'Nereden başlasak?',
   'Скачать': 'İndir',
-  'Ссылка на загрузку не задана — зайдите на meander.sbs': 'İndirme bağlantısı tanımlanmadı — meander.sbs adresine gidin',
+  'Ссылка на загрузку не задана — зайдите на meander.illuminat.dev': 'İndirme bağlantısı tanımlanmadı — meander.illuminat.dev adresine gidin',
   'Текущая версия': 'Geçerli sürüm',
   'Этот выбор решает только первый экран: квесты открываются со входа, редактор — из «Мои». Табы никуда не деваются — передумаешь в один тап.': 'Bu seçim yalnızca ilk ekranı belirler: quest\'ler girişten, editör «Benimkiler»den açılır. Sekmeler kaybolmaz — tek dokunuşta fikrini değiştirebilirsin.',
   'JSON должен содержать поля preset (corner/h/v/center assets). Пример смотри в редакторе пресетов.': 'JSON, ön ayar alanlarını içermeli (corner/h/v/center assets). Örneği ön ayar editöründe gör.',

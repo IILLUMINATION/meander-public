@@ -112,7 +112,7 @@ export const uploadImage = async (filePath: string): Promise<string> => {
         fs.copyFileSync(filePath, targetPath);
         
         // 4. Формируем ссылку
-        // БАЗОВЫЙ URL ДОЛЖЕН БЫТЬ В .env БЕЗ СЛЕША В КОНЦЕ (например: https://backend.meander.sbs)
+        // БАЗОВЫЙ URL ДОЛЖЕН БЫТЬ В .env БЕЗ СЛЕША В КОНЦЕ (например: https://meander.illuminat.dev)
         const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
         
         // Возвращаем прямую ссылку на твой сервер

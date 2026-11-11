@@ -16,7 +16,7 @@ For authors:
 
 The editor, the player and the quest library run locally with no account and
 no network. An account is only needed for cloud sync, publishing, forums and
-direct messages; those are served by meander.sbs, whose backend lives in this
+direct messages; those are served by meander.illuminat.dev, whose backend lives in this
 repository (crates/mnd-server), so you can host your own.
 
 Source: https://github.com/IILLUMINATION/meander-public

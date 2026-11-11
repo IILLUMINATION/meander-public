@@ -92,7 +92,7 @@ Future<QuestPlayer> _questPlayer(WidgetTester tester) async {
   QuestPlayer? created;
   await tester.runAsync(() async {
     created = QuestPlayer(
-      decodeMnd(mndBytes(_questFiles), 'https://meander.sbs/quest-src/o.mnd'),
+      decodeMnd(mndBytes(_questFiles), 'https://meander.illuminat.dev/quest-src/o.mnd'),
     );
     await created!.start();
   });

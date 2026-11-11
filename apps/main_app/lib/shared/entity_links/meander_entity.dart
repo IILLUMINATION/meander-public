@@ -1,7 +1,7 @@
 /// Ссылки на свои же сущности внутри пользовательского текста.
 ///
 /// Человек вставляет в пост, обзор, описание квеста или личное сообщение то,
-/// что уже есть в приложении: `https://backend.meander.sbs/share/quest/<id>`,
+/// что уже есть в приложении: `https://meander.illuminat.dev/share/quest/<id>`,
 /// `meander://profile/<id>` или голый uuid. Раньше такое либо уводило в
 /// браузер, поскольку markdown-ссылка открывалась системным viewer, либо
 /// лежало серой строкой символов, по которой нельзя нажать. Здесь решается
@@ -49,7 +49,7 @@ final RegExp _uuid = RegExp(
   caseSensitive: false,
 );
 
-const String _prodHosts = r'(?:backend\.)?meander\.sbs';
+const String _prodHosts = r'(?:backend\.)?meander\.(?:sbs|illuminat\.dev)';
 
 /// Хосты, которые принадлежат приложению. Без этого чужой
 /// `example.com/share/quest/<uuid>` тоже превратился бы в карточку.
@@ -65,7 +65,7 @@ String _sharePattern({required String before, required String after}) =>
     '$before(?:https?://)?($_hosts)/share/(quest|profile|post)/'
     '(${_uuid.pattern})$after';
 
-/// `[вот этот квест](https://backend.meander.sbs/share/quest/<id>)` — подпись
+/// `[вот этот квест](https://meander.illuminat.dev/share/quest/<id>)` — подпись
 /// человека остаётся подписью, карточка встаёт вместо адреса.
 final RegExp _markdownLink = RegExp(
   _sharePattern(before: r'\[([^\]\n]*)\]\(\s*', after: r'\s*\)'),

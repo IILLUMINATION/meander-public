@@ -30,7 +30,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Ссылка на загрузку не задана — зайдите на meander.sbs'),
+      find.text('Ссылка на загрузку не задана — зайдите на meander.illuminat.dev'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -44,7 +44,7 @@ void main() {
         const UpdateScreen(
           version: '2.9.0',
           changelog: '',
-          downloadUrl: 'meander.sbs/apk',
+          downloadUrl: 'meander.illuminat.dev/apk',
           isCritical: true,
         ),
       ),
@@ -65,7 +65,7 @@ void main() {
           const UpdateScreen(
             version: '2.9.0',
             changelog: '',
-            downloadUrl: 'https://meander.sbs',
+            downloadUrl: 'https://meander.illuminat.dev',
             isCritical: true,
           ),
         ),

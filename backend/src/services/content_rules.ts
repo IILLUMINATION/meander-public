@@ -28,7 +28,7 @@ export interface Verdict {
     codes: string[];
 }
 
-const MEANDER_HOSTS = ['meander.sbs', 'meander.app'];
+const MEANDER_HOSTS = ['meander.illuminat.dev', 'meander.app'];
 
 const ZERO_WIDTH = /[​-‏­﻿]/g;
 // Точки и дефисы не трогаем: они держат границу слова для проверки мата.

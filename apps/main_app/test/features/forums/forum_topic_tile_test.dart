@@ -93,7 +93,7 @@ void main() {
         topic: ForumTopic(
           id: 'p2',
           title: 'Проверка',
-          body: '![Фото](https://backend.meander.sbs/uploads/1.jpg)',
+          body: '![Фото](https://meander.illuminat.dev/uploads/1.jpg)',
           author: const ForumPerson(id: 'u1', name: 'Лена'),
           likesCount: 0,
           commentsCount: 0,

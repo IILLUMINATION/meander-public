@@ -73,7 +73,7 @@ void main() {
 
     expect(
       copied,
-      'https://backend.meander.sbs/share/post/'
+      'https://meander.illuminat.dev/share/post/'
       '11111111-1111-1111-1111-111111111111',
     );
     expect(find.text('Ссылка скопирована в буфер обмена'), findsOneWidget);

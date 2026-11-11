@@ -40,14 +40,14 @@ void main() {
     final calls = setUpLauncher(tester);
     await pumpApp(tester);
 
-    DeepLinkService().openUrl('https://meander.sbs/pricing');
+    DeepLinkService().openUrl('https://meander.illuminat.dev/pricing');
     await tester.pumpAndSettle();
 
     final launched = calls
         .where((c) => c.method == 'launch')
         .map((c) => (c.arguments as Map)['url'])
         .toList();
-    expect(launched, ['https://meander.sbs/pricing']);
+    expect(launched, ['https://meander.illuminat.dev/pricing']);
   });
 
   testWidgets('чужая meander-схема в браузер не уезжает', (tester) async {

@@ -48,7 +48,7 @@ final Map<String, String> _media = {
   'res/images/мой фон.png': 'SPACE PNG',
 };
 
-const String _questUrl = 'https://meander.sbs/quest-src/quest-1.mnd';
+const String _questUrl = 'https://meander.illuminat.dev/quest-src/quest-1.mnd';
 
 String _manifest({int version = 1}) => jsonEncode({
   'version': version,
@@ -161,7 +161,7 @@ void main() {
     test('база выводится из URL квеста и переопределяется', () async {
       final server = _Server();
       await openQuestAssets(
-        'https://meander.sbs/quests/quest-1/file',
+        'https://meander.illuminat.dev/quests/quest-1/file',
         client: server.client(),
       );
       expect(server.manifestCalls, 1);
@@ -169,7 +169,7 @@ void main() {
       final explicit = _Server();
       await openQuestAssets(
         _questUrl,
-        base: 'https://meander.sbs/quest-src/quest-1/',
+        base: 'https://meander.illuminat.dev/quest-src/quest-1/',
         client: explicit.client(),
       );
       expect(explicit.manifestCalls, 1);
@@ -199,7 +199,7 @@ void main() {
     test('URL не похож на квест — манифест не спрашиваем', () async {
       final server = _Server();
       final assets = await openQuestAssets(
-        'https://meander.sbs/assets/quest.zip',
+        'https://meander.illuminat.dev/assets/quest.zip',
         client: server.client(),
       );
 

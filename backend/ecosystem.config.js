@@ -8,7 +8,7 @@ module.exports = {
       max_memory_restart: '800M',
       env: {
         NODE_ENV: "production",
-        CORS_ORIGINS: "https://meander.sbs,https://www.meander.sbs"
+        CORS_ORIGINS: "https://meander.illuminat.dev,https://illuminat.dev"
       }
     }]
   }

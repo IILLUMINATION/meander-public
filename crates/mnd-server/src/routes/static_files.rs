@@ -28,7 +28,7 @@ static QUEST_FILE: LazyLock<Regex> = LazyLock::new(|| {
 pub const SECURITY_TXT: &str = "Contact: https://github.com/IILLUMINATION/meander-public/security/advisories/new\n\
 Expires: 2027-11-07T00:00:00.000Z\n\
 Preferred-Languages: ru, en\n\
-Canonical: https://backend.meander.sbs/.well-known/security.txt\n";
+Canonical: https://meander.illuminat.dev/.well-known/security.txt\n";
 
 pub const ROBOTS_TXT: &str = "User-agent: *\nDisallow: /\nAllow: /share/\n";
 
