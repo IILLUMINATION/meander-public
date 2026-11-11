@@ -7,7 +7,6 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/core/utils/apple_nonce.dart';
-import 'package:canvas_app/core/utils/pkce.dart';
 import 'package:canvas_app/features/app/screens/eula_screen.dart';
 import 'package:canvas_app/features/profile/providers/fcm_token_provider.dart';
 import 'package:canvas_app/features/profile/providers/profile_provider.dart';
@@ -28,9 +27,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:canvas_app/core/services/google_browser_auth.dart';
 import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:telegram_login/telegram_login.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:yandex_login_sdk/yandex_login_sdk.dart';
 import 'package:canvas_app/core/services/socket_service.dart';
 
@@ -425,9 +424,12 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   Future<void> _handleSignIn() async {
     final bool isDesktop =
         !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+    // На телефоне браузерный фолбэк тоже считается рабочим входом: без него
+    // устройства без Google Play Services остались бы без кнопки вовсе.
     final bool googleConfigured = isDesktop
         ? OAuthConfig.googleDesktopClientId.isNotEmpty
-        : OAuthConfig.googleMobileServerClientId.isNotEmpty;
+        : OAuthConfig.googleMobileServerClientId.isNotEmpty ||
+              OAuthConfig.googleDesktopClientId.isNotEmpty;
     if (!googleConfigured) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -447,9 +449,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
 
     try {
       if (isDesktop) {
-        await _signInWithGoogleDesktop();
+        await _signInWithGoogleBrowser();
       } else {
-        await _signInWithGoogleMobile();
+        await _signInWithGoogleMobileWithFallback();
       }
     } on GoogleSignInException catch (e) {
       // canceled - юзер закрыл окно, тихо выходим
@@ -734,6 +736,11 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   }
 
   String _mapSignInError(Object error) {
+    if (error is TimeoutException) {
+      // Текст таймаута уже человеческий (натив окно не дал или вкладку
+      // закрыли) — оборачивать его в «Ошибка входа» незачем.
+      return error.message ?? tr('Вход не завершён');
+    }
     if (error is GoogleSignInException) {
       final details =
           '${error.code} ${error.description ?? ''} ${error.details ?? ''}'
@@ -778,6 +785,74 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
 
   static bool _googleSignInInitialized = false;
 
+  /// Вход на телефоне: сначала нативный Google-вход, а если он невозможен —
+  /// браузерный.
+  ///
+  /// На Huawei и других устройствах без Google Play Services нативного пути
+  /// нет вообще: Credential Manager отвечает `providerConfigurationError`
+  /// (или `unknownError` с developer_error/10). Раньше пользователь получал
+  /// «обновите Play Services» и оставался без входа; браузерный флоу работает
+  /// везде, где есть браузер и сеть.
+  Future<void> _signInWithGoogleMobileWithFallback() async {
+    try {
+      await _signInWithGoogleMobile();
+    } on GoogleSignInException catch (error) {
+      if (!_isGoogleNativeUnavailable(error)) rethrow;
+      await _signInWithGoogleBrowserFallback();
+    } on TimeoutException {
+      // Таймаут нативного окна — тот же случай: система не дала окно входа.
+      await _signInWithGoogleBrowserFallback();
+    } on MissingPluginException {
+      await _signInWithGoogleBrowserFallback();
+    } on UnsupportedError {
+      await _signInWithGoogleBrowserFallback();
+    }
+  }
+
+  Future<void> _signInWithGoogleBrowserFallback() async {
+    if (_desktopClientId.isEmpty) {
+      throw Exception(
+        tr(
+          'Сервис Google входа недоступен, а браузерный вход не настроен в этой сборке.',
+        ),
+      );
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr('Google Play Services недоступны — входим через браузер.'),
+          ),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+    await _signInWithGoogleBrowser();
+  }
+
+  /// Отказ именно из-за отсутствия/поломки сервиса Google, а не из-за
+  /// действий пользователя и не из-за сети.
+  static bool _isGoogleNativeUnavailable(GoogleSignInException error) {
+    switch (error.code) {
+      case GoogleSignInExceptionCode.canceled:
+      case GoogleSignInExceptionCode.interrupted:
+        return false;
+      case GoogleSignInExceptionCode.providerConfigurationError:
+      case GoogleSignInExceptionCode.clientConfigurationError:
+      case GoogleSignInExceptionCode.uiUnavailable:
+      case GoogleSignInExceptionCode.userMismatch:
+        return true;
+      case GoogleSignInExceptionCode.unknownError:
+        final details =
+            '${error.description ?? ''} ${error.details ?? ''}'.toLowerCase();
+        return details.contains('developer_error') ||
+            details.contains('no provider') ||
+            details.contains('no credential') ||
+            details.contains('10');
+    }
+  }
+
   Future<void> _signInWithGoogleMobile() async {
     final GoogleSignIn googleSignIn = GoogleSignIn.instance;
     if (!_googleSignInInitialized) {
@@ -808,117 +883,27 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
     await _authenticateWithBackend(idToken);
   }
 
-  Future<void> _signInWithGoogleDesktop() async {
-    HttpServer? server;
-    try {
-      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final int port = server.port;
-      final String redirectUri = 'http://localhost:$port';
-      // PKCE: verifier живёт только в памяти этого запуска, в браузер уходит
-      // его S256-хеш. state отсекает редирект от чужой сессии браузера.
-      final String verifier = generatePkceVerifier();
-      final String challenge = pkceChallenge(verifier);
-      final String state = generateOAuthState();
-      final String authUrl =
-          'https://accounts.google.com/o/oauth2/v2/auth'
-          '?response_type=code'
-          '&client_id=$_desktopClientId'
-          '&redirect_uri=$redirectUri'
-          '&scope=openid%20email%20profile'
-          '&code_challenge=$challenge'
-          '&code_challenge_method=S256'
-          '&state=$state';
-
-      if (await canLaunchUrl(Uri.parse(authUrl))) {
-        await launchUrl(
-          Uri.parse(authUrl),
-          mode: LaunchMode.externalApplication,
-        );
-      } else {
-        throw Exception(tr('Не удалось открыть браузер.'));
-      }
-
-      String? authCode;
-      await for (var request in server) {
-        final query = request.uri.queryParameters;
-        if (query['state'] != state) {
-          request.response.statusCode = HttpStatus.badRequest;
-          await request.response.close();
-          continue;
-        }
-        final code = query['code'];
-        if (code == null && query['error'] == null) {
-          request.response.statusCode = HttpStatus.notFound;
-          await request.response.close();
-          continue;
-        }
-        authCode = code;
-        request.response
-          ..statusCode = HttpStatus.ok
-          ..headers.contentType = ContentType.html
-          ..write(
-            '<html><body style="background-color:#121212;color:white;text-align:center;font-family:sans-serif;margin-top:100px;"><h1>${tr('Вход выполнен!')}</h1><script>window.close();</script></body></html>',
-          );
-        await request.response.close();
-        break;
-      }
-
-      if (authCode == null) throw Exception(tr('Не получен код авторизации.'));
-
-      final String idToken;
-      if (_desktopClientSecret.isNotEmpty) {
-        // Секрет задан при сборке — можно обменять код напрямую, без нашего
-        // бэкенда (полезно для самосборок).
-        final tokenResponse = await http.post(
-          Uri.parse('https://oauth2.googleapis.com/token'),
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: {
-            'code': authCode,
-            'client_id': _desktopClientId,
-            'client_secret': _desktopClientSecret,
-            'code_verifier': verifier,
-            'redirect_uri': redirectUri,
-            'grant_type': 'authorization_code',
-          },
-        );
-
-        if (tokenResponse.statusCode != 200) {
-          throw Exception(tr('Ошибка обмена токена.'));
-        }
-        final tokenData = jsonDecode(tokenResponse.body);
-        idToken = tokenData['id_token'];
-      } else {
-        // Секрета в сборке нет: код и PKCE-verifier меняет наш сервер, у
-        // которого секрет есть. Так сборка не требует локальных ключей.
-        final exchangeResponse = await http.post(
-          Uri.parse('${AppConfig.apiUrl}/auth/google/exchange'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'code': authCode,
-            'clientId': _desktopClientId,
-            'codeVerifier': verifier,
-            'redirectUri': redirectUri,
-          }),
-        );
-        if (exchangeResponse.statusCode != 200) {
-          throw Exception(
-            trf('Сервер не завершил вход: {p0}', {
-              'p0': exchangeResponse.statusCode,
-            }),
-          );
-        }
-        final data = jsonDecode(utf8.decode(exchangeResponse.bodyBytes));
-        final value = data['idToken'];
-        if (value is! String || value.isEmpty) {
-          throw Exception(tr('Сервер не выдал idToken.'));
-        }
-        idToken = value;
-      }
-
-      await _authenticateWithBackend(idToken);
-    } finally {
-      await server?.close();
-    }
+  /// Браузерный OAuth: loopback-сервер + PKCE + системный браузер.
+  ///
+  /// Работает и на телефоне: Chrome ходит на `localhost` того же устройства,
+  /// а код меняет наш сервер (секрета в сборке нет). Это единственный путь
+  /// входа на устройствах без Google Play Services.
+  Future<void> _signInWithGoogleBrowser() async {
+    final auth = GoogleBrowserAuth(
+      clientId: _desktopClientId,
+      exchangeCode: _desktopClientSecret.isNotEmpty
+          // Секрет вшит в сборку — код меняем напрямую в Google.
+          ? GoogleBrowserAuth.exchangeWithGoogle(
+              clientId: _desktopClientId,
+              clientSecret: _desktopClientSecret,
+            )
+          : GoogleBrowserAuth.exchangeWithBackend(
+              apiUrl: AppConfig.apiUrl,
+              clientId: _desktopClientId,
+            ),
+    );
+    final idToken = await auth.signIn();
+    await _authenticateWithBackend(idToken);
   }
 
   Future<void> _authenticateWithBackend(String idToken) async {
