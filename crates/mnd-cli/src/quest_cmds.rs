@@ -146,6 +146,10 @@ pub struct QuestValidate {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
+    /// Считать предупреждения ошибкой (для CI): код выхода 1 при любом
+    /// замечании, а не только при ошибке.
+    #[arg(long)]
+    strict: bool,
 }
 
 #[derive(Args)]
@@ -880,6 +884,7 @@ fn cmd_validate(args: QuestValidate, ctx: &Ctx) -> Result<i32> {
     let report = analyze_quest(&quest_id, ctx.root);
     let errors = report.stats.errors;
     let warnings = report.stats.warnings;
+    let failed = errors > 0 || (args.strict && warnings > 0);
 
     if ctx.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -926,9 +931,12 @@ fn cmd_validate(args: QuestValidate, ctx: &Ctx) -> Result<i32> {
         if errors == 0 {
             out.push("Ошибок нет.".to_string());
         }
+        if args.strict && errors == 0 && warnings > 0 {
+            out.push("--strict: предупреждения считаются ошибкой.".to_string());
+        }
         println!("{}", out.join("\n"));
     }
-    Ok(if errors > 0 { 1 } else { 0 })
+    Ok(if failed { 1 } else { 0 })
 }
 
 fn cmd_info(args: QuestInfo, ctx: &Ctx) -> Result<()> {
