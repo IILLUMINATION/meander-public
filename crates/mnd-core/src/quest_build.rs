@@ -237,6 +237,7 @@ impl QuestBuilder {
             "backgroundAssetId": null,
             "dimBackground": true,
             "hideNodeTitles": false,
+            "hideTopPanel": false,
             "nodeTransitionMode": "none",
             "scriptEngineMode": "new",
             "pluginDependencies": [],

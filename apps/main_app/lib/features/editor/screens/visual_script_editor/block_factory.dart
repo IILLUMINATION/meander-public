@@ -16,6 +16,7 @@ import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/play_sound_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/set_blur_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/set_image_block_widget.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/set_top_panel_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/set_visible_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/set_volume_block_widget.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/stop_music_block_widget.dart';
@@ -184,6 +185,13 @@ class BlockFactory extends StatelessWidget {
         return SetVisibleBlockWidget(
           block: block as SetVisibleBlock,
           questId: questId,
+          onDelete: isFeedback ? null : onDelete,
+          onMenuAction: menu,
+        );
+
+      case SetTopPanelBlock _:
+        return SetTopPanelBlockWidget(
+          block: block as SetTopPanelBlock,
           onDelete: isFeedback ? null : onDelete,
           onMenuAction: menu,
         );

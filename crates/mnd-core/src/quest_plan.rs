@@ -66,6 +66,10 @@ pub struct PlanQuest {
     /// Стартовая нода: ссылка на ноду этого плана или существующую.
     #[serde(alias = "start_node")]
     pub start_node: Option<String>,
+    /// Не показывать верхнюю панель игры; скрипт может вернуть её блоком
+    /// `set_top_panel`.
+    #[serde(alias = "hide_top_panel")]
+    pub hide_top_panel: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -728,6 +732,9 @@ pub(crate) fn build_plan(
         }
         if let Some(description) = &quest.description {
             config.insert("description".into(), json!(description));
+        }
+        if let Some(hide) = quest.hide_top_panel {
+            config.insert("hideTopPanel".into(), json!(hide));
         }
     }
 
@@ -1862,6 +1869,26 @@ mod tests {
             ],
             "variables": [{"name": "золото", "default": 100}]
         })
+    }
+
+    #[test]
+    fn apply_writes_top_panel_setting() {
+        let (root, builder) = new_quest();
+        let plan = json!({
+            "quest": {"hideTopPanel": true},
+            "nodes": [{"title": "Старт", "items": [{"type": "text", "text": "Тьма"}]}]
+        });
+        let report = apply(&builder, plan);
+        assert!(report.ok, "issues: {:?}", report.issues);
+        let config: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("quests/q1/config.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            config["hideTopPanel"].as_bool(),
+            Some(true),
+            "настройка верхней панели должна доехать до config.json"
+        );
     }
 
     #[test]

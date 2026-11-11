@@ -1140,6 +1140,8 @@ class _VisualScriptEditorScreenState
         return SetImageBlock();
       case BlockTypes.setVisible:
         return SetVisibleBlock();
+      case BlockTypes.setTopPanel:
+        return SetTopPanelBlock();
       case 'play_sound':
         return PlaySoundBlock();
       case 'stop_sound':

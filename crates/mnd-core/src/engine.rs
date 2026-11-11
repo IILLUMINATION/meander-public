@@ -495,6 +495,13 @@ impl GameEngine {
         // ноды. Дефолт 10.0 живёт на стороне плеера; если сеять его здесь,
         // канал эффектов всегда «активен» и перебивает настройку ноды.
         let defaults: Vec<(&str, Value)> = vec![
+            // Стартовое состояние верхней панели — настройка квеста.
+            // Переменная сеётся всегда: `toggle` в первом же блоке скрипта
+            // должен знать, видна ли панель сейчас.
+            (
+                "_internal_top_panel_hidden",
+                Value::from(self.config.hide_top_panel),
+            ),
             ("_internal_node_content_volume", Value::from(1.0)),
             ("_internal_tag_volume", Value::from(1.0)),
             ("_internal_play_sound_id", Value::Null),

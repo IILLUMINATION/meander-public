@@ -20,6 +20,7 @@ abstract final class BlockTypes {
   static const tableOperation = 'table_operation';
   static const setImage = 'set_image';
   static const setVisible = 'set_visible';
+  static const setTopPanel = 'set_top_panel';
   static const forEach = 'for_each';
   static const whileLoop = 'while';
   static const wait = 'wait';

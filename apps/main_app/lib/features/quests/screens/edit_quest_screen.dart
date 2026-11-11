@@ -85,6 +85,7 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
 
   bool _dimBackground = false;
   bool _hideNodeTitles = false;
+  bool _hideTopPanel = false;
   bool _wrapButtonText = true;
   bool _allowOpenContent = false;
   String? _questLanguage;
@@ -152,6 +153,7 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
 
         _dimBackground = quest.dimBackground;
         _hideNodeTitles = quest.hideNodeTitles;
+        _hideTopPanel = quest.hideTopPanel;
         _wrapButtonText = quest.wrapButtonText;
         _allowOpenContent = quest.allowOpenContent;
         _questLanguage = quest.language;
@@ -242,6 +244,7 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
       config['category'] = _selectedGenres.first;
       config['dimBackground'] = _dimBackground;
       config['hideNodeTitles'] = _hideNodeTitles;
+      config['hideTopPanel'] = _hideTopPanel;
       config['wrapButtonText'] = _wrapButtonText;
       config['defaultButtonPresetName'] = _defaultButtonPresetName;
       config['musicInBackground'] = _musicInBackground;
@@ -932,6 +935,18 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
           value: _hideNodeTitles,
           onChanged: (v) => setState(() {
             _hideNodeTitles = v;
+            _isDirty = true;
+          }),
+        ),
+        const SizedBox(height: 8),
+        _buildSwitchCard(
+          title: tr('Скрыть верхнюю панель в игре'),
+          subtitle: tr(
+            'Панель с кнопками «назад», сохранения и громкости не будет видна. Скрипт может вернуть её блоком «Верхняя панель».',
+          ),
+          value: _hideTopPanel,
+          onChanged: (v) => setState(() {
+            _hideTopPanel = v;
             _isDirty = true;
           }),
         ),

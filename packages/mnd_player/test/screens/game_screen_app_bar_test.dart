@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mnd_player/providers/game_state_provider.dart';
 import 'package:mnd_player/screens/game_screen.dart';
 
 Future<bool> _neverStart() async => false;
@@ -73,4 +74,38 @@ void main() {
       expect(editTaps, 1);
     },
   );
+
+  testWidgets('скрипт прячет и возвращает верхнюю панель', (tester) async {
+    // Панель — часть сцены: переменную сеет движок из настройки квеста,
+    // затем её меняет блок set_top_panel. Здесь проверяем саму реакцию
+    // экрана на переменную, не поднимая FFI-движок.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final gameState = container.read(gameStateProvider.notifier);
+    gameState.setVariable('_internal_top_panel_hidden', true);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: GameScreen(
+            questId: 'test-quest',
+            preflight: _neverStart,
+            isTesting: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('Громкость'), findsNothing);
+    expect(find.byTooltip('Сохранить'), findsNothing);
+
+    // Вернуть панель — тот же экран, без пересоздания.
+    gameState.setVariable('_internal_top_panel_hidden', false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('Громкость'), findsOneWidget);
+    expect(find.byTooltip('Сохранить'), findsOneWidget);
+  });
 }

@@ -39,6 +39,7 @@ mod open_link;
 mod save_operation;
 mod set_blur;
 mod set_image;
+mod set_top_panel;
 // pub(crate): валидатор скриптов сверяет режим с тем же списком, что и блок.
 pub(crate) mod set_visible;
 mod set_volume;
@@ -310,6 +311,13 @@ fn registry() -> &'static HandlerMap {
                 call_function::CallFunction
             ),
             block!("call_lua", "Lua", &[], Script, call_lua::CallLua),
+            block!(
+                "set_top_panel",
+                "Верхняя панель",
+                &["верхняя_панель", "set_panel"],
+                Data,
+                set_top_panel::SetTopPanel
+            ),
             block!("set_volume", "Громкость", &[], Audio, set_volume::SetVolume),
             block!("set_blur", "Размытие", &[], Audio, set_blur::SetBlur),
             block!("play_sound", "Звук", &[], Audio, audio::PlaySound),

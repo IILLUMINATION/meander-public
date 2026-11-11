@@ -62,6 +62,10 @@ class Quest {
   final List<String>? screenshotFiles;
   final bool dimBackground;
   final bool hideNodeTitles;
+
+  /// Не показывать верхнюю панель игры (назад/сохранить/загрузить/громкость).
+  /// Скрипт может вернуть её блоком `set_top_panel`.
+  final bool hideTopPanel;
   final List<String> genres;
   final String defaultTextFit;
   final bool isReadOnly;
@@ -114,6 +118,7 @@ class Quest {
     this.screenshotFiles,
     this.dimBackground = true,
     this.hideNodeTitles = false,
+    this.hideTopPanel = false,
     this.genres = const [],
     this.defaultTextFit = 'scale',
     this.isReadOnly = false,
@@ -140,6 +145,7 @@ class Quest {
   factory Quest.fromJson(Map<String, dynamic> json) {
     final bool isDimmed = json['dimBackground'] as bool? ?? true;
     final bool isTitlesHidden = json['hideNodeTitles'] as bool? ?? false;
+    final bool isTopPanelHidden = json['hideTopPanel'] as bool? ?? false;
     final String textFit = json['defaultTextFit'] as String? ?? 'scale';
     final bool readOnly = json['isReadOnly'] as bool? ?? false;
     final bool isMarketDownloaded =
@@ -200,6 +206,7 @@ class Quest {
           .toList(),
       dimBackground: isDimmed,
       hideNodeTitles: isTitlesHidden,
+      hideTopPanel: isTopPanelHidden,
       genres: loadedGenres,
       defaultTextFit: textFit,
       isReadOnly: readOnly,
@@ -245,6 +252,7 @@ class Quest {
     'version': version,
     'dimBackground': dimBackground,
     'hideNodeTitles': hideNodeTitles,
+    'hideTopPanel': hideTopPanel,
     'genres': genres,
     'defaultTextFit': defaultTextFit,
     'isReadOnly': isReadOnly,
@@ -287,6 +295,7 @@ class Quest {
     List<String>? screenshotFiles,
     bool? dimBackground,
     bool? hideNodeTitles,
+    bool? hideTopPanel,
     List<String>? genres,
     String? defaultTextFit,
     bool? isReadOnly,
@@ -326,6 +335,7 @@ class Quest {
       screenshotFiles: screenshotFiles ?? this.screenshotFiles,
       dimBackground: dimBackground ?? this.dimBackground,
       hideNodeTitles: hideNodeTitles ?? this.hideNodeTitles,
+      hideTopPanel: hideTopPanel ?? this.hideTopPanel,
       genres: genres ?? this.genres,
       defaultTextFit: defaultTextFit ?? this.defaultTextFit,
       isReadOnly: isReadOnly ?? this.isReadOnly,

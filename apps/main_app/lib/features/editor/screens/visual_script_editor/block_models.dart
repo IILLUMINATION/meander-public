@@ -161,6 +161,8 @@ abstract class VisualScriptBlock {
           return SetImageBlock.fromJson(json);
         case BlockTypes.setVisible:
           return SetVisibleBlock.fromJson(json);
+        case BlockTypes.setTopPanel:
+          return SetTopPanelBlock.fromJson(json);
         case BlockTypes.playSound:
           return PlaySoundBlock.fromJson(json);
         case BlockTypes.stopSound:
@@ -499,6 +501,32 @@ class SetVisibleBlock extends VisualScriptBlock {
           (legacyVisible == null
               ? 'hide'
               : (legacyVisible ? 'show' : 'remove')),
+    );
+  }
+}
+
+/// Верхняя панель игры: «назад», громкость, сохранение, загрузка.
+///
+/// Панель нужна не на каждой сцене — на катсцене она закрывает картинку.
+/// Стартовое состояние задаёт настройка квеста, а блок меняет его по ходу.
+class SetTopPanelBlock extends VisualScriptBlock {
+  /// `show` / `hide` / `toggle`; `remove` ядро тоже принимает как «скрыть».
+  String mode;
+
+  SetTopPanelBlock({super.id, this.mode = 'hide'})
+    : super(category: BlockCategory.action);
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': BlockTypes.setTopPanel,
+    'id': id,
+    'mode': mode,
+  };
+
+  static SetTopPanelBlock fromJson(Map<String, dynamic> json) {
+    return SetTopPanelBlock(
+      id: json['id'] as String?,
+      mode: (json['mode'] ?? json['режим'])?.toString() ?? 'hide',
     );
   }
 }

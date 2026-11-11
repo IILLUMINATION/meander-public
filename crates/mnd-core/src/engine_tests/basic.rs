@@ -1248,3 +1248,76 @@ fn while_loop_iterates_while_condition_true() {
         .unwrap_or(-1.0);
     assert_eq!(i_val, 3.0, "while loop should run 3 iterations");
 }
+
+#[test]
+fn set_top_panel_toggles_playback_variable_and_starts_from_quest_setting() {
+    // Автор спрятал панель настройкой квеста: блок «показать» обязан вернуть
+    // её, а не гадать по отсутствию переменной.
+    let mut hidden_config = config("q_panel");
+    hidden_config.hide_top_panel = true;
+    let mut engine = GameEngine::new(
+        "q_panel".to_string(),
+        hidden_config,
+        vec![node("node_1", "Start", vec![])],
+        vec![],
+        GameEngineConfig::default(),
+    );
+    engine.start_new(None);
+    let panel_hidden = |engine: &GameEngine| -> Value {
+        engine
+            .state
+            .get_variable("_internal_top_panel_hidden")
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
+    assert_eq!(panel_hidden(&engine), Value::Bool(true));
+
+    let exec = ScriptExecutor::new();
+    let mut lua = None;
+    let mut ctrl = crate::executor::ExecutionController::default();
+    let mut run = |block: Value, engine: &mut GameEngine| {
+        exec.execute_block_recursively(
+            block.as_object().unwrap(),
+            &mut engine.state,
+            &mut ctrl,
+            "q_panel",
+            &mut lua,
+        )
+    };
+
+    run(
+        serde_json::json!({"type": "set_top_panel", "mode": "show"}),
+        &mut engine,
+    )
+    .unwrap();
+    assert_eq!(panel_hidden(&engine), Value::Bool(false));
+
+    run(
+        serde_json::json!({"type": "set_top_panel", "mode": "toggle"}),
+        &mut engine,
+    )
+    .unwrap();
+    assert_eq!(panel_hidden(&engine), Value::Bool(true));
+
+    // Русская запись режима и «убрать» = скрыть.
+    run(
+        serde_json::json!({"type": "set_top_panel", "режим": "показать"}),
+        &mut engine,
+    )
+    .unwrap();
+    assert_eq!(panel_hidden(&engine), Value::Bool(false));
+    run(
+        serde_json::json!({"type": "set_top_panel", "mode": "remove"}),
+        &mut engine,
+    )
+    .unwrap();
+    assert_eq!(panel_hidden(&engine), Value::Bool(true));
+
+    // Неизвестный режим — тишина, состояние не портится.
+    run(
+        serde_json::json!({"type": "set_top_panel", "mode": "мусор"}),
+        &mut engine,
+    )
+    .unwrap();
+    assert_eq!(panel_hidden(&engine), Value::Bool(true));
+}

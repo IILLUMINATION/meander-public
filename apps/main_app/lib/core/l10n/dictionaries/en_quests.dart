@@ -136,6 +136,9 @@ final Map<String, String> enQuests = {
   'Скопировать ошибку': 'Copy the error',
   'Скриншоты': 'Screenshots',
   'Скрывать заголовки нод': 'Hide node titles',
+  'Скрыть верхнюю панель в игре': 'Hide the top panel in the game',
+  'Панель с кнопками «назад», сохранения и громкости не будет видна. Скрипт может вернуть её блоком «Верхняя панель».':
+      'The panel with back, save and volume buttons stays hidden. A script can bring it back with the "Top panel" block.',
   'Сначала новые': 'Newest first',
   'Сначала старые': 'Oldest first',
   'Совместимость и обработка ошибок': 'Compatibility and error handling',

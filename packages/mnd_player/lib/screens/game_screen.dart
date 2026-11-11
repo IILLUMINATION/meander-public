@@ -1127,6 +1127,24 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     });
 
+    // Верхняя панель — часть сцены, а не каркаса: скрипт прячет её на
+    // катсцене и возвращает после. Переменную сеет движок из настройки
+    // квеста, поэтому здесь достаточно одного селектора; устаревший сейв
+    // без переменной падает на настройку квеста.
+    final panelHiddenByScript = ref.watch(
+      gameStateProvider.select(
+        (s) => s.variables['_internal_top_panel_hidden'],
+      ),
+    );
+    final panelHiddenByDefault = ref.watch(
+      questProvider(
+        widget.questId,
+      ).select((async) => async.value?.hideTopPanel ?? false),
+    );
+    final hideTopPanel = panelHiddenByScript is bool
+        ? panelHiddenByScript
+        : panelHiddenByDefault;
+
     return GameSessionScope(
       sessionKey: _key,
       child: PopScope(
@@ -1145,8 +1163,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             ),
             child: Scaffold(
               backgroundColor: Colors.transparent,
-              extendBodyBehindAppBar: true,
-              appBar: _buildAppBar(context, screenState),
+              extendBodyBehindAppBar: !hideTopPanel,
+              appBar: hideTopPanel ? null : _buildAppBar(context, screenState),
               body: _buildBody(screenState),
             ),
           ),

@@ -189,4 +189,20 @@ void main() {
     // это именно «убрать», а не новое «скрыть с местом».
     expect(visible.mode, 'remove');
   });
+
+  test('set_top_panel переживает load→save и понимает русское имя', () {
+    for (final mode in ['show', 'hide', 'toggle']) {
+      final block = {"type": "set_top_panel", "id": "tp1", "mode": mode};
+      expect(roundtrip([block]), canon([block]), reason: mode);
+    }
+
+    // Рукописный скрипт с русским типом: тип обязан опознаться, иначе блок
+    // станет UnknownBlock и поле «Действие» в редакторе не покажется.
+    final parsed = ScriptParser.parseBlocks([
+      {"type": "верхняя_панель", "id": "tp2", "режим": "показать"}
+    ] as List<dynamic>);
+    final panel = parsed.single as SetTopPanelBlock;
+    expect(panel.mode, 'показать');
+    expect(panel.toJson()['mode'], 'показать');
+  });
 }

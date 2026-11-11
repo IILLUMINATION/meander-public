@@ -119,6 +119,9 @@ pub struct Quest {
     pub screenshot_files: Option<Vec<String>>,
     pub dim_background: bool,
     pub hide_node_titles: bool,
+    /// Не показывать верхнюю панель игры (назад/сохранить/загрузить/громкость).
+    /// Скрипты могут вернуть её блоком `set_top_panel`.
+    pub hide_top_panel: bool,
     pub genres: Vec<String>,
     pub default_text_fit: String,
     pub is_read_only: bool,
@@ -155,6 +158,10 @@ impl Quest {
             .unwrap_or(true);
         let is_titles_hidden = obj
             .get("hideNodeTitles")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_top_panel_hidden = obj
+            .get("hideTopPanel")
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let text_fit = obj
@@ -272,6 +279,7 @@ impl Quest {
             screenshot_files,
             dim_background: is_dimmed,
             hide_node_titles: is_titles_hidden,
+            hide_top_panel: is_top_panel_hidden,
             genres: loaded_genres,
             default_text_fit: text_fit,
             is_read_only: read_only,
@@ -310,6 +318,7 @@ impl Quest {
         map.insert("version".into(), json!(self.version));
         map.insert("dimBackground".into(), json!(self.dim_background));
         map.insert("hideNodeTitles".into(), json!(self.hide_node_titles));
+        map.insert("hideTopPanel".into(), json!(self.hide_top_panel));
         map.insert("genres".into(), json!(self.genres));
         map.insert("defaultTextFit".into(), json!(self.default_text_fit));
         map.insert("isReadOnly".into(), json!(self.is_read_only));
