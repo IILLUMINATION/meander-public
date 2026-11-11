@@ -145,7 +145,9 @@ class _TableViewerScreenState extends State<TableViewerScreen>
                 cells: [
                   DataCell(
                     Text(
-                      '${index + 1}',
+                      widget.table.rowName(index).isEmpty
+                          ? '${index + 1}'
+                          : '${index + 1} · ${widget.table.rowName(index)}',
                       style: const TextStyle(color: Colors.grey),
                     ),
                   ),
