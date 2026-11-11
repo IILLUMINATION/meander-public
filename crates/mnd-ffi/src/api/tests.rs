@@ -1762,10 +1762,13 @@ mod validation_ffi_tests {
         let dir = std::env::temp_dir().join(format!("mnd_ffi_validation_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let files: &[(&str, &str)] = &[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"empty","type":"image","scriptTriggers":{"onContentAppear":"scripts/e1.json"}},
                         {"id":"icon","type":"image","scriptTriggers":{"onContentAppear":"scripts/i1.json"}}
