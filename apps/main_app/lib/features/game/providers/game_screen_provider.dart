@@ -8,6 +8,7 @@
 import 'package:canvas_app/core/services/crash_log_service.dart';
 import 'package:canvas_app/core/services/hang_watchdog.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
+import 'package:canvas_app/core/services/quest_shot_service.dart';
 import 'package:canvas_app/core/services/quest_content_change_bus.dart';
 import 'package:canvas_app/core/services/quest_safety_service.dart';
 import 'package:canvas_app/features/plugins/providers/plugin_content_types_provider.dart';
@@ -36,6 +37,11 @@ final appGameScreenHooksProvider = Provider<GameScreenHooks>((ref) {
         ref.read(playtimeServiceProvider).setActiveQuest(questId),
     onGameSessionEnded: (questId) =>
         ref.read(playtimeServiceProvider).setActiveQuest(null),
+    // Снимок уже собран плеером (карточка с подписью) — остаётся положить
+    // файл в квест и дописать config.
+    onScreenshot: (questId, png) async {
+      await saveQuestShot(questId, png);
+    },
     // Rust-хост понимает только новый формат пакета: `plugin.json` + Lua.
     // Старые установки с `plugin.yaml` сюда не доходят — плагин просто
     // не ставится, а квест играется без него.

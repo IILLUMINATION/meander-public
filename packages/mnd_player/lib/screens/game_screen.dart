@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'dart:ui';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +20,7 @@ import 'package:mnd_player/providers/audio_volume_provider.dart';
 import 'package:mnd_player/providers/game_state_provider.dart';
 import 'package:mnd_player/providers/game_session_scope.dart';
 import 'package:mnd_player/providers/quest_provider.dart';
+import 'package:mnd_player/utils/quest_shot.dart';
 import 'package:mnd_player/providers/text_reveal_preference.dart';
 import 'package:mnd_player/widgets/game_timer_widget.dart';
 import 'package:mnd_player/widgets/plugin_slot_layer.dart';
@@ -141,6 +144,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   /// История на время шага назад: возврат не должен «дописывать» ноду,
   /// на которую вернулись, — иначе игрок ходит по кругу A↔B.
   List<dynamic>? _historyAfterStepBack;
+
+  /// Кадр сцены без верхней панели — из него собирается снимок для маркета.
+  final GlobalKey _shotKey = GlobalKey();
 
   GameSessionKey get _key => _sessionKey;
 
@@ -1176,12 +1182,55 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               backgroundColor: Colors.transparent,
               extendBodyBehindAppBar: !hideTopPanel,
               appBar: hideTopPanel ? null : _buildAppBar(context, screenState),
-              body: _buildBody(screenState),
+              body: RepaintBoundary(
+                key: _shotKey,
+                child: _buildBody(screenState),
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// Снимок сцены для маркета: карточка с подписью, без интерфейса игры.
+  Future<void> _captureShot() async {
+    final save = _hooks.onScreenshot;
+    if (save == null) return;
+    try {
+      final frame =
+          await QuestShot.testScene?.call() ?? await _sceneImage();
+      if (frame == null) return;
+      final png = await QuestShot.compose(frame);
+      await save(widget.questId, png);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Снимок добавлен в скриншоты квеста'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(milliseconds: 1600),
+        ),
+      );
+    } catch (e, stack) {
+      _hooks.onError?.call(e, stack, 'captureShot');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Не удалось сделать снимок'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(milliseconds: 1600),
+        ),
+      );
+    }
+  }
+
+  /// Кадр игровой сцены без верхней панели: она живёт вне [RepaintBoundary].
+  Future<ui.Image?> _sceneImage() async {
+    // На вебе `toImage` не поддерживается — снимок там недоступен.
+    if (kIsWeb) return null;
+    final renderObject = _shotKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderRepaintBoundary) return null;
+    return renderObject.toImage(pixelRatio: 2);
   }
 
   /// Шаг назад: вернуться на ноду, с которой игрок пришёл.
@@ -1309,16 +1358,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         if (revealEnabled ||
             widget.isTesting ||
             widget.onEditNode != null ||
-            stepBackEnabled)
+            stepBackEnabled ||
+            (widget.isTesting && _hooks.onScreenshot != null))
           _MoreMenu(
             reveal: revealEnabled,
             debug: widget.isTesting,
             edit: widget.onEditNode != null,
             stepBack: stepBackEnabled,
+            // Снимок кладётся в файлы квеста, поэтому он доступен автору
+            // в тест-режиме: игрок чужого квеста не должен писать в квест.
+            screenshot: widget.isTesting && _hooks.onScreenshot != null,
             onReveal: _showTextRevealDialog,
             onDebug: _showVariablesDebug,
             onEdit: _editCurrentNode,
             onStepBack: _stepBack,
+            onScreenshot: _captureShot,
           ),
         ...?widget.additionalAppBarActions,
       ],
@@ -1942,20 +1996,24 @@ class _MoreMenu extends StatelessWidget {
     required this.debug,
     required this.edit,
     required this.stepBack,
+    required this.screenshot,
     required this.onReveal,
     required this.onDebug,
     required this.onEdit,
     required this.onStepBack,
+    required this.onScreenshot,
   });
 
   final bool reveal;
   final bool debug;
   final bool edit;
   final bool stepBack;
+  final bool screenshot;
   final VoidCallback onReveal;
   final VoidCallback onDebug;
   final VoidCallback onEdit;
   final VoidCallback onStepBack;
+  final VoidCallback onScreenshot;
 
   @override
   Widget build(BuildContext context) {
@@ -1963,6 +2021,13 @@ class _MoreMenu extends StatelessWidget {
       if (reveal) _item('reveal', Icons.animation_rounded, 'Появление текста'),
       if (debug)
         _item('debug', Icons.bug_report, 'Переменные', color: Colors.amber),
+      if (screenshot)
+        _item(
+          'shot',
+          Icons.photo_camera_rounded,
+          'Красивый скриншот',
+          color: Colors.white,
+        ),
       if (stepBack)
         _item('back', Icons.undo_rounded, 'Шаг назад', color: Colors.white),
       if (edit)
@@ -1987,6 +2052,8 @@ class _MoreMenu extends StatelessWidget {
             onReveal();
           case 'back':
             onStepBack();
+          case 'shot':
+            onScreenshot();
           case 'debug':
             onDebug();
           case 'edit':

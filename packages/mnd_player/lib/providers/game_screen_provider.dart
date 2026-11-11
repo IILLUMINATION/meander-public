@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -65,6 +66,10 @@ class GameScreenHooks {
   /// Сессия игры завершена (экран уничтожен).
   final void Function(String questId)? onGameSessionEnded;
 
+  /// Сохранить снимок сцены. `null` — снимков нет (standalone-плеер), и
+  /// пункт «Скриншот» в меню не появляется.
+  final Future<void> Function(String questId, Uint8List png)? onScreenshot;
+
   /// Каталоги активных плагинов (каждый с `plugin.json` + точкой входа из
   /// манифеста). main_app отдаёт их из своего реестра установленных плагинов,
   /// standalone-сборка — из каталога `<документы>/plugins/`. `null` или пустой
@@ -79,6 +84,7 @@ class GameScreenHooks {
     this.isUrlSafe,
     this.onGameSessionStarted,
     this.onGameSessionEnded,
+    this.onScreenshot,
     this.listPluginPackages,
   });
 
