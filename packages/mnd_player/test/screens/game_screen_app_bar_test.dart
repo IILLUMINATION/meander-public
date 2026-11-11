@@ -9,7 +9,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mnd_core/models/quest_descriptor.dart';
 import 'package:mnd_player/providers/game_state_provider.dart';
+import 'package:mnd_player/providers/quest_provider.dart';
 import 'package:mnd_player/screens/game_screen.dart';
 
 Future<bool> _neverStart() async => false;
@@ -107,5 +109,63 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byTooltip('Громкость'), findsOneWidget);
     expect(find.byTooltip('Сохранить'), findsOneWidget);
+  });
+
+  test('шаг назад ведёт на предыдущую ноду истории', () {
+    // История пишется именами нод; текущая — последняя запись, шаг назад
+    // берёт предпоследнюю.
+    expect(stepBackTarget(['A', 'B']), 'A');
+    expect(stepBackTarget(['A', 'B', 'C']), 'B');
+    // В начале квеста (или в битом сейве с пустыми записями) — некуда.
+    expect(stepBackTarget([]), isNull);
+    expect(stepBackTarget(['A']), isNull);
+    expect(stepBackTarget(['A', '']), 'A');
+    expect(stepBackTarget(['', '']), isNull);
+  });
+
+  /// Шапка игры с квестом, у которого включён/выключен шаг назад.
+  Future<void> pumpGameScreen(WidgetTester tester, {required bool stepBack}) async {
+    final container = ProviderContainer(
+      overrides: [
+        // Значение синхронное (FutureOr): тест про шапку, а не про загрузку.
+        questProvider('test-quest').overrideWith(
+          (ref) => Quest(
+            id: 'test-quest',
+            title: 'Тест',
+            allowStepBack: stepBack,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: GameScreen(
+            questId: 'test-quest',
+            preflight: _neverStart,
+            isTesting: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('Ещё'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+  }
+
+  testWidgets('без настройки автора кнопки «Шаг назад» нет', (tester) async {
+    await pumpGameScreen(tester, stepBack: false);
+    // Меню открылось (в тест-режиме там есть «Переменные»).
+    expect(find.text('Переменные'), findsOneWidget);
+    expect(find.text('Шаг назад'), findsNothing);
+  });
+
+  testWidgets('с настройкой автора в меню есть «Шаг назад»', (tester) async {
+    await pumpGameScreen(tester, stepBack: true);
+    expect(find.text('Шаг назад'), findsOneWidget);
   });
 }

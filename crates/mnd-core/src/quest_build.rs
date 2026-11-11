@@ -238,6 +238,7 @@ impl QuestBuilder {
             "dimBackground": true,
             "hideNodeTitles": false,
             "hideTopPanel": false,
+            "allowStepBack": false,
             "nodeTransitionMode": "none",
             "scriptEngineMode": "new",
             "pluginDependencies": [],

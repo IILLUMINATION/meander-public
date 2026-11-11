@@ -138,6 +138,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   /// Ключ игровой сессии: questId + docKey (вкладка).
   late final GameSessionKey _sessionKey;
 
+  /// История на время шага назад: возврат не должен «дописывать» ноду,
+  /// на которую вернулись, — иначе игрок ходит по кругу A↔B.
+  List<dynamic>? _historyAfterStepBack;
+
   GameSessionKey get _key => _sessionKey;
 
   /// Хуки и нотификатор сессии, захваченные в initState. В dispose() НЕЛЬЗЯ
@@ -1102,12 +1106,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       if (!context.mounted) return;
       if (next != null && next.id != previous?.id) {
         final gameStateNotifier = ref.read(gameStateProvider.notifier);
-        List<dynamic> currentHistory = [];
-        final rawHistory = gameStateNotifier.getVariable('_SYS_HISTORY');
-        if (rawHistory is List) {
-          currentHistory = List.from(rawHistory);
+        final planned = _historyAfterStepBack;
+        List<dynamic> currentHistory;
+        if (planned != null && planned.isNotEmpty && planned.last == next.id) {
+          // Шаг назад удался: история — это то, что осталось после возврата.
+          // Если нода на входе увела дальше, план не совпадёт и история
+          // честно допишется ниже.
+          currentHistory = List.from(planned);
+          _historyAfterStepBack = null;
+        } else {
+          final rawHistory = gameStateNotifier.getVariable('_SYS_HISTORY');
+          currentHistory = rawHistory is List ? List.from(rawHistory) : [];
+          currentHistory.add(next.id);
         }
-        currentHistory.add(next.id);
         // Ограничиваем историю последними 100 нодами: без ограничения она
         // растёт всю сессию, и deepEquals в GameState на каждую эмиссию
         // становится всё дороже — длинные сессии постепенно лагают.
@@ -1173,6 +1184,37 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     );
   }
 
+  /// Шаг назад: вернуться на ноду, с которой игрок пришёл.
+  ///
+  /// Откатывается только навигация: переменные, таблицы и показанные айтемы
+  /// остаются как есть — полноценный откат состояния сделал бы квест
+  /// непредсказуемым. `onNodeEnter` целевой ноды выполнится заново.
+  Future<void> _stepBack() async {
+    final notifier = ref.read(gameStateProvider.notifier);
+    final raw = notifier.getVariable('_SYS_HISTORY');
+    final target = stepBackTarget(raw is List ? raw : const []);
+    if (target == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Это начало квеста — назад некуда'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(milliseconds: 1400),
+        ),
+      );
+      return;
+    }
+    final trimmed = List<dynamic>.from(raw as List)..removeLast();
+    _historyAfterStepBack = trimmed;
+    try {
+      await ref.read(gameScreenProvider(_key).notifier).loadNode(target);
+    } finally {
+      // loadNode мог не дойти до смены ноды — тогда план не должен
+      // пережить следующий переход.
+      _historyAfterStepBack = null;
+    }
+  }
+
   // --- ИСПРАВЛЕННАЯ ЛОГИКА АУДИО ---
   Future<void> _updateBackgrounds(SavedNode node) async {
     // Background updates are handled in GameScreenNotifier.
@@ -1181,6 +1223,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   AppBar _buildAppBar(BuildContext context, GameScreenState screenState) {
     final quest = ref.watch(questProvider(widget.questId)).value;
     final bool hideTitle = quest?.hideNodeTitles ?? false;
+    // Шаг назад — авторская настройка квеста, поэтому кнопка появляется
+    // только когда автор её включил: шапка не обрастает «на всякий случай».
+    final bool stepBackEnabled = quest?.allowStepBack ?? false;
     final gameStateNotifier = ref.read(gameStateProvider.notifier);
     final vol = ref.read(globalAudioVolumeProvider);
     // Настройка анимации появляется только там, где автор её действительно
@@ -1261,14 +1306,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         ),
         // Редкие кнопки — в подменю. Все вместе они не влезают в узкую
         // шапку телефона, и AppBar начинает рисовать их поверх «назад».
-        if (revealEnabled || widget.isTesting || widget.onEditNode != null)
+        if (revealEnabled ||
+            widget.isTesting ||
+            widget.onEditNode != null ||
+            stepBackEnabled)
           _MoreMenu(
             reveal: revealEnabled,
             debug: widget.isTesting,
             edit: widget.onEditNode != null,
+            stepBack: stepBackEnabled,
             onReveal: _showTextRevealDialog,
             onDebug: _showVariablesDebug,
             onEdit: _editCurrentNode,
+            onStepBack: _stepBack,
           ),
         ...?widget.additionalAppBarActions,
       ],
@@ -1891,17 +1941,21 @@ class _MoreMenu extends StatelessWidget {
     required this.reveal,
     required this.debug,
     required this.edit,
+    required this.stepBack,
     required this.onReveal,
     required this.onDebug,
     required this.onEdit,
+    required this.onStepBack,
   });
 
   final bool reveal;
   final bool debug;
   final bool edit;
+  final bool stepBack;
   final VoidCallback onReveal;
   final VoidCallback onDebug;
   final VoidCallback onEdit;
+  final VoidCallback onStepBack;
 
   @override
   Widget build(BuildContext context) {
@@ -1909,6 +1963,8 @@ class _MoreMenu extends StatelessWidget {
       if (reveal) _item('reveal', Icons.animation_rounded, 'Появление текста'),
       if (debug)
         _item('debug', Icons.bug_report, 'Переменные', color: Colors.amber),
+      if (stepBack)
+        _item('back', Icons.undo_rounded, 'Шаг назад', color: Colors.white),
       if (edit)
         _item(
           'edit',
@@ -1929,6 +1985,8 @@ class _MoreMenu extends StatelessWidget {
         switch (value) {
           case 'reveal':
             onReveal();
+          case 'back':
+            onStepBack();
           case 'debug':
             onDebug();
           case 'edit':
@@ -1984,6 +2042,18 @@ class _NodeLoadingView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Нода, на которую ведёт шаг назад: последняя в истории, кроме текущей.
+///
+/// `null` — возвращаться некуда: история пуста или в ней только текущая нода.
+/// Пустые записи пропускаются: история могла пережить кривой сейв.
+String? stepBackTarget(List<dynamic> history) {
+  for (var i = history.length - 2; i >= 0; i--) {
+    final id = history[i]?.toString() ?? '';
+    if (id.isNotEmpty) return id;
+  }
+  return null;
 }
 
 /// `backgroundVideoFit` ноды → [BoxFit]. Имена пишутся как в Flutter, но

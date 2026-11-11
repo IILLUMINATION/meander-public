@@ -70,6 +70,9 @@ pub struct PlanQuest {
     /// `set_top_panel`.
     #[serde(alias = "hide_top_panel")]
     pub hide_top_panel: Option<bool>,
+    /// Разрешить игроку возврат на предыдущую ноду.
+    #[serde(alias = "allow_step_back")]
+    pub allow_step_back: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -735,6 +738,9 @@ pub(crate) fn build_plan(
         }
         if let Some(hide) = quest.hide_top_panel {
             config.insert("hideTopPanel".into(), json!(hide));
+        }
+        if let Some(allow) = quest.allow_step_back {
+            config.insert("allowStepBack".into(), json!(allow));
         }
     }
 
@@ -1875,7 +1881,7 @@ mod tests {
     fn apply_writes_top_panel_setting() {
         let (root, builder) = new_quest();
         let plan = json!({
-            "quest": {"hideTopPanel": true},
+            "quest": {"hideTopPanel": true, "allowStepBack": true},
             "nodes": [{"title": "Старт", "items": [{"type": "text", "text": "Тьма"}]}]
         });
         let report = apply(&builder, plan);
@@ -1888,6 +1894,11 @@ mod tests {
             config["hideTopPanel"].as_bool(),
             Some(true),
             "настройка верхней панели должна доехать до config.json"
+        );
+        assert_eq!(
+            config["allowStepBack"].as_bool(),
+            Some(true),
+            "шаг назад включается из плана"
         );
     }
 

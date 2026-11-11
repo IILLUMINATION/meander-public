@@ -137,6 +137,9 @@ final Map<String, String> enQuests = {
   'Скриншоты': 'Screenshots',
   'Скрывать заголовки нод': 'Hide node titles',
   'Скрыть верхнюю панель в игре': 'Hide the top panel in the game',
+  'Разрешить шаг назад': 'Allow stepping back',
+  'В меню игры появится «Шаг назад» — возврат на предыдущую ноду. Переменные и таблицы при этом не откатываются.':
+      'The game menu gets "Step back" to return to the previous node. Variables and tables are not rolled back.',
   'Панель с кнопками «назад», сохранения и громкости не будет видна. Скрипт может вернуть её блоком «Верхняя панель».':
       'The panel with back, save and volume buttons stays hidden. A script can bring it back with the "Top panel" block.',
   'Сначала новые': 'Newest first',
