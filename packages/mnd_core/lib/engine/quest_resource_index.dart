@@ -129,6 +129,8 @@ class QuestResourceIndex {
 
   /// Относительные пути (от корня квеста), где может лежать ресурс под
   /// [source]: путь → как есть, иначе имя / файл без расширения / `resourceId`.
+  /// У файла без расширения каталог неизвестен, поэтому кандидатов несколько
+  /// (см. [_relativePaths]); существование проверяет вызывающий.
   /// Дубликаты убраны, порядок детерминированный (по алфавиту).
   List<String> pathCandidates(String source) {
     final trimmed = source.trim();
@@ -142,7 +144,11 @@ class QuestResourceIndex {
       ..._unambiguous(_byStem[key]),
       ..._unambiguous(_byStableId[key]),
     };
-    return [for (final file in files) ?_relativePath(file)]..sort();
+    final paths = <String>{};
+    for (final file in files) {
+      paths.addAll(_relativePaths(file));
+    }
+    return paths.toList()..sort();
   }
 
   /// Дубликат — неопределённость: угадывать, какой из одноимённых файлов имел
@@ -151,9 +157,24 @@ class QuestResourceIndex {
   static List<String> _unambiguous(List<String>? files) =>
       files == null || files.length > 1 ? const [] : files;
 
-  /// `res/<каталог>/<файл>` по расширению; null, если расширение неизвестно.
-  static String? _relativePath(String fileName) {
+  /// Пути для файла [fileName] из метаданных.
+  ///
+  /// С известным расширением каталог однозначен. Файл **без расширения**
+  /// (импортировали из источника, где его не было) в `res/<каталог>` по
+  /// расширению не положить: тип ресурса известен только по каталогу, а имена
+  /// файлов там уникальны. Отдаём кандидатов во всех каталогах ресурсов —
+  /// существует ли файл, проверяет вызывающий (это I/O-слой).
+  ///
+  /// Имя с точкой, но неизвестным расширением (`.txt`, `.lua`) — не ресурс
+  /// каталога: пути нет, как и раньше.
+  static List<String> _relativePaths(String fileName) {
     final dir = _dirsByExtension[_extension(fileName)];
-    return dir == null ? null : 'res/$dir/$fileName';
+    if (dir != null) return ['res/$dir/$fileName'];
+    if (fileName.contains('.')) return const [];
+    return [for (final d in _resourceDirs) 'res/$d/$fileName'];
   }
 }
+
+/// Каталоги ресурсов без повторов, в порядке объявления (картинки первыми:
+/// фон/сцена — самый частый случай).
+final List<String> _resourceDirs = _dirsByExtension.values.toSet().toList();

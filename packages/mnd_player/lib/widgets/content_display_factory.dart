@@ -107,9 +107,7 @@ class ContentDisplayFactory {
               questId,
               staticValue: item.padding ?? 16.0,
             ).clamp(0.0, 999.0);
-            return isInsideRow
-                ? SizedBox(width: size)
-                : SizedBox(height: size);
+            return isInsideRow ? SizedBox(width: size) : SizedBox(height: size);
           },
         ),
       );
@@ -502,9 +500,9 @@ class _ConditionalContentWrapperState
   /// модель квеста, здесь ни при чём.
   bool _goneByEngine() =>
       engineVisibilityOf(
-            ref.read(gameStateProvider).variables,
-            widget.item.id,
-          ) ==
+        ref.read(gameStateProvider).variables,
+        widget.item.id,
+      ) ==
       EngineVisibility.gone;
 
   /// Очередь раскрытия ждёт onComplete от каждого айтема. Если движок спрятал
@@ -745,16 +743,22 @@ class TextItemWidget extends ConsumerWidget {
   );
 
   /// Фрагментная обводка: `[outline=#RRGGBB]…[/outline]` или
-  /// `[outline=#RRGGBB:4]…[/outline]`. Толщина необязательна — без неё
-  /// берётся item-level значение или дефолт.
-  static final RegExp _textOutlineExp = RegExp(
-    r'\[outline=(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8})(?::([0-9]+(?:\.[0-9]+)?))?\](.*?)\[\/outline\]',
-    dotAll: true,
-  );
+  /// `[outline=#RRGGBB:4]…[/outline]`. Шаблон общий с markdown-генератором
+  /// (`inlineOutlineTag`), толщина необязательна — без неё берётся дефолт.
+  static final RegExp _textOutlineExp = inlineOutlineTag;
 
-  TextSpan _parseSimpleMarkdown(String text, String? fontFamily) {
-    return TextSpan(children: _parseRichSpans(text, fontFamily));
+  TextSpan _parseSimpleMarkdown(
+    String text,
+    String? fontFamily, {
+    Paint? outlineLayer,
+  }) {
+    return TextSpan(
+      children: _parseRichSpans(text, fontFamily, outlineLayer: outlineLayer),
+    );
   }
+
+  Paint _spanStroke(Paint? outlineLayer, Paint? fragmentStroke) =>
+      fragmentStroke ?? outlineLayer!;
 
   /// Рекурсивный разбор инлайн-разметки: `[font=...]` → `[color=...]` →
   /// **жирный**/*курсив*. Вложенность тегов работает в любом порядке:
@@ -763,7 +767,8 @@ class TextItemWidget extends ConsumerWidget {
     String text,
     String? fontFamily, {
     Color? color,
-    List<Shadow>? shadows,
+    Paint? outlineLayer,
+    Paint? fragmentStroke,
   }) {
     final outlineMatches = _textOutlineExp.allMatches(text).toList();
     if (outlineMatches.isNotEmpty) {
@@ -776,19 +781,22 @@ class TextItemWidget extends ConsumerWidget {
               text.substring(start, m.start),
               fontFamily,
               color: color,
-              shadows: shadows,
+              outlineLayer: outlineLayer,
+              fragmentStroke: fragmentStroke,
             ),
           );
         }
         final outlineColor = _parseColor(m.group(1)!);
-        final width = (double.tryParse(m.group(2) ?? '') ?? kTextOutlineWidthDefault)
-            .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
         out.addAll(
           _parseRichSpans(
             m.group(3)!,
             fontFamily,
             color: color,
-            shadows: _outlineShadows(outlineColor, width),
+            outlineLayer: outlineLayer,
+            fragmentStroke: textOutlineStroke(
+              outlineColor,
+              width: double.tryParse(m.group(2) ?? ''),
+            ),
           ),
         );
         start = m.end;
@@ -799,7 +807,8 @@ class TextItemWidget extends ConsumerWidget {
             text.substring(start),
             fontFamily,
             color: color,
-            shadows: shadows,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
           ),
         );
       }
@@ -817,19 +826,32 @@ class TextItemWidget extends ConsumerWidget {
               text.substring(start, m.start),
               fontFamily,
               color: color,
-              shadows: shadows,
+              outlineLayer: outlineLayer,
+              fragmentStroke: fragmentStroke,
             ),
           );
         }
         final family = FontService.resolveFamily(questId, m.group(1)?.trim());
         out.addAll(
-          _parseRichSpans(m.group(2)!, family, color: color, shadows: shadows),
+          _parseRichSpans(
+            m.group(2)!,
+            family,
+            color: color,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
+          ),
         );
         start = m.end;
       }
       if (start < text.length) {
         out.addAll(
-          _parseRichSpans(text.substring(start), fontFamily, color: color),
+          _parseRichSpans(
+            text.substring(start),
+            fontFamily,
+            color: color,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
+          ),
         );
       }
       return out;
@@ -846,13 +868,20 @@ class TextItemWidget extends ConsumerWidget {
               text.substring(start, m.start),
               fontFamily,
               color: color,
-              shadows: shadows,
+              outlineLayer: outlineLayer,
+              fragmentStroke: fragmentStroke,
             ),
           );
         }
         final c = _parseColor(m.group(1)!);
         out.addAll(
-          _parseRichSpans(m.group(2)!, fontFamily, color: c, shadows: shadows),
+          _parseRichSpans(
+            m.group(2)!,
+            fontFamily,
+            color: c,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
+          ),
         );
         start = m.end;
       }
@@ -862,7 +891,8 @@ class TextItemWidget extends ConsumerWidget {
             text.substring(start),
             fontFamily,
             color: color,
-            shadows: shadows,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
           ),
         );
       }
@@ -873,7 +903,8 @@ class TextItemWidget extends ConsumerWidget {
       text,
       fontFamily,
       color: color,
-      shadows: shadows,
+      outlineLayer: outlineLayer,
+      fragmentStroke: fragmentStroke,
     );
   }
 
@@ -881,8 +912,24 @@ class TextItemWidget extends ConsumerWidget {
     String segment,
     String? fontFamily, {
     Color? color,
-    List<Shadow>? shadows,
+    Paint? outlineLayer,
+    Paint? fragmentStroke,
   }) {
+    // Стиль одного куска: в слое заливки — цвет, в штриховом слое — кисть.
+    // Собственная обводка фрагмента (`[outline=…]`) важнее обводки айтема.
+    final Paint? spanStroke = outlineLayer == null
+        ? null
+        : _spanStroke(outlineLayer, fragmentStroke);
+    TextStyle spanStyle({FontWeight? fontWeight, FontStyle? fontStyle}) =>
+        TextStyle(
+          color: spanStroke == null ? (color ?? Colors.white) : null,
+          foreground: spanStroke,
+          fontSize: 16,
+          fontWeight: fontWeight,
+          fontStyle: fontStyle,
+          fontFamily: fontFamily,
+        );
+
     // Инлайн-теги шрифта: [font=res/fonts/x.ttf]текст[/font]. Разворачиваем
     // рекурсивно — работают и внутри [color=...], и с **жирным**/*курсивом*.
     final fontMatches = FontService.inlineFontTag.allMatches(segment).toList();
@@ -896,7 +943,8 @@ class TextItemWidget extends ConsumerWidget {
               segment.substring(fontStart, m.start),
               fontFamily,
               color: color,
-              shadows: shadows,
+              outlineLayer: outlineLayer,
+              fragmentStroke: fragmentStroke,
             ),
           );
         }
@@ -906,7 +954,8 @@ class TextItemWidget extends ConsumerWidget {
             m.group(2)!,
             family,
             color: color,
-            shadows: shadows,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
           ),
         );
         fontStart = m.end;
@@ -917,7 +966,8 @@ class TextItemWidget extends ConsumerWidget {
             segment.substring(fontStart),
             fontFamily,
             color: color,
-            shadows: shadows,
+            outlineLayer: outlineLayer,
+            fragmentStroke: fragmentStroke,
           ),
         );
       }
@@ -927,19 +977,13 @@ class TextItemWidget extends ConsumerWidget {
     List<TextSpan> spans = [];
     final RegExp exp = RegExp(r'(\*\*(.*?)\*\*)|(\*(.*?)\*)');
     int start = 0;
-    Color defaultColor = color ?? Colors.white;
 
     for (final match in exp.allMatches(segment)) {
       if (match.start > start) {
         spans.add(
           TextSpan(
             text: segment.substring(start, match.start),
-            style: TextStyle(
-              color: defaultColor,
-              fontSize: 16,
-              fontFamily: fontFamily,
-              shadows: shadows,
-            ),
+            style: spanStyle(),
           ),
         );
       }
@@ -947,93 +991,26 @@ class TextItemWidget extends ConsumerWidget {
         spans.add(
           TextSpan(
             text: match.group(2),
-            style: TextStyle(
-              color: defaultColor,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              fontFamily: fontFamily,
-              shadows: shadows,
-            ),
+            style: spanStyle(fontWeight: FontWeight.w900),
           ),
         );
       } else if (match.group(3) != null) {
         spans.add(
           TextSpan(
             text: match.group(4),
-            style: TextStyle(
-              color: defaultColor,
-              fontSize: 16,
-              fontStyle: FontStyle.italic,
-              fontFamily: fontFamily,
-              shadows: shadows,
-            ),
+            style: spanStyle(fontStyle: FontStyle.italic),
           ),
         );
       }
       start = match.end;
     }
     if (start < segment.length) {
-      spans.add(
-        TextSpan(
-          text: segment.substring(start),
-          style: TextStyle(
-            color: defaultColor,
-            fontSize: 16,
-            fontFamily: fontFamily,
-            shadows: shadows,
-          ),
-        ),
-      );
+      spans.add(TextSpan(text: segment.substring(start), style: spanStyle()));
     }
     if (spans.isEmpty && segment.isNotEmpty) {
-      return [
-        TextSpan(
-          text: segment,
-          style: TextStyle(
-            color: defaultColor,
-            fontSize: 16,
-            fontFamily: fontFamily,
-            shadows: shadows,
-          ),
-        ),
-      ];
+      return [TextSpan(text: segment, style: spanStyle())];
     }
     return spans;
-  }
-
-  /// Нижний слой обводки несёт только цвет контура: `copyWith(foreground:)`
-  /// гасит `color`, поэтому `[color=#…]` и цвет жирного/курсива в нём не
-  /// просвечивают — но шрифт, насыщенность и вёрстка остаются нетронутыми,
-  /// и глифы совпадают пиксель в пиксель с верхним слоем.
-  TextSpan _asOutlineText(TextSpan span, Paint stroke) {
-    return TextSpan(
-      text: span.text,
-      style: span.style?.copyWith(foreground: stroke, shadows: const []),
-      children: span.children
-          ?.map((c) => c is TextSpan ? _asOutlineText(c, stroke) : c)
-          .toList(),
-    );
-  }
-
-  List<Shadow> _outlineShadows(Color color, double width) {
-    const directions = <Offset>[
-      Offset(-1, 0),
-      Offset(1, 0),
-      Offset(0, -1),
-      Offset(0, 1),
-      Offset(-0.7, -0.7),
-      Offset(0.7, -0.7),
-      Offset(-0.7, 0.7),
-      Offset(0.7, 0.7),
-    ];
-    return [
-      for (final direction in directions)
-        Shadow(
-          color: color,
-          offset: direction * width,
-          blurRadius: 0,
-        ),
-    ];
   }
 
   Color _parseColor(String colorStr) {
@@ -1168,6 +1145,19 @@ class TextItemWidget extends ConsumerWidget {
         textAlign: textAlign,
       );
       final fillLayer = scaleLayer(span);
+      // Фрагментная `[outline=…]` тоже рисуется штрихом: копии глифа со
+      // сдвигом давали раздвоенный контур, отличный от игры и редактора.
+      final needsOutlineLayer =
+          outlineStroke != null || hasInlineOutline(shownText);
+      final strokeLayer = !needsOutlineLayer
+          ? null
+          : scaleLayer(
+              _parseSimpleMarkdown(
+                shownText,
+                fontFamily,
+                outlineLayer: outlineStroke ?? transparentTextOutlineStroke,
+              ),
+            );
       return Container(
         width: double.infinity,
         padding: backgroundColor != null
@@ -1183,7 +1173,7 @@ class TextItemWidget extends ConsumerWidget {
           alignment: scaleAlign,
           // Clip.none: контур на полтолщины торчит за метрики глифов, и рамка
           // Stack'а срезала бы его по краю текста.
-          child: outlineStroke == null
+          child: strokeLayer == null
               ? fillLayer
               : Stack(
                   clipBehavior: Clip.none,
@@ -1191,7 +1181,7 @@ class TextItemWidget extends ConsumerWidget {
                     Positioned.fill(
                       child: Align(
                         alignment: Alignment.topLeft,
-                        child: scaleLayer(_asOutlineText(span, outlineStroke)),
+                        child: strokeLayer,
                       ),
                     ),
                     fillLayer,
@@ -1222,13 +1212,23 @@ class TextItemWidget extends ConsumerWidget {
       fontFamily: fontFamily,
     );
 
-    // Стили markdown-слоя. При `stroke == null` это обычный слой с заливкой;
-    // с кистью каждый цвет заменяется штрихом — `copyWith(foreground:)` гасит
-    // `color`, а раз `ColorNode`/`EmphasisNode` мёржатся поверх этих стилей,
-    // то и `[color=#…]`, и жирный, и ссылки уходят в контур, не меняя вёрстку.
-    MarkdownConfig markdownConfigFor(Paint? stroke) {
-      TextStyle layerStyle(TextStyle style) =>
-          stroke == null ? style : style.copyWith(foreground: stroke);
+    // Стили markdown-слоя. При `stroke == null` и `outlineOnly: false` это
+    // обычный слой с заливкой; с кистью каждый цвет заменяется штрихом —
+    // `copyWith(foreground:)` гасит `color`, а раз `ColorNode`/`EmphasisNode`
+    // мёржатся поверх этих стилей, то и `[color=#…]`, и жирный, и ссылки уходят
+    // в контур, не меняя вёрстку. `outlineOnly` — слой, где у айтема обводки
+    // нет: базовый текст прозрачен, рисуются только `[outline=…]`-фрагменты.
+    MarkdownConfig markdownConfigFor(
+      Paint? stroke, {
+      bool outlineOnly = false,
+    }) {
+      TextStyle layerStyle(TextStyle style) {
+        if (stroke != null) return style.copyWith(foreground: stroke);
+        if (outlineOnly)
+          return style.copyWith(foreground: transparentTextOutlineStroke);
+        return style;
+      }
+
       return MarkdownConfig(
         configs: [
           PConfig(textStyle: layerStyle(baseMarkdownTextStyle)),
@@ -1302,41 +1302,59 @@ class TextItemWidget extends ConsumerWidget {
       crossAlign = CrossAxisAlignment.end;
     }
 
-    Widget renderMarkdown(String shown, {Paint? stroke}) => Container(
-      width: isInsideRow ? null : double.infinity,
-      padding: backgroundColor != null
-          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
-          : EdgeInsets.zero,
-      decoration: BoxDecoration(
-        // Подложку рисует только верхний слой, иначе полупрозрачный фон
-        // складывался бы дважды.
-        color: stroke == null ? backgroundColor : null,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: DefaultTextStyle.merge(
-        textAlign: textAlign,
-        style: stroke == null
-            ? baseMarkdownTextStyle
-            : baseMarkdownTextStyle.copyWith(foreground: stroke),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: crossAlign,
-          children: createColorMarkdownGenerator(
-            linesMargin: const EdgeInsets.symmetric(vertical: 2),
-            questId: questId,
-            // В штриховом слое фрагментные тени уже нарисованы заливкой;
-            // второй раз они дали бы грязный двойной контур.
-            showOutline: stroke == null,
-          ).buildWidgets(
-            preserveMarkdownHardLineBreaks(shown),
-            config: markdownConfigFor(stroke),
+    Widget renderMarkdown(
+      String shown, {
+      Paint? stroke,
+      bool outlineOnly = false,
+    }) {
+      final isStrokeLayer = stroke != null || outlineOnly;
+      return Container(
+        width: isInsideRow ? null : double.infinity,
+        padding: backgroundColor != null
+            ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+            : EdgeInsets.zero,
+        decoration: BoxDecoration(
+          // Подложку рисует только верхний слой, иначе полупрозрачный фон
+          // складывался бы дважды.
+          color: isStrokeLayer ? null : backgroundColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: DefaultTextStyle.merge(
+          textAlign: textAlign,
+          style: switch ((stroke, outlineOnly)) {
+            (final Paint paint, _) => baseMarkdownTextStyle.copyWith(
+              foreground: paint,
+            ),
+            (_, true) => baseMarkdownTextStyle.copyWith(
+              foreground: transparentTextOutlineStroke,
+            ),
+            _ => baseMarkdownTextStyle,
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: crossAlign,
+            children:
+                createColorMarkdownGenerator(
+                  linesMargin: const EdgeInsets.symmetric(vertical: 2),
+                  questId: questId,
+                  // Обводку рисует только штриховой слой: у заливки её нет, иначе
+                  // контур задвоился бы. Цвет/толщина тега важнее обводки айтема.
+                  outlineMode: isStrokeLayer
+                      ? TextOutlineMode.stroke
+                      : TextOutlineMode.none,
+                ).buildWidgets(
+                  preserveMarkdownHardLineBreaks(shown),
+                  config: markdownConfigFor(stroke, outlineOnly: outlineOnly),
+                ),
           ),
         ),
-      ),
-    );
+      );
+    }
 
     final fillLayer = renderMarkdown(shownText);
-    Widget textContent = outlineStroke == null
+    final needsOutlineLayer =
+        outlineStroke != null || hasInlineOutline(shownText);
+    Widget textContent = !needsOutlineLayer
         ? fillLayer
         : Stack(
             // Clip.none — см. комментарий в 'scale'-ветке: контур выступает за
@@ -1346,7 +1364,9 @@ class TextItemWidget extends ConsumerWidget {
               Positioned.fill(
                 child: Align(
                   alignment: Alignment.topLeft,
-                  child: renderMarkdown(shownText, stroke: outlineStroke),
+                  child: outlineStroke != null
+                      ? renderMarkdown(shownText, stroke: outlineStroke)
+                      : renderMarkdown(shownText, outlineOnly: true),
                 ),
               ),
               fillLayer,
@@ -1358,8 +1378,13 @@ class TextItemWidget extends ConsumerWidget {
       final reserved = renderMarkdown(parsedText);
       textContent = Stack(
         children: [
-          IgnorePointer(ignoring: true, child: Opacity(opacity: 0, child: reserved)),
-          Positioned.fill(child: Align(alignment: Alignment.topLeft, child: textContent)),
+          IgnorePointer(
+            ignoring: true,
+            child: Opacity(opacity: 0, child: reserved),
+          ),
+          Positioned.fill(
+            child: Align(alignment: Alignment.topLeft, child: textContent),
+          ),
         ],
       );
     }
@@ -1469,8 +1494,8 @@ class _TextRevealHostState extends ConsumerState<TextRevealHost>
     final chars = TextRevealPlan.of(widget.item.text ?? '').totalVisible;
     if (chars == 0) return;
 
-    final ms =
-        (1000 * chars / (widget.item.revealSpeed * preference.factor)).round();
+    final ms = (1000 * chars / (widget.item.revealSpeed * preference.factor))
+        .round();
     final duration = Duration(
       milliseconds: _isFade ? ms.clamp(250, 1200) : ms.clamp(120, 60000),
     );

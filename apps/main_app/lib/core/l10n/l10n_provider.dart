@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,8 +40,21 @@ final appLanguageProvider =
 
 /// Читает язык до первого кадра, чтобы сплэш уже рисовался на выбранном
 /// языке. `AppLanguageNotifier` после этого находит тот же код и молчит.
+///
+/// Порядок: выбор пользователя -> язык системы -> английский. Системный язык
+/// не сохраняется: пока человек не выбрал язык руками, приложение идёт за
+/// системой, и после смены языка ОС он получает свой, а не чужой.
 Future<void> initAppLanguage() async {
   final prefs = await SharedPreferences.getInstance();
   final code = prefs.getString(AppLanguageNotifier.prefsKey);
-  if (code != null) L10n.setCurrent(L10n.byCode(code));
+  if (code != null) {
+    L10n.setCurrent(L10n.byCode(code));
+    return;
+  }
+  final system = L10n.forSystemLocales(
+    WidgetsBinding.instance.platformDispatcher.locales,
+  );
+  // Языка системы в реестре нет — английский: словари остальных языков и так
+  // добирают промахи у него, а русский среди английского смотрелся бы чужим.
+  L10n.setCurrent(system ?? L10n.byCode('en'));
 }

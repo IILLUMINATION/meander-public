@@ -6,42 +6,33 @@
 // значки и капслок, потому что экран рендерит строки как есть и править
 // потом приходится вёрстку.
 //
-// Отдельно проверяется, что файл вообще читается тем же декодером, которым
-// его читает экран: AboutScreenData.fromJson падает на любом изменённом
-// ключе, а на экране это превращается в «Ошибка загрузки: …».
+// Список с тех пор живёт в коде (`about_content.dart`), а не в JSON-ассете:
+// проверяем те ровно те константы, которые рендерит экран.
 
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:canvas_app/features/app/screens/about_screen.dart';
+import 'package:canvas_app/features/app/data/about_content.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  final raw = File('assets/data/about_info.json').readAsStringSync();
-  final data = AboutScreenData.fromJson(
-    jsonDecode(raw) as Map<String, dynamic>,
-  );
-
   // Пиктографы, модификаторы эмодзи и прочая значковая графика.
   final emoji = RegExp(
     r'[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{1F1E6}-\u{1F1FF}]',
     unicode: true,
   );
 
-  test('файл читается экраном', () {
-    expect(data.changelog, isNotEmpty);
-    expect(data.notes, isNotEmpty);
-    expect(data.developerName, isNotEmpty);
+  test('список на месте и заполнен', () {
+    expect(aboutChangelog(), isNotEmpty);
+    expect(aboutNotes(), isNotEmpty);
+    expect(aboutDeveloperName, isNotEmpty);
   });
 
   test('в списке изменений нет смайлов', () {
-    for (final line in data.changelog) {
+    for (final line in aboutChangelog()) {
       expect(emoji.hasMatch(line), isFalse, reason: 'эмодзи в строке: $line');
     }
   });
 
   test('строки — обычные предложения, а не капслок-объявления', () {
-    for (final line in data.changelog) {
+    for (final line in aboutChangelog()) {
       expect(line.length, lessThan(400), reason: 'простыня: $line');
       final letters = line.replaceAll(RegExp('[^А-Яа-яA-Za-z]'), '');
       final upper = line.replaceAll(RegExp('[^А-ЯA-Z]'), '');
@@ -62,7 +53,7 @@ void main() {
       caseSensitive: false,
       unicode: true,
     );
-    for (final line in data.changelog) {
+    for (final line in aboutChangelog()) {
       expect(
         internals.hasMatch(line),
         isFalse,

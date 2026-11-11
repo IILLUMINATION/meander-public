@@ -6,6 +6,7 @@
 #include <string>
 
 #include "flutter_window.h"
+#include "resource.h"
 #include "utils.h"
 
 namespace {
@@ -36,7 +37,11 @@ void RegisterMndFileAssociation() {
 
   const std::wstring open_command =
       std::wstring(L"\"") + exe_path + L"\" \"%1\"";
-  const std::wstring default_icon = std::wstring(exe_path) + L",0";
+  // Значок документа берётся из своего ресурса (IDI_MND_ICON), а не из
+  // иконки приложения: `.mnd` в проводнике должен выглядеть как файл
+  // Meander. Отрицательный индекс — это номер ресурса, а не позиция.
+  const std::wstring default_icon =
+      std::wstring(exe_path) + L"," + L"-" + std::to_wstring(IDI_MND_ICON);
 
   bool ok = true;
   ok &= SetRegistryDefaultString(HKEY_CURRENT_USER, L"Software\\Classes\\.mnd",

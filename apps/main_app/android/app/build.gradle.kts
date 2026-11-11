@@ -18,10 +18,11 @@ val isReleaseTaskRequested = gradle.startParameter.taskNames.any {
 }
 if (isReleaseTaskRequested && !hasReleaseKeystore) {
     // key.properties — локальный материал подписи, его в репозитории нет.
-    // Сборка без него законна: на выходе неподписанный APK, который F-Droid
-    // и любой свой релиз подписывают внешним ключом.
+    // Без него release подписывается debug-ключом, чтобы APK можно было
+    // установить для теста. Для публикации создай android/key.properties
+    // (F-Droid подписывает сборку своим ключом поверх).
     logger.warn(
-        "key.properties нет: release-задачи дадут неподписанный APK. Для своего релиза создай android/key.properties.",
+        "key.properties нет: release подписан debug-ключом (только для теста). Для публикации создай android/key.properties.",
     )
 }
 
@@ -202,8 +203,10 @@ android {
 
     buildTypes {
         getByName("release") {
-            if (hasReleaseKeystore) {
-                signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
 
             isMinifyEnabled = true
@@ -234,6 +237,9 @@ flutter {
 dependencies {
     implementation(project(":android_file_picker"))
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // apksig — офлайн-подпись APK в OfflineApkSupport.kt (ApkSigner/ApkVerifier).
+    // Версия ровно под AGP 9.1.0, самодостаточна (без транзитивных зависимостей).
+    implementation("com.android.tools.build:apksig:9.1.0")
 }
 
 tasks.withType<JavaCompile>().configureEach {

@@ -997,12 +997,10 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     Clipboard.setData(
       ClipboardData(text: 'MND_CONTENT_ITEM::${jsonEncode(item.toJson())}'),
     );
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tr('Элемент скопирован')),
-        backgroundColor: Colors.blueAccent,
-        duration: Duration(seconds: 1),
-      ),
+    showEditorNotice(
+      context,
+      tr('Элемент скопирован'),
+      color: Colors.blueAccent,
     );
   }
 
@@ -1040,13 +1038,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     unawaited(_refreshOnAppearIssues());
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tr('Элемент вставлен')),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 1),
-      ),
-    );
+    showEditorNotice(context, tr('Элемент вставлен'), color: Colors.green);
   }
 
   // ============================================================
@@ -1309,15 +1301,12 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       unawaited(_refreshOnAppearIssues());
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            trf('Шаблон вставлен как связанный: {p0}', {
-              'p0': masterInQuest.name,
-            }),
-          ),
-          backgroundColor: Colors.cyan,
-        ),
+      showEditorNotice(
+        context,
+        trf('Шаблон вставлен как связанный: {p0}', {
+          'p0': masterInQuest.name,
+        }),
+        color: Colors.cyan,
       );
       return;
     }
@@ -1383,9 +1372,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
             'p1': report.skippedExisting,
           })
         : tr('Шаблон вставлен');
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.blue));
+    showEditorNotice(context, msg, color: Colors.blue);
   }
 
   // ============================================================
@@ -1766,11 +1753,10 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     _markDirtyAndSave();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tr('Элемент вставлен внутрь контейнера')),
-        backgroundColor: Colors.green,
-      ),
+    showEditorNotice(
+      context,
+      tr('Элемент вставлен внутрь контейнера'),
+      color: Colors.green,
     );
   }
 

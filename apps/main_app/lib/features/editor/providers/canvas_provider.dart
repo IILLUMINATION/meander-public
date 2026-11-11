@@ -319,6 +319,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
             label: saved.title,
             description: saved.content['description'] as String? ?? '',
             content: saved.content,
+            preview: NodeCardPreview.fromJson(saved.content['cardPreview']),
             backgroundAssetId: saved.backgroundAssetId,
             backgroundAudioId: saved.backgroundAudioId,
             backgroundAudioVolume: saved.backgroundAudioVolume,
@@ -1114,7 +1115,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       id: n.id,
       chapterId: n.chapterId ?? _tagId,
       title: n.label,
-      content: n.content ?? const {'items': []},
+      content: _persistableContent(n.content),
       x: n.position.dx,
       y: n.position.dy,
       color: n.color.value,
@@ -1126,6 +1127,14 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       timerHidden: n.timerHidden,
       defaultActionNodeId: n.defaultActionNodeId,
     );
+  }
+
+  /// Контент для записи на диск: служебное превью карточки из индекса
+  /// не должно попасть в тело ноды.
+  Map<String, dynamic> _persistableContent(Map<String, dynamic>? content) {
+    if (content == null) return const {'items': <dynamic>[]};
+    if (!content.containsKey('cardPreview')) return content;
+    return Map<String, dynamic>.from(content)..remove('cardPreview');
   }
 
   List<Connection> _rebuildConnections(List<Connection> old, List<Node> newN) {
@@ -1496,7 +1505,12 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       final toNode = state.nodes.firstWhereOrNull((n) => n.id == targetNodeId);
       if (fromNode == null || toNode == null) return;
 
-      final rawItems = fromNode.content?['items'];
+      // Канвас держит только превью ноды: тело с диска, иначе добавление
+      // кнопки из канвасового снимка стирало бы остальные реплики ноды.
+      final persistedSource = await _persistedNodesById();
+      final baseContent =
+          persistedSource[fromNodeId]?.content ?? fromNode.content;
+      final rawItems = baseContent?['items'];
       final currentItems = <Map<String, dynamic>>[];
       if (rawItems is List) {
         for (final raw in rawItems) {
@@ -1529,8 +1543,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       ).toJson();
 
       final newItems = [...currentItems, newButtonJson];
-      final newContent = Map<String, dynamic>.from(fromNode.content ?? {});
-      newContent['items'] = newItems;
+      final newContent = _persistableContent(baseContent)..['items'] = newItems;
 
       final updatedFromNode = fromNode.copyWith(content: newContent);
       updatedFromNode.invalidateTextCache();
@@ -1556,11 +1569,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       // Кнопку кладём поверх записанной ноды, а не собираем ноду из
       // канвасового снимка: иначе сохранение связи стирало бы поля, которых
       // снимок не знает (видео-фон, размытие, отступы).
-      final persistedSource = await _persistedNodesById();
       final savedNode =
-          persistedSource[updatedFromNode.id]?.copyWith(
-            content: updatedFromNode.content ?? {},
-          ) ??
+          persistedSource[updatedFromNode.id]?.copyWith(content: newContent) ??
           _nodeFromCanvas(updatedFromNode);
 
       await saveNodes(_questId, [savedNode]);

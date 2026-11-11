@@ -65,6 +65,32 @@ void main() {
     expect(await nodesFile(q, canonical: true).then((f) => f.exists()), isTrue);
   });
 
+  test('голый массив в legacy nodes.json не теряет ноды', () async {
+    // Сторонний генератор мог записать `nodes.json` массивом. Раньше такой
+    // файл молча считался пустым документом и первая же запись затирала все
+    // ноды квеста — массив обязан читаться как список нод.
+    const q = 'legacy-array';
+    final file = await nodesFile(q, canonical: false);
+    file.writeAsStringSync(
+      jsonEncode([
+        {'id': 'a', 'title': 'A'},
+        {'id': 'b', 'title': 'B'},
+      ]),
+    );
+    FileStorage.invalidateJsonCache([
+      'quests/$q/nodes.json',
+      'quests/$q/nodes/nodes.json',
+    ]);
+
+    final data = await QuestNodesStore.read(q);
+
+    expect((data['nodes'] as List).length, 2);
+    expect(
+      (data['nodes'] as List).map((n) => (n as Map)['id']),
+      containsAll(<String>['a', 'b']),
+    );
+  });
+
   test('canonical-only квест мигрирует в legacy', () async {
     const q = 'canonical-only';
     await writeNodes(q, doc(['b']), canonical: true);

@@ -318,7 +318,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     );
 
     if (variableName != null && variableName.isNotEmpty) {
-      _insertMarkdown('{$variableName}');
+      _insertMarkdown(bracedVariableToken(variableName));
     } else {
       _focusNode.requestFocus();
     }
@@ -809,26 +809,12 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
   //  PREVIEW TAB
   // ============================================================
 
-  /// Обводка в превью. Плеер кладёт под буквы штриховой слой того же текста,
-  /// здесь тот же эффект дают восемь копий глифа со смещением на полтолщины и
-  /// без размытия: буквы остаются поверх, поэтому `[color=#…]` и жирный не
-  /// меняют цвета. Контур приблизительный — зато не стоит перепарсить весь
-  /// markdown второй раз на каждое нажатие клавиши.
-  List<BoxShadow>? get _previewOutlineShadows {
+  /// Кисть обводки айтема. Та же, что в игре: ядро клэмпит толщину и задаёт
+  /// скруглённые стыки, поэтому превью и плеер рисуют один и тот же контур.
+  Paint? get _previewOutlinePaint {
     final color = _textOutlineColor;
     if (color == null) return null;
-    final half =
-        (_textOutlineWidth ?? kTextOutlineWidthDefault).clamp(
-          1.0,
-          kTextOutlineWidthMax,
-        ) /
-        2.0;
-    return [
-      for (final dx in [-half, 0.0, half])
-        for (final dy in [-half, 0.0, half])
-          if (dx != 0.0 || dy != 0.0)
-            BoxShadow(color: color, offset: Offset(dx, dy), blurRadius: 0),
-    ];
+    return textOutlineStroke(color, width: _textOutlineWidth);
   }
 
   Widget _buildPreviewTab(BuildContext context) {
@@ -840,15 +826,27 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
         // `item.textSize`, заголовки умножаются на тот же коэффициент.
         final base = (_textSize ?? 16.0).clamp(6.0, 200.0);
         final headingScale = base / 16.0;
-        final outlineShadows = _previewOutlineShadows;
-        final config = MarkdownConfig(
+
+        // Контур рисуется отдельным нижним слоем, как в игре: копии глифа со
+        // сдвигом давали раздвоенную обводку, не совпадавшую ни с плеером, ни
+        // с экспортом. Кисть и толщину считает ядро.
+        TextStyle layerStyle(TextStyle style, {required bool strokeLayer}) {
+          if (!strokeLayer) return style;
+          return style.copyWith(
+            foreground: _previewOutlinePaint ?? transparentTextOutlineStroke,
+          );
+        }
+
+        MarkdownConfig configFor({bool strokeLayer = false}) => MarkdownConfig(
           configs: [
             PConfig(
-              textStyle: TextStyle(
-                color: scheme.onSurface,
-                fontSize: base,
-                height: 1.45,
-                shadows: outlineShadows,
+              textStyle: layerStyle(
+                TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: base,
+                  height: 1.45,
+                ),
+                strokeLayer: strokeLayer,
               ),
             ),
             ListConfig(
@@ -858,37 +856,45 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
             ),
             CheckBoxConfig(builder: safeCheckboxBuilder(scheme.onSurface)),
             H1Config(
-              style: TextStyle(
-                fontSize: 28 * headingScale,
-                fontWeight: FontWeight.bold,
-                color: scheme.onSurface,
-                height: 2,
-                shadows: outlineShadows,
+              style: layerStyle(
+                TextStyle(
+                  fontSize: 28 * headingScale,
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onSurface,
+                  height: 2,
+                ),
+                strokeLayer: strokeLayer,
               ),
             ),
             H2Config(
-              style: TextStyle(
-                fontSize: 24 * headingScale,
-                fontWeight: FontWeight.bold,
-                color: scheme.onSurface,
-                height: 2,
-                shadows: outlineShadows,
+              style: layerStyle(
+                TextStyle(
+                  fontSize: 24 * headingScale,
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onSurface,
+                  height: 2,
+                ),
+                strokeLayer: strokeLayer,
               ),
             ),
             H3Config(
-              style: TextStyle(
-                fontSize: 20 * headingScale,
-                fontWeight: FontWeight.bold,
-                color: scheme.onSurface,
-                height: 2,
-                shadows: outlineShadows,
+              style: layerStyle(
+                TextStyle(
+                  fontSize: 20 * headingScale,
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onSurface,
+                  height: 2,
+                ),
+                strokeLayer: strokeLayer,
               ),
             ),
             LinkConfig(
-              style: TextStyle(
-                color: scheme.primary,
-                decoration: TextDecoration.underline,
-                shadows: outlineShadows,
+              style: layerStyle(
+                TextStyle(
+                  color: scheme.primary,
+                  decoration: TextDecoration.underline,
+                ),
+                strokeLayer: strokeLayer,
               ),
             ),
             BlockquoteConfig(
@@ -896,26 +902,53 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
               sideColor: scheme.primary,
             ),
             CodeConfig(
-              style: TextStyle(
-                backgroundColor: scheme.surfaceContainerHighest,
-                fontFamily: 'monospace',
-                color: scheme.onSurfaceVariant,
-                shadows: outlineShadows,
+              style: layerStyle(
+                TextStyle(
+                  backgroundColor: scheme.surfaceContainerHighest,
+                  fontFamily: 'monospace',
+                  color: scheme.onSurfaceVariant,
+                ),
+                strokeLayer: strokeLayer,
               ),
             ),
           ],
         );
 
-        final widgets =
-            createColorMarkdownGenerator(
-              linesMargin: const EdgeInsets.symmetric(vertical: 2),
-              questId: widget.questId,
-            ).buildWidgets(
-              text.isEmpty
-                  ? tr('Нет текста для предпросмотра')
-                  : preserveMarkdownHardLineBreaks(text),
-              config: config,
-            );
+        final previewText = text.isEmpty
+            ? tr('Нет текста для предпросмотра')
+            : preserveMarkdownHardLineBreaks(text);
+
+        Widget layer({bool strokeLayer = false}) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children:
+              createColorMarkdownGenerator(
+                linesMargin: const EdgeInsets.symmetric(vertical: 2),
+                questId: widget.questId,
+                outlineMode: strokeLayer
+                    ? TextOutlineMode.stroke
+                    : TextOutlineMode.none,
+              ).buildWidgets(
+                previewText,
+                config: configFor(strokeLayer: strokeLayer),
+              ),
+        );
+
+        final needsOutlineLayer =
+            _previewOutlinePaint != null || hasInlineOutline(text);
+        final content = !needsOutlineLayer
+            ? layer()
+            : Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: layer(strokeLayer: true),
+                    ),
+                  ),
+                  layer(),
+                ],
+              );
 
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -926,10 +959,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
             ),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: widgets,
-              ),
+              child: content,
             ),
           ),
         );

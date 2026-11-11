@@ -17,7 +17,6 @@ final Map<String, String> enMisc = {
   'Создаётся автоматически': 'Created automatically',
   'Список пуст': 'List is empty',
   'Строки (Таблица)': 'Rows (Table)',
-  'Удалить сохранение': 'Delete save',
   'Удалить сохранение?': 'Delete save?',
   'Жанр': 'Genre',
   'Жанр: {p0}': 'Genre: {p0}',

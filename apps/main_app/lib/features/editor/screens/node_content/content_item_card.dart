@@ -595,10 +595,7 @@ class ContentItemCard extends StatelessWidget {
     // Вставить внутрь — только для контейнеров (row/column).
     if (isContainer && onPasteInto != null) {
       items.add(
-        PopupMenuItem(
-          value: 'paste_into',
-          child: Text(tr('Вставить внутрь')),
-        ),
+        PopupMenuItem(value: 'paste_into', child: Text(tr('Вставить внутрь'))),
       );
     }
     // Триггеры: показываем, только если хост не вынес их в шапку.
@@ -618,7 +615,9 @@ class ContentItemCard extends StatelessWidget {
               hasTrigger ? Icons.bolt : Icons.bolt_outlined,
               size: 18,
             ),
-            title: Text(hasTrigger ? tr('Триггер: изменить') : tr('Добавить триггер')),
+            title: Text(
+              hasTrigger ? tr('Триггер: изменить') : tr('Добавить триггер'),
+            ),
           ),
         ),
       );
@@ -834,14 +833,22 @@ class ContentItemCard extends StatelessWidget {
             : rawText;
         final markdownText = preserveMarkdownHardLineBreaks(display);
 
-        final config = MarkdownConfig(
+        // Фрагментная `[outline=…]` рисуется штриховым слоем, как в игре:
+        // копии глифа со сдвигом давали раздвоенный контур.
+        MarkdownConfig configFor({bool strokeLayer = false}) => MarkdownConfig(
           configs: [
             PConfig(
-              textStyle: TextStyle(
-                color: scheme.onSurface,
-                fontSize: 14,
-                height: 1.3,
-              ),
+              textStyle: strokeLayer
+                  ? TextStyle(
+                      fontSize: 14,
+                      height: 1.3,
+                      foreground: transparentTextOutlineStroke,
+                    )
+                  : TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 14,
+                      height: 1.3,
+                    ),
             ),
             ListConfig(
               marginLeft: 18.0,
@@ -856,12 +863,33 @@ class ContentItemCard extends StatelessWidget {
           ],
         );
 
-        return Column(
+        Widget layer({bool strokeLayer = false}) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: createColorMarkdownGenerator(
-            linesMargin: const EdgeInsets.symmetric(vertical: 2),
-            questId: questId,
-          ).buildWidgets(markdownText, config: config),
+          children:
+              createColorMarkdownGenerator(
+                linesMargin: const EdgeInsets.symmetric(vertical: 2),
+                questId: questId,
+                outlineMode: strokeLayer
+                    ? TextOutlineMode.stroke
+                    : TextOutlineMode.none,
+              ).buildWidgets(
+                markdownText,
+                config: configFor(strokeLayer: strokeLayer),
+              ),
+        );
+
+        if (!hasInlineOutline(markdownText)) return layer();
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: layer(strokeLayer: true),
+              ),
+            ),
+            layer(),
+          ],
         );
 
       case 'button':
@@ -1021,7 +1049,9 @@ class ContentItemCard extends StatelessWidget {
           icon: Icons.chat_bubble_outline,
           accent: Colors.orangeAccent,
           subtitle: tr('Модальное окно'),
-          title: item.text?.isNotEmpty == true ? item.text! : tr('Модальное окно'),
+          title: item.text?.isNotEmpty == true
+              ? item.text!
+              : tr('Модальное окно'),
         );
       case 'chat':
         final senderName = item.senderName ?? tr('Отправитель');

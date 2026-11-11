@@ -29,15 +29,20 @@ import 'package:mnd_core/models/value_format.dart';
 import 'package:mnd_core/rust_bootstrap.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'quest_bundle.dart';
+import 'quest_source.dart';
 
 /// Нода ещё не выбрана, квест грузится.
 enum PlayPhase { loading, playing, failed }
 
 class QuestPlayer extends ChangeNotifier {
-  QuestPlayer(this.bundle);
+  QuestPlayer(this.bundle) {
+    // Потоковый источник догружает ресурсы в фоне, и его уведомление означает
+    // «в памяти появились новые байты» — кадр надо перерисовать. Плеер только
+    // пропускает его дальше: подписчики у него уже есть.
+    bundle.addListener(notifyListeners);
+  }
 
-  final QuestBundle bundle;
+  final QuestAssets bundle;
 
   MeanderGameEngine? _engine;
 
@@ -192,13 +197,14 @@ class QuestPlayer extends ChangeNotifier {
     } catch (e, stack) {
       debugPrint('[web-player] start failed: $e\n$stack');
       phase = PlayPhase.failed;
-      errorMessage = '$e';
+      errorMessage = _explainWebFailure('$e');
       _safeNotify();
     }
   }
 
   @override
   void dispose() {
+    bundle.removeListener(notifyListeners);
     for (final t in _timers) {
       t.cancel();
     }
@@ -1003,4 +1009,18 @@ splitDeltaAgainstHold({
 
 extension on String {
   String? get ifEmptyOrNull => isEmpty ? null : this;
+}
+
+/// Ошибка старта движка на вебе: `RuntimeError: unreachable` — это не текст
+/// для игрока, а wasm-ловушка. Чаще всего страницу отдали без COOP/COEP, и
+/// FRB не смог поднять worker pool через SharedArrayBuffer; без подсказки
+/// автор видит голую строку и не понимает, что чинить.
+String _explainWebFailure(String raw) {
+  final wasmTrap = raw.contains('RuntimeError') || raw.contains('unreachable');
+  if (!wasmTrap) return raw;
+  return '$raw\n\nДвижок не запустился: странице нужны заголовки '
+      'Cross-Origin-Opener-Policy: same-origin и '
+      'Cross-Origin-Embedder-Policy: require-corp. Без них браузер не даёт '
+      'SharedArrayBuffer. Для локальной раздачи: '
+      'python3 scripts/serve_web_export.py --dir <папка экспорта>.';
 }

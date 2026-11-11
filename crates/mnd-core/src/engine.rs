@@ -495,6 +495,13 @@ impl GameEngine {
         // ноды. Дефолт 10.0 живёт на стороне плеера; если сеять его здесь,
         // канал эффектов всегда «активен» и перебивает настройку ноды.
         let defaults: Vec<(&str, Value)> = vec![
+            // Стартовое состояние верхней панели — настройка квеста.
+            // Переменная сеётся всегда: `toggle` в первом же блоке скрипта
+            // должен знать, видна ли панель сейчас.
+            (
+                "_internal_top_panel_hidden",
+                Value::from(self.config.hide_top_panel),
+            ),
             ("_internal_node_content_volume", Value::from(1.0)),
             ("_internal_tag_volume", Value::from(1.0)),
             ("_internal_play_sound_id", Value::Null),
@@ -1402,6 +1409,77 @@ impl GameEngine {
         self.state.all_variables()
     }
 
+    /// JSON всех айтемов текущей ноды, включая вложенные в ряды/стеки.
+    ///
+    /// Нужен headless-клиентам: перечислить, что вообще можно нажать, не
+    /// отрисовывая ноду.
+    pub fn current_items(&self) -> Vec<Value> {
+        let Some(current) = self.current_node_id.as_deref() else {
+            return Vec::new();
+        };
+        let Some(node) = self.nodes.get(current).cloned() else {
+            return Vec::new();
+        };
+        let node = self.resolve_node(node);
+        let items = node
+            .content
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        fn flatten(items: &[Value], out: &mut Vec<Value>) {
+            for item in items {
+                out.push(item.clone());
+                if let Some(children) = item.get("children").and_then(Value::as_array) {
+                    flatten(children, out);
+                }
+            }
+        }
+
+        let mut out = Vec::with_capacity(items.len());
+        flatten(&items, &mut out);
+        out
+    }
+
+    /// JSON айтема текущей ноды по id — включая вложенные в ряды/стеки.
+    ///
+    /// Нужен headless-клиентам (CLI, тесты): нажать кнопку, не отрисовывая
+    /// ноду. Скрытые и ещё не раскрытые айтемы тоже находятся — фильтрация
+    /// видимости остаётся за клиентом.
+    pub fn item_json_by_id(&self, item_id: &str) -> Option<Value> {
+        let node = self.nodes.get(self.current_node_id.as_deref()?).cloned()?;
+        let node = self.resolve_node(node);
+        let items = node.content.get("items").and_then(Value::as_array)?;
+
+        fn find(items: &[Value], item_id: &str) -> Option<Value> {
+            for item in items {
+                if item.get("id").and_then(Value::as_str) == Some(item_id) {
+                    return Some(item.clone());
+                }
+                if let Some(children) = item.get("children").and_then(Value::as_array)
+                    && let Some(found) = find(children, item_id)
+                {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        find(items, item_id)
+    }
+
+    /// «Нажать» айтем по id (событие `onPress`).
+    ///
+    /// Возвращает id ноды перехода, если скрипт увёл игру дальше. `None`
+    /// означает и «перехода нет», и «айтема нет» — вызывающий различает их
+    /// через [`item_json_by_id`].
+    pub fn press_item(&mut self, item_id: &str) -> Option<String> {
+        let raw = self.item_json_by_id(item_id)?;
+        let item = ContentItem::from_json(&raw);
+        self.execute_behaviour(&item, "onPress")
+    }
+
     /// Выполнить behaviour айтема; на исходе — граница шага диспетчера.
     pub fn execute_behaviour(&mut self, item: &ContentItem, event: &str) -> Option<String> {
         let transition = self.execute_behaviour_inner(item, event);
@@ -2083,7 +2161,10 @@ fn uuid_v4() -> String {
 /// Загрузить v2-ноды: индекс задаёт порядок, тела — содержимое.
 /// `None`, если индекса нет или хотя бы одного тела не хватает: тогда
 /// вызывающий использует старый монолит.
-fn load_per_node_nodes(store: &dyn ScriptAssetStore, prefix: &str) -> Option<Vec<SavedNode>> {
+pub(crate) fn load_per_node_nodes(
+    store: &dyn ScriptAssetStore,
+    prefix: &str,
+) -> Option<Vec<SavedNode>> {
     let index = store.read_json(&format!("{prefix}nodes/index.json"))?;
     let summaries = index.get("nodes")?.as_array()?;
     if summaries.is_empty() {
@@ -2099,7 +2180,7 @@ fn load_per_node_nodes(store: &dyn ScriptAssetStore, prefix: &str) -> Option<Vec
     Some(nodes)
 }
 
-fn load_json_array<T>(
+pub(crate) fn load_json_array<T>(
     store: &dyn ScriptAssetStore,
     path: &str,
     key: &str,

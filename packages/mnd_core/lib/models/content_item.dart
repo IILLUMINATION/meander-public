@@ -1,5 +1,9 @@
-import 'dart:ui' show Color, Offset, Paint, PaintingStyle, Rect, Size;
+import 'dart:ui' show Color, Offset, Paint, Rect, Size;
 import 'package:uuid/uuid.dart';
+
+import 'text_outline.dart';
+
+export 'text_outline.dart';
 
 /// Дизайн-ширина стека: якорная модель детей (`anchor * W + offset`) считается
 /// от неё и в редакторе, и в игре. `offset`-ы автор задаёт в пикселях этого
@@ -11,6 +15,11 @@ const double kStackDesignWidth = 720.0;
 /// Дизайн-высота стека по умолчанию, когда автор её не задал. Одна на редактор
 /// и плеер: раньше превью рисовало 220 px, а игра — 200.
 const double kStackDesignHeight = 220.0;
+
+/// Максимальная ширина колонки контента на широком окне. Одна на все
+/// поверхности: иначе «прижать слева» в редакторе значило бы прижать к краю
+/// окна, а в игре — к краю центрированной колонки.
+const double kContentColumnMaxWidth = 720.0;
 
 /// Поля холста стека в px дизайна. Пределы общие для редактора и плеера: если
 /// у них разные, редактор тихо переписывает введённое значение обратно.
@@ -92,12 +101,6 @@ double normalizeRevealSpeed(Object? raw) {
   if (value == null) return kRevealSpeedDefault;
   return value.clamp(kRevealSpeedMin, kRevealSpeedMax);
 }
-
-/// Толщина контура обводки по умолчанию: автор её задаёт ползунком, а квесту,
-/// написанному руками с одним цветом, хватает и этого.
-const double kTextOutlineWidthDefault = 2.0;
-const double kTextOutlineWidthMin = 0.5;
-const double kTextOutlineWidthMax = 12.0;
 
 /// Картинка-фон стека из JSON: пустая строка означает «фон не выбран», а не
 /// «фон — пустой путь», иначе резолвер полез бы искать файл по пустому имени.
@@ -577,12 +580,7 @@ class ContentItem {
   Paint? get textOutlinePaint {
     final color = textOutlineColor;
     if (color == null) return null;
-    return Paint()
-      ..style = PaintingStyle.stroke
-      ..isAntiAlias = true
-      ..color = color
-      ..strokeWidth = (textOutlineWidth ?? kTextOutlineWidthDefault)
-          .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
+    return textOutlineStroke(color, width: textOutlineWidth);
   }
 
   /// Как текст появляется в плеере: `none` | `typewriter` | `fade`
@@ -1254,7 +1252,10 @@ class ContentItem {
     final legacy = Map<String, String>.from(scriptTriggers ?? const {})
       ..remove(event);
     final behs = behaviours ?? const <ContentTrigger>[];
-    final kept = [for (final b in behs) if (b.event != event) b];
+    final kept = [
+      for (final b in behs)
+        if (b.event != event) b,
+    ];
     return copyWith(
       behaviours: kept,
       forceClearBehaviours: kept.isEmpty,

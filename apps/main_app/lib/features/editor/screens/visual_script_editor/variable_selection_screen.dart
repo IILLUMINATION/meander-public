@@ -96,10 +96,26 @@ class QuestVariable {
   });
 }
 
+/// Оборачивает выбор из пикера в фигурные скобки ровно один раз.
+///
+/// Переменная приходит без скобок (`имя`), ссылка на ячейку таблицы — уже в
+/// скобках (`{т["кол"][2]}`). Двойная обёртка `{{…}}` ломала сырые поля:
+/// движок считал внешние скобки частью токена, адрес не находился, и блок
+/// `set_image` подставлял буквальный текст вместо пути к картинке.
+String bracedVariableToken(String picked) {
+  final trimmed = picked.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+  return '{$trimmed}';
+}
+
 class VariableSelectionScreen extends StatefulWidget {
   final String questId;
   final String? selectedVariable;
   final int initialTabIndex;
+
+  /// Начальный текст поиска — приходят из глобального поиска квеста, чтобы
+  /// автор сразу видел найденную переменную/таблицу, а не весь список.
+  final String initialSearch;
 
   /// Если `true`, тап по таблице возвращает её имя через `Navigator.pop`
   /// (режим пикера для скрипт-блоков и вставки данных). По умолчанию —
@@ -116,11 +132,12 @@ class VariableSelectionScreen extends StatefulWidget {
     required this.questId,
     this.selectedVariable,
     this.initialTabIndex = 0,
+    this.initialSearch = '',
     this.pickerMode = false,
     this.cellPicker = false,
   });
 
-  /// Единая точка входа для вставки в текст (маркдаун, формулы):
+/// Единая точка входа для вставки в текст (маркдаун, формулы):
   /// переменные возвращают `{имя}`, таблицы открывают редактор в режиме
   /// выбора ячейки и возвращают ссылку `{имя["колонка"][N]}`.
   /// Семантику пикера меняем здесь — вызывающим не нужно знать про `cellPicker`.
@@ -175,6 +192,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     });
     _loadData();
 
+    if (widget.initialSearch.isNotEmpty) {
+      _searchController.text = widget.initialSearch;
+      _searchQuery = widget.initialSearch.toLowerCase();
+    }
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();

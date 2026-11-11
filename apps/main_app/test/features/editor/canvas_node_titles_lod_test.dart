@@ -64,13 +64,17 @@ class _SpyRenderer extends NodeRenderer {
 CanvasState canvasWithNodes(
   int count, {
   required double scale,
+  int columns = 10,
   Set<String> selectedNodeIds = const {},
 }) {
   final nodes = <Node>[
     for (var i = 0; i < count; i++)
       Node(
         id: 'n$i',
-        position: Offset(100 + (i % 10) * 200.0, 100 + (i ~/ 10) * 200.0),
+        position: Offset(
+          100 + (i % columns) * 200.0,
+          100 + (i ~/ columns) * 200.0,
+        ),
         color: const Color(0xFF26C6DA),
         label: 'Нода $i',
         description: 'описание $i',
@@ -120,11 +124,47 @@ void main() {
       expect(spy.titledNodeIds, hasLength(12));
     });
 
-    testWidgets('детали при отдалении по-прежнему пропадают', (tester) async {
+    testWidgets('детали остаются при отдалении', (tester) async {
       final spy = _SpyRenderer();
       paintOnce(canvasWithNodes(4, scale: 0.2), spy, CanvasFrameCost());
 
       expect(spy.showDetailsFlags, isNotEmpty);
+      expect(
+        spy.showDetailsFlags.every((flag) => flag == true),
+        isTrue,
+        reason: 'масштаб сам по себе не повод убирать текст с карточек',
+      );
+    });
+
+    testWidgets('тело прячется, когда в кадре слишком много нод', (tester) async {
+      final spy = _SpyRenderer();
+      paintOnce(
+        canvasWithNodes(
+          CanvasLod.detailsMaxVisibleNodes + 30,
+          scale: 0.2,
+          columns: 30,
+        ),
+        spy,
+        CanvasFrameCost(),
+      );
+
+      expect(spy.showDetailsFlags, isNotEmpty);
+      expect(spy.showDetailsFlags.every((flag) => flag == false), isTrue);
+      expect(
+        spy.titledNodeIds,
+        isNotEmpty,
+        reason: 'подписи при обзоре остаются',
+      );
+    });
+
+    testWidgets('медленный кадр убирает тело карточек', (tester) async {
+      final spy = _SpyRenderer();
+      paintOnce(
+        canvasWithNodes(30, scale: 0.2),
+        spy,
+        slowFrameCost(30),
+      );
+
       expect(spy.showDetailsFlags.every((flag) => flag == false), isTrue);
     });
 
@@ -242,11 +282,38 @@ void main() {
     });
   });
 
-  group('CanvasLod.showDetails', () {
-    test('порог 0.35', () {
-      expect(CanvasLod.showDetails(0.34), isFalse);
-      expect(CanvasLod.showDetails(0.35), isTrue);
-      expect(CanvasLod.showDetails(1.0), isTrue);
+  group('CanvasLod.showDetailsFor', () {
+    test('решает по числу нод, а не по зуму', () {
+      expect(CanvasLod.showDetailsFor(1), isTrue);
+      expect(
+        CanvasLod.showDetailsFor(CanvasLod.detailsMaxVisibleNodes),
+        isTrue,
+      );
+      expect(
+        CanvasLod.showDetailsFor(CanvasLod.detailsMaxVisibleNodes + 1),
+        isFalse,
+      );
+    });
+  });
+
+  group('CanvasFrameCost.detailsAllowed', () {
+    test('прячет тело на медленном кадре и возвращает с гистерезисом', () {
+      final cost = CanvasFrameCost();
+      expect(cost.detailsAllowed, isTrue);
+
+      for (var i = 0; i < 12; i++) {
+        cost.record(CanvasLod.detailsDropAboveMs + 5, visibleNodes: 100);
+      }
+      expect(cost.detailsAllowed, isFalse);
+
+      // Один быстрый кадр не возвращает тело: между порогами решение держим.
+      cost.record(CanvasLod.detailsRestoreBelowMs + 2, visibleNodes: 100);
+      expect(cost.detailsAllowed, isFalse);
+
+      for (var i = 0; i < 12; i++) {
+        cost.record(2.0, visibleNodes: 100);
+      }
+      expect(cost.detailsAllowed, isTrue);
     });
   });
 }

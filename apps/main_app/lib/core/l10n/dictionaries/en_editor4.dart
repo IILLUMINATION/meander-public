@@ -67,6 +67,7 @@ final Map<String, String> enEditor4 = {
   'Скруглять': 'Round corners',
   'Скрыт в игре': 'Hidden in the game',
   'Скрыть': 'Hide',
+  'Верхняя панель': 'Top panel',
   'Скрыть / убрать': 'Hide / remove',
   'Слева': 'Left',
   'Слева направо': 'Left to right',

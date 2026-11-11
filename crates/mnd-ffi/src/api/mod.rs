@@ -5,6 +5,7 @@ pub mod lua;
 pub mod models;
 pub mod plugin;
 pub mod quest_archive;
+pub mod quest_search;
 pub mod quest_store;
 pub mod runtime;
 pub mod script_executor;

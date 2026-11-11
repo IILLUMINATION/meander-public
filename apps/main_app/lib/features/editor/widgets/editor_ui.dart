@@ -355,3 +355,26 @@ Future<T?> showEditorSheet<T>({
     useSafeArea: true,
   );
 }
+
+/// Короткое уведомление редактора: одно за раз и над нижними панелями.
+///
+/// SnackBar по умолчанию висит четыре секунды и встаёт в очередь. Пока автор
+/// добавляет элементы подряд, уведомления накапливаются и десятками секунд
+/// закрывают нижнюю панель с кнопками — сообщение при этом давно не нужно.
+/// Поэтому предыдущее снимается сразу, а новое живёт 1.4 с и поднято над
+/// панелью канваса (она стоит на 24 px от края).
+void showEditorNotice(BuildContext context, String message, {Color? color}) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return;
+  messenger
+    ..removeCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 112),
+        duration: const Duration(milliseconds: 1400),
+      ),
+    );
+}

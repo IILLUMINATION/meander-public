@@ -734,11 +734,16 @@ class _MarkdownBlock extends StatelessWidget {
   }
 
   Widget _rich(String value, TextStyle base, TextAlign align) {
-    final span = buildInlineSpan(value, base, player: player);
-    final fill = RichText(text: span, textAlign: align, softWrap: true);
+    final fill = RichText(
+      text: buildInlineSpan(value, base, player: player),
+      textAlign: align,
+      softWrap: true,
+    );
     // Кисть одна на плеер, редактор и веб — см. ContentItem.textOutlinePaint.
     final stroke = item.textOutlinePaint;
-    if (stroke == null) return fill;
+    // Фрагментная `[outline=…]` тоже штриховая: копии глифа со сдвигом давали
+    // раздвоенный контур, отличный от игры.
+    if (stroke == null && !hasInlineOutline(value)) return fill;
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -746,7 +751,12 @@ class _MarkdownBlock extends StatelessWidget {
           child: Align(
             alignment: Alignment.topLeft,
             child: RichText(
-              text: _asOutlineText(span, stroke),
+              text: buildInlineSpan(
+                value,
+                base,
+                player: player,
+                outlineLayer: stroke ?? transparentTextOutlineStroke,
+              ),
               textAlign: align,
               softWrap: true,
             ),
@@ -758,20 +768,6 @@ class _MarkdownBlock extends StatelessWidget {
   }
 }
 
-/// Копия спана для нижнего слоя обводки: каждый стиль переводится на штрих
-/// кисти. `copyWith(foreground:)` гасит `color`, поэтому inline `[color=#…]`
-/// и цвет жирного/курсива в контуре не просвечивают, а метрики глифов
-/// остаются те же. Обводка — украшение, поэтому распознаватель тапа у ссылок
-/// здесь не нужен: срабатывает верхний, заливочный слой.
-InlineSpan _asOutlineText(InlineSpan span, Paint stroke) {
-  if (span is! TextSpan) return span;
-  return TextSpan(
-    text: span.text,
-    style: span.style?.copyWith(foreground: stroke, shadows: const []),
-    children: span.children?.map((c) => _asOutlineText(c, stroke)).toList(),
-  );
-}
-
 /// Инлайн-разбор: `[font=…]` → `[color=…]` → `**жирный**` / `*курсив*` /
 /// `` `код` `` / `[текст](ссылка)`. Ссылки `node://<id>` ведут в ноду.
 InlineSpan buildInlineSpan(
@@ -779,9 +775,21 @@ InlineSpan buildInlineSpan(
   TextStyle base, {
   QuestPlayer? player,
   String? fontFamily,
+  Paint? outlineLayer,
 }) {
-  final children = _inline(text, base, player: player, fontFamily: fontFamily);
-  return TextSpan(children: children, style: base);
+  final children = _inline(
+    text,
+    base,
+    player: player,
+    fontFamily: fontFamily,
+    outlineLayer: outlineLayer,
+  );
+  return TextSpan(
+    children: children,
+    style: outlineLayer == null
+        ? base
+        : base.copyWith(foreground: outlineLayer),
+  );
 }
 
 List<InlineSpan> _inline(
@@ -789,8 +797,18 @@ List<InlineSpan> _inline(
   TextStyle base, {
   QuestPlayer? player,
   String? fontFamily,
+  Paint? outlineLayer,
+  Paint? fragmentStroke,
 }) {
-  final style = base.copyWith(fontFamily: fontFamily ?? base.fontFamily);
+  TextStyle styled(TextStyle from) {
+    final withFamily = from.copyWith(fontFamily: fontFamily ?? base.fontFamily);
+    final stroke = fragmentStroke ?? outlineLayer;
+    return stroke == null
+        ? withFamily
+        : withFamily.copyWith(foreground: stroke);
+  }
+
+  final style = styled(base);
   if (text.isEmpty) return const [];
 
   final font = RegExp(
@@ -805,18 +823,24 @@ List<InlineSpan> _inline(
         base,
         player: player,
         fontFamily: fontFamily,
+        outlineLayer: outlineLayer,
+        fragmentStroke: fragmentStroke,
       ),
       ..._inline(
         font.group(2) ?? '',
         base,
         player: player,
         fontFamily: family ?? fontFamily,
+        outlineLayer: outlineLayer,
+        fragmentStroke: fragmentStroke,
       ),
       ..._inline(
         text.substring(font.end),
         base,
         player: player,
         fontFamily: fontFamily,
+        outlineLayer: outlineLayer,
+        fragmentStroke: fragmentStroke,
       ),
     ];
   }
@@ -828,27 +852,34 @@ List<InlineSpan> _inline(
   if (outline != null) {
     final parsed = _parseHexColor(outline.group(1)!);
     if (parsed != null) {
-      final width =
-          (double.tryParse(outline.group(2) ?? '') ?? kTextOutlineWidthDefault)
-              .clamp(kTextOutlineWidthMin, kTextOutlineWidthMax);
+      final fragmentPaint = textOutlineStroke(
+        parsed,
+        width: double.tryParse(outline.group(2) ?? ''),
+      );
       return [
         ..._inline(
           text.substring(0, outline.start),
           base,
           player: player,
           fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
         ),
         ..._inline(
           outline.group(3) ?? '',
-          base.copyWith(shadows: _outlineShadows(parsed, width)),
+          base,
           player: player,
           fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentPaint,
         ),
         ..._inline(
           text.substring(outline.end),
           base,
           player: player,
           fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
         ),
       ];
     }
@@ -867,18 +898,24 @@ List<InlineSpan> _inline(
           base,
           player: player,
           fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
         ),
         ..._inline(
           color.group(2) ?? '',
           base.copyWith(color: parsed),
           player: player,
           fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
         ),
         ..._inline(
           text.substring(color.end),
           base,
           player: player,
           fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
         ),
       ];
     }
@@ -905,6 +942,8 @@ List<InlineSpan> _inline(
       base,
       player: player,
       fontFamily: fontFamily,
+      outlineLayer: outlineLayer,
+      fragmentStroke: fragmentStroke,
     ),
   ];
   if (first == link) {
@@ -915,20 +954,23 @@ List<InlineSpan> _inline(
           color: Colors.cyanAccent,
           decoration: TextDecoration.underline,
         ),
-        recognizer: TapGestureRecognizer()
-          ..onTap = () {
-            final raw = first.group(2) ?? '';
-            final node = _nodeIdFromLink(raw);
-            if (node != null) {
-              player?.loadNode(node);
-            } else {
-              final uri = Uri.tryParse(raw);
-              if (uri != null &&
-                  (uri.scheme == 'http' || uri.scheme == 'https')) {
-                launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
-            }
-          },
+        // В нижнем слое ссылки не ловят тап: срабатывает верхний, заливочный.
+        recognizer: outlineLayer != null
+            ? null
+            : (TapGestureRecognizer()
+                ..onTap = () {
+                  final raw = first.group(2) ?? '';
+                  final node = _nodeIdFromLink(raw);
+                  if (node != null) {
+                    player?.loadNode(node);
+                  } else {
+                    final uri = Uri.tryParse(raw);
+                    if (uri != null &&
+                        (uri.scheme == 'http' || uri.scheme == 'https')) {
+                      launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  }
+                }),
       ),
     );
   } else if (first == bold) {
@@ -959,6 +1001,8 @@ List<InlineSpan> _inline(
       base,
       player: player,
       fontFamily: fontFamily,
+      outlineLayer: outlineLayer,
+      fragmentStroke: fragmentStroke,
     ),
   );
   return spans;
@@ -979,23 +1023,6 @@ String _safeId(String value) => value.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
 /// Квест, чьи шрифты сейчас загружены: нужен для тех же имён family, что и у
 /// нативного FontService. Ставит его `PlayScreen` при открытии бандла.
 String currentQuestId = 'web';
-
-List<Shadow> _outlineShadows(Color color, double width) {
-  const directions = <Offset>[
-    Offset(-1, 0),
-    Offset(1, 0),
-    Offset(0, -1),
-    Offset(0, 1),
-    Offset(-0.7, -0.7),
-    Offset(0.7, -0.7),
-    Offset(-0.7, 0.7),
-    Offset(0.7, 0.7),
-  ];
-  return [
-    for (final direction in directions)
-      Shadow(color: color, offset: direction * width, blurRadius: 0),
-  ];
-}
 
 Color? _parseHexColor(String raw) {
   var hex = raw.replaceFirst('#', '');

@@ -109,6 +109,11 @@ jobs:
           ls -la "$assets"
           rm -rf apps/quest_player/build
 
+      # Веб-оболочка для кнопки «Собрать веб-версию»: приложение достаёт её
+      # из assets и добавляет quest.mnd на устройстве.
+      - name: Build web player template
+        run: bash ./scripts/build_web_template.sh
+
       - name: Build APK
         working-directory: apps/main_app
         env:
@@ -120,9 +125,7 @@ jobs:
           version="$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
           for FLAVOR in $FLAVORS; do
             flutter build apk --release --flavor "$FLAVOR" \
-              --target-platform android-arm64 \
-              --android-project-arg=debugSignRelease=true \
-              --android-project-arg=ffiAbis=arm64-v8a
+              --target-platform android-arm64
             cp "build/app/outputs/flutter-apk/app-$FLAVOR-release.apk" \
               "$GITHUB_WORKSPACE/dist/meander-$version-$FLAVOR-arm64.apk"
           done

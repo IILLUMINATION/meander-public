@@ -39,6 +39,7 @@ mod open_link;
 mod save_operation;
 mod set_blur;
 mod set_image;
+mod set_top_panel;
 // pub(crate): валидатор скриптов сверяет режим с тем же списком, что и блок.
 pub(crate) mod set_visible;
 mod set_volume;
@@ -188,6 +189,32 @@ impl BlockCategory {
 
 type HandlerMap = Vec<(BlockInfo, Box<dyn BlockHandler>)>;
 
+/// Публичное описание блока — для `mnd-cli quest spec` и справки.
+///
+/// Собирается из того же реестра, что и исполнение, поэтому список не может
+/// разойтись с реально поддерживаемыми блоками.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockCatalogEntry {
+    pub name: &'static str,
+    pub title: &'static str,
+    pub aliases: &'static [&'static str],
+    pub category: &'static str,
+}
+
+/// Все блоки скриптов, которые понимает движок.
+pub fn catalog() -> Vec<BlockCatalogEntry> {
+    registry()
+        .iter()
+        .map(|(info, _)| BlockCatalogEntry {
+            name: info.name,
+            title: info.display_name,
+            aliases: info.aliases,
+            category: info.category.as_str(),
+        })
+        .collect()
+}
+
 /// Метаданные блока для UI редактора.
 struct BlockInfo {
     name: &'static str,
@@ -284,6 +311,13 @@ fn registry() -> &'static HandlerMap {
                 call_function::CallFunction
             ),
             block!("call_lua", "Lua", &[], Script, call_lua::CallLua),
+            block!(
+                "set_top_panel",
+                "Верхняя панель",
+                &["верхняя_панель", "set_panel"],
+                Data,
+                set_top_panel::SetTopPanel
+            ),
             block!("set_volume", "Громкость", &[], Audio, set_volume::SetVolume),
             block!("set_blur", "Размытие", &[], Audio, set_blur::SetBlur),
             block!("play_sound", "Звук", &[], Audio, audio::PlaySound),
@@ -325,6 +359,16 @@ fn registry() -> &'static HandlerMap {
 }
 
 /// Найти обработчик по имени типа блока.
+/// Человекочитаемое имя типа блока («Переход») для текстов диагностики.
+pub fn display_name(block_type: &str) -> Option<&'static str> {
+    for (info, _) in registry() {
+        if info.name == block_type || info.aliases.contains(&block_type) {
+            return Some(info.display_name);
+        }
+    }
+    None
+}
+
 pub fn find_handler(block_type: &str) -> Option<&'static dyn BlockHandler> {
     for (info, handler) in registry() {
         if info.name == block_type || info.aliases.contains(&block_type) {

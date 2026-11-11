@@ -301,33 +301,11 @@ fn walk_validate(
         };
 
         let raw_type = map.get("type").and_then(Value::as_str).unwrap_or("");
-        let known = matches!(
-            raw_type,
-            types::EVENT
-                | types::CONDITION
-                | types::ASSIGN_VARIABLE
-                | types::GO_TO_NODE
-                | types::CALL_SCRIPT
-                | types::CALL_FUNCTION
-                | types::CALL_LUA
-                | types::TABLE_OPERATION
-                | types::SET_IMAGE
-                | types::SET_VISIBLE
-                | types::FOR_EACH
-                | types::WHILE
-                | types::WAIT
-                | types::COMMENT
-                | types::SET_VOLUME
-                | types::SET_BLUR
-                | types::PLAY_SOUND
-                | types::STOP_SOUND
-                | types::PLAY_MUSIC
-                | types::STOP_MUSIC
-                | types::PAUSE_RESUME
-                | types::CROSSFADE
-                | types::OPEN_LINK
-                | types::HTTP_REQUEST
-        );
+        // Список известных типов — сам реестр блоков, а не второй перечень
+        // рядом с ним: иначе новый блок ядро исполняет, а валидатор ругается
+        // «неизвестный тип». `event` в реестре нет — это не действие, а
+        // контейнер для событий.
+        let known = raw_type == types::EVENT || crate::blocks::find_handler(raw_type).is_some();
 
         if let Some(id) = map.get("id").and_then(Value::as_str)
             && !seen_ids.insert(id.to_string())
@@ -465,7 +443,10 @@ fn walk_validate(
                     issues.push(ValidationIssue::error(
                         "missing_field",
                         &child_path,
-                        format!("table_operation без '{field}'"),
+                        format!(
+                            "table_operation без '{field}' — имя таблицы задаётся полем \
+                             tableName (не 'table'): {{\"tableName\": \"склад\"}}"
+                        ),
                     ));
                 }
                 let op = map.get("operation").and_then(Value::as_str);
@@ -478,7 +459,10 @@ fn walk_validate(
                     issues.push(ValidationIssue::error(
                         "bad_value",
                         &child_path,
-                        format!("неизвестная операция '{op}'"),
+                        format!(
+                            "неизвестная операция '{op}'; допустимые: get, set, add, \
+                             remove, remove_value, clear, contains"
+                        ),
                     ));
                 }
                 // Часть промахов движок раньше глотал молча: блок «работает», а

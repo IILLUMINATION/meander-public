@@ -137,9 +137,9 @@ class AsyncImportService {
       }
       if (!QuestPaths.isSafeQuestId(effectiveId)) {
         throw Exception(
-          tr(
-            'ID квеста недопустим: "$effectiveId". Архив повреждён или опасен.',
-          ),
+          trf('ID квеста недопустим: «{p0}». Архив повреждён или опасен.', {
+            'p0': effectiveId,
+          }),
         );
       }
       // Дальше используем effectiveId

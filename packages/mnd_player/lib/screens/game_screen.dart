@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'dart:ui';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +20,8 @@ import 'package:mnd_player/providers/audio_volume_provider.dart';
 import 'package:mnd_player/providers/game_state_provider.dart';
 import 'package:mnd_player/providers/game_session_scope.dart';
 import 'package:mnd_player/providers/quest_provider.dart';
+import 'package:mnd_player/utils/quest_shot.dart';
+import 'package:mnd_player/widgets/quest_shot_preview.dart';
 import 'package:mnd_player/providers/text_reveal_preference.dart';
 import 'package:mnd_player/widgets/game_timer_widget.dart';
 import 'package:mnd_player/widgets/plugin_slot_layer.dart';
@@ -72,6 +76,14 @@ class GameScreen extends ConsumerStatefulWidget {
   final VoidCallback? onEditNode;
   final VoidCallback? onFinish;
 
+  /// Режим «только кадр»: виджет не запускает и не завершает игровую сессию,
+  /// а рисует текущую ноду в переданных размерах — из него собирается снимок
+  /// для мокапа нужного устройства.
+  final bool shotOnly;
+
+  /// Ключ `RepaintBoundary` кадра в режиме [shotOnly].
+  final GlobalKey? shotBoundaryKey;
+
   /// Асинхронная очистка при выходе из игры (например, закрыть вкладку
   /// workspace). По умолчанию — autosave + `Navigator.pop`.
   final Future<void> Function()? onExit;
@@ -91,6 +103,8 @@ class GameScreen extends ConsumerStatefulWidget {
     this.isTesting = false,
     this.onEditNode,
     this.onFinish,
+    this.shotOnly = false,
+    this.shotBoundaryKey,
     this.onExit,
     this.preflight,
     this.additionalAppBarActions,
@@ -138,6 +152,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   /// Ключ игровой сессии: questId + docKey (вкладка).
   late final GameSessionKey _sessionKey;
 
+  /// История на время шага назад: возврат не должен «дописывать» ноду,
+  /// на которую вернулись, — иначе игрок ходит по кругу A↔B.
+  List<dynamic>? _historyAfterStepBack;
+
+  /// Кадр сцены без верхней панели — из него собирается снимок для маркета.
+  final GlobalKey _shotKey = GlobalKey();
+
   GameSessionKey get _key => _sessionKey;
 
   /// Хуки и нотификатор сессии, захваченные в initState. В dispose() НЕЛЬЗЯ
@@ -177,6 +198,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     _listController.addListener(_onListScroll);
     _hooks = ref.read(gameScreenHooksProvider);
     _sessionNotifier = ref.read(gameScreenProvider(_key).notifier);
+
+    // Снимок под устройство: сессия уже запущена настоящим экраном — копия
+    // только рисует её текущее состояние и не должна её трогать.
+    if (widget.shotOnly) return;
 
     // Пересборка по изменению состояния сессии — через listenManual с guard'ом
     // context.mounted, а НЕ ref.watch: riverpod 2.6.1 в колбэке watch вызывает
@@ -232,9 +257,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     final sessionStart = DateTime.now();
     void stageLog(String stage) => debugPrint(
-          '[Perf][Game] $stage: '
-          '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
-        );
+      '[Perf][Game] $stage: '
+      '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
+    );
 
     // Префлайт (safety-аудит, проверка плагинов) — main_app передаёт колбэк.
     final canStart = await widget.preflight?.call() ?? true;
@@ -259,6 +284,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   void dispose() {
+    if (!widget.shotOnly) {
+      _disposeSessionWidget();
+    }
+    _listController.removeListener(_onListScroll);
+    _listController.dispose();
+    _focusNode.dispose();
+    _varsSearchController.dispose();
+    super.dispose();
+  }
+
+  /// Очистка настоящего экрана: сессию гасим только здесь, не в копии для
+  /// снимка — иначе снимок останавливал бы игру.
+  void _disposeSessionWidget() {
     if (kDebugMode) {
       final st = StackTrace.current.toString().split('\n').take(14).join('\n');
       print(
@@ -282,11 +320,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     }
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
-    _listController.removeListener(_onListScroll);
-    _listController.dispose();
-    _focusNode.dispose();
-    _varsSearchController.dispose();
-    super.dispose();
   }
 
   // Флаг для предотвращения лишних вызовов stop(), которые крашат Windows
@@ -1071,6 +1104,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Widget build(BuildContext context) {
     // Чтение без подписки: пересборку обеспечивает listenManual в initState.
     final screenState = ref.read(gameScreenProvider(_key));
+    if (widget.shotOnly) {
+      // Без Scaffold: кадр собирается из чистого тела игры в заданном размере.
+      return RepaintBoundary(
+        key: widget.shotBoundaryKey ?? _shotKey,
+        child: Material(
+          type: MaterialType.transparency,
+          child: _buildBody(screenState),
+        ),
+      );
+    }
     _currentPresentationId = screenState.presentationId;
 
     // После live-перезагрузки той же ноды айтемы ре-ривилятся заново —
@@ -1102,12 +1145,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       if (!context.mounted) return;
       if (next != null && next.id != previous?.id) {
         final gameStateNotifier = ref.read(gameStateProvider.notifier);
-        List<dynamic> currentHistory = [];
-        final rawHistory = gameStateNotifier.getVariable('_SYS_HISTORY');
-        if (rawHistory is List) {
-          currentHistory = List.from(rawHistory);
+        final planned = _historyAfterStepBack;
+        List<dynamic> currentHistory;
+        if (planned != null && planned.isNotEmpty && planned.last == next.id) {
+          // Шаг назад удался: история — это то, что осталось после возврата.
+          // Если нода на входе увела дальше, план не совпадёт и история
+          // честно допишется ниже.
+          currentHistory = List.from(planned);
+          _historyAfterStepBack = null;
+        } else {
+          final rawHistory = gameStateNotifier.getVariable('_SYS_HISTORY');
+          currentHistory = rawHistory is List ? List.from(rawHistory) : [];
+          currentHistory.add(next.id);
         }
-        currentHistory.add(next.id);
         // Ограничиваем историю последними 100 нодами: без ограничения она
         // растёт всю сессию, и deepEquals в GameState на каждую эмиссию
         // становится всё дороже — длинные сессии постепенно лагают.
@@ -1127,6 +1177,24 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     });
 
+    // Верхняя панель — часть сцены, а не каркаса: скрипт прячет её на
+    // катсцене и возвращает после. Переменную сеет движок из настройки
+    // квеста, поэтому здесь достаточно одного селектора; устаревший сейв
+    // без переменной падает на настройку квеста.
+    final panelHiddenByScript = ref.watch(
+      gameStateProvider.select(
+        (s) => s.variables['_internal_top_panel_hidden'],
+      ),
+    );
+    final panelHiddenByDefault = ref.watch(
+      questProvider(
+        widget.questId,
+      ).select((async) => async.value?.hideTopPanel ?? false),
+    );
+    final hideTopPanel = panelHiddenByScript is bool
+        ? panelHiddenByScript
+        : panelHiddenByDefault;
+
     return GameSessionScope(
       sessionKey: _key,
       child: PopScope(
@@ -1145,14 +1213,148 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             ),
             child: Scaffold(
               backgroundColor: Colors.transparent,
-              extendBodyBehindAppBar: true,
-              appBar: _buildAppBar(context, screenState),
-              body: _buildBody(screenState),
+              extendBodyBehindAppBar: !hideTopPanel,
+              appBar: hideTopPanel ? null : _buildAppBar(context, screenState),
+              body: RepaintBoundary(
+                key: _shotKey,
+                child: _buildBody(screenState),
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  /// Снимок сцены для маркета: кадр без интерфейса игры, превью с выбором
+  /// рамки и только потом решение — в скриншоты квеста или наружу.
+  ///
+  /// Для каждой рамки квест перерисовывается в размерах её экрана: телефон
+  /// получает мобильную вёрстку, планшет — планшетную, а не растянутый
+  /// десктопный кадр.
+  Future<void> _captureShot() async {
+    final save = _hooks.onScreenshot;
+    if (save == null) return;
+    final export = _hooks.onExportScreenshot;
+    try {
+      final result = await showQuestShotPreview(
+        context,
+        // Рамка под текущее окно: широкий экран — MacBook, вертикальный —
+        // iPhone; дальше устройство выбирается в превью.
+        initialFrame: QuestShot.frameForAspect(
+          MediaQuery.sizeOf(context).aspectRatio,
+        ),
+        canExport: export != null,
+        compose: (shotFrame) async {
+          final shot = await _shotForFrame(shotFrame);
+          if (shot == null) {
+            throw StateError('Нет кадра для снимка');
+          }
+          // Подмена в тестах: без растеризации в фейковом времени.
+          final testCompose = QuestShot.testCompose;
+          if (testCompose != null) {
+            try {
+              return await testCompose(shot, shotFrame);
+            } finally {
+              shot.dispose();
+            }
+          }
+          return QuestShot.compose(shot, frame: shotFrame);
+        },
+      );
+      if (result == null || !mounted) return;
+      if (result.action == QuestShotAction.save) {
+        await save(widget.questId, result.png);
+        if (!mounted) return;
+        _showShotSnack('Снимок добавлен в скриншоты квеста');
+        return;
+      }
+      final saved = await export?.call(widget.questId, result.png) ?? false;
+      if (!mounted) return;
+      _showShotSnack(saved ? 'Снимок сохранён' : 'Экспорт отменён');
+    } catch (e, stack) {
+      _hooks.onError?.call(e, stack, 'captureShot');
+      if (!mounted) return;
+      _showShotSnack('Не удалось сделать снимок');
+    }
+  }
+
+  void _showShotSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1600),
+      ),
+    );
+  }
+
+  /// Кадр текущей ноды под конкретное устройство.
+  ///
+  /// Поднимает невидимую копию экрана в размерах устройства (она не трогает
+  /// игровую сессию) и снимает её `RepaintBoundary`. `none` — обычный кадр
+  /// текущего окна.
+  Future<ui.Image?> _shotForFrame(QuestShotFrame frame) async {
+    if (frame.logicalSize == null) {
+      return QuestShot.testScene?.call() ?? _sceneImage();
+    }
+    final testDeviceScene = QuestShot.testDeviceScene;
+    if (testDeviceScene != null) return testDeviceScene(frame);
+
+    final size = frame.logicalSize!;
+    return QuestShot.captureOffscreen(
+      context,
+      logicalSize: size,
+      pixelRatio: frame.pixelRatio,
+      builder: (key) => GameScreen(
+        questId: widget.questId,
+        docKey: widget.docKey,
+        startNodeId: widget.startNodeId,
+        isOnboarding: widget.isOnboarding,
+        shotOnly: true,
+        shotBoundaryKey: key,
+      ),
+    );
+  }
+
+  /// Кадр игровой сцены без верхней панели: она живёт вне [RepaintBoundary].
+  Future<ui.Image?> _sceneImage() async {
+    // На вебе `toImage` не поддерживается — снимок там недоступен.
+    if (kIsWeb) return null;
+    final renderObject = _shotKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderRepaintBoundary) return null;
+    return renderObject.toImage(pixelRatio: 2);
+  }
+
+  /// Шаг назад: вернуться на ноду, с которой игрок пришёл.
+  ///
+  /// Откатывается только навигация: переменные, таблицы и показанные айтемы
+  /// остаются как есть — полноценный откат состояния сделал бы квест
+  /// непредсказуемым. `onNodeEnter` целевой ноды выполнится заново.
+  Future<void> _stepBack() async {
+    final notifier = ref.read(gameStateProvider.notifier);
+    final raw = notifier.getVariable('_SYS_HISTORY');
+    final target = stepBackTarget(raw is List ? raw : const []);
+    if (target == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Это начало квеста — назад некуда'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(milliseconds: 1400),
+        ),
+      );
+      return;
+    }
+    final trimmed = List<dynamic>.from(raw as List)..removeLast();
+    _historyAfterStepBack = trimmed;
+    try {
+      await ref.read(gameScreenProvider(_key).notifier).loadNode(target);
+    } finally {
+      // loadNode мог не дойти до смены ноды — тогда план не должен
+      // пережить следующий переход.
+      _historyAfterStepBack = null;
+    }
   }
 
   // --- ИСПРАВЛЕННАЯ ЛОГИКА АУДИО ---
@@ -1163,6 +1365,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   AppBar _buildAppBar(BuildContext context, GameScreenState screenState) {
     final quest = ref.watch(questProvider(widget.questId)).value;
     final bool hideTitle = quest?.hideNodeTitles ?? false;
+    // Шаг назад — авторская настройка квеста, поэтому кнопка появляется
+    // только когда автор её включил: шапка не обрастает «на всякий случай».
+    final bool stepBackEnabled = quest?.allowStepBack ?? false;
     final gameStateNotifier = ref.read(gameStateProvider.notifier);
     final vol = ref.read(globalAudioVolumeProvider);
     // Настройка анимации появляется только там, где автор её действительно
@@ -1243,14 +1448,24 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         ),
         // Редкие кнопки — в подменю. Все вместе они не влезают в узкую
         // шапку телефона, и AppBar начинает рисовать их поверх «назад».
-        if (revealEnabled || widget.isTesting || widget.onEditNode != null)
+        if (revealEnabled ||
+            widget.isTesting ||
+            widget.onEditNode != null ||
+            stepBackEnabled ||
+            (widget.isTesting && _hooks.onScreenshot != null))
           _MoreMenu(
             reveal: revealEnabled,
             debug: widget.isTesting,
             edit: widget.onEditNode != null,
+            stepBack: stepBackEnabled,
+            // Снимок кладётся в файлы квеста, поэтому он доступен автору
+            // в тест-режиме: игрок чужого квеста не должен писать в квест.
+            screenshot: widget.isTesting && _hooks.onScreenshot != null,
             onReveal: _showTextRevealDialog,
             onDebug: _showVariablesDebug,
             onEdit: _editCurrentNode,
+            onStepBack: _stepBack,
+            onScreenshot: _captureShot,
           ),
         ...?widget.additionalAppBarActions,
       ],
@@ -1409,20 +1624,33 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                     effectivePad = 24.0;
                   }
                   return RepaintBoundary(
+                    // В копии для снимка колбэки — заглушки: блоки
+                    // автозавершаются в первом кадре и раскрывали бы
+                    // следующие элементы настоящей игры.
                     child: ContentDisplayFactory.build(
                       item: item,
                       questId: widget.questId,
-                      onInteract: _onItemInteract,
-                      onInputSubmitted: _onInputSubmitted,
-                      onComplete: () => ref
-                          .read(gameScreenProvider(_key).notifier)
-                          .revealNextItem(fromPresentationId: presentationId),
-                      onTransition: (id) => ref
-                          .read(gameScreenProvider(_key).notifier)
-                          .loadNode(id),
-                      onNavigateToNode: (id) => ref
-                          .read(gameScreenProvider(_key).notifier)
-                          .loadNode(id),
+                      onInteract:
+                          widget.shotOnly ? (_) {} : _onItemInteract,
+                      onInputSubmitted:
+                          widget.shotOnly ? (_, _) {} : _onInputSubmitted,
+                      onComplete: widget.shotOnly
+                          ? () {}
+                          : () => ref
+                                .read(gameScreenProvider(_key).notifier)
+                                .revealNextItem(
+                                  fromPresentationId: presentationId,
+                                ),
+                      onTransition: widget.shotOnly
+                          ? (_) {}
+                          : (id) => ref
+                                .read(gameScreenProvider(_key).notifier)
+                                .loadNode(id),
+                      onNavigateToNode: widget.shotOnly
+                          ? (_) {}
+                          : (id) => ref
+                                .read(gameScreenProvider(_key).notifier)
+                                .loadNode(id),
                       audioVolume: contentVolume,
                       bottomPadding: effectivePad,
                       fontFamily: screenState.fontFamily,
@@ -1509,13 +1737,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     Widget content(ContentItem item) => ContentDisplayFactory.build(
       item: item,
       questId: widget.questId,
-      onInteract: _onItemInteract,
-      onInputSubmitted: _onInputSubmitted,
-      onComplete: () => notifier.revealNextItem(
-        fromPresentationId: screenState.presentationId,
-      ),
-      onTransition: (id) => notifier.loadNode(id),
-      onNavigateToNode: (id) => notifier.loadNode(id),
+      onInteract: widget.shotOnly ? (_) {} : _onItemInteract,
+      onInputSubmitted: widget.shotOnly ? (_, _) {} : _onInputSubmitted,
+      onComplete: widget.shotOnly
+          ? () {}
+          : () => notifier.revealNextItem(
+              fromPresentationId: screenState.presentationId,
+            ),
+      onTransition: widget.shotOnly ? (_) {} : (id) => notifier.loadNode(id),
+      onNavigateToNode:
+          widget.shotOnly ? (_) {} : (id) => notifier.loadNode(id),
       audioVolume: contentVolume,
       fontFamily: fontFamily,
       scriptEngineMode: scriptEngineMode,
@@ -1542,7 +1773,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               // одно, а получал другое.
               final vw = constraints.maxWidth;
               final vh = constraints.maxHeight;
-              const columnCap = 720.0;
+              const columnCap = kContentColumnMaxWidth;
               final columnWidth = vw < columnCap ? vw : columnCap;
               final viewport = Size(columnWidth, vh);
               final dx = (vw - columnWidth) / 2;
@@ -1873,17 +2104,25 @@ class _MoreMenu extends StatelessWidget {
     required this.reveal,
     required this.debug,
     required this.edit,
+    required this.stepBack,
+    required this.screenshot,
     required this.onReveal,
     required this.onDebug,
     required this.onEdit,
+    required this.onStepBack,
+    required this.onScreenshot,
   });
 
   final bool reveal;
   final bool debug;
   final bool edit;
+  final bool stepBack;
+  final bool screenshot;
   final VoidCallback onReveal;
   final VoidCallback onDebug;
   final VoidCallback onEdit;
+  final VoidCallback onStepBack;
+  final VoidCallback onScreenshot;
 
   @override
   Widget build(BuildContext context) {
@@ -1891,6 +2130,15 @@ class _MoreMenu extends StatelessWidget {
       if (reveal) _item('reveal', Icons.animation_rounded, 'Появление текста'),
       if (debug)
         _item('debug', Icons.bug_report, 'Переменные', color: Colors.amber),
+      if (screenshot)
+        _item(
+          'shot',
+          Icons.photo_camera_rounded,
+          'Красивый скриншот',
+          color: Colors.white,
+        ),
+      if (stepBack)
+        _item('back', Icons.undo_rounded, 'Шаг назад', color: Colors.white),
       if (edit)
         _item(
           'edit',
@@ -1911,6 +2159,10 @@ class _MoreMenu extends StatelessWidget {
         switch (value) {
           case 'reveal':
             onReveal();
+          case 'back':
+            onStepBack();
+          case 'shot':
+            onScreenshot();
           case 'debug':
             onDebug();
           case 'edit':
@@ -1966,6 +2218,18 @@ class _NodeLoadingView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Нода, на которую ведёт шаг назад: последняя в истории, кроме текущей.
+///
+/// `null` — возвращаться некуда: история пуста или в ней только текущая нода.
+/// Пустые записи пропускаются: история могла пережить кривой сейв.
+String? stepBackTarget(List<dynamic> history) {
+  for (var i = history.length - 2; i >= 0; i--) {
+    final id = history[i]?.toString() ?? '';
+    if (id.isNotEmpty) return id;
+  }
+  return null;
 }
 
 /// `backgroundVideoFit` ноды → [BoxFit]. Имена пишутся как в Flutter, но

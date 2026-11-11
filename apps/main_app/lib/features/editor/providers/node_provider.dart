@@ -39,9 +39,16 @@ Future<(int, int)> nodeDeletionStats(
 
 Map<String, dynamic> _summaryAsNodeJson(Map<dynamic, dynamic> raw) {
   final json = Map<String, dynamic>.from(raw);
-  final description = json['description'];
-  if (description is String && description.isNotEmpty) {
-    json['content'] = {'items': <dynamic>[], 'description': description};
+  final description = json.remove('description');
+  final preview = json.remove('preview');
+  if (description is String && description.isNotEmpty || preview is Map) {
+    json['content'] = {
+      'items': <dynamic>[],
+      if (description is String && description.isNotEmpty)
+        'description': description,
+      // Готовое превью карточки: канвас не читает тела нод.
+      if (preview is Map) 'cardPreview': preview,
+    };
   }
   return json;
 }

@@ -48,6 +48,7 @@ class ScriptParser {
       'while_loop': BlockTypes.whileLoop,
       'пока': BlockTypes.whileLoop,
       'видимость': BlockTypes.setVisible,
+      'верхняя_панель': BlockTypes.setTopPanel,
     };
     final rawType = out['type']?.toString();
     if (rawType != null && typeAliases.containsKey(rawType)) {

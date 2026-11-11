@@ -116,3 +116,7 @@ crates/*/target
 
 # Веб-плеер: .wasm и JS-шейпинг — выход wasm-pack, пересобирается, в индекс не идёт.
 apps/web_player/web/pkg/
+
+# Веб-оболочка для in-app экспорта: ~10 МБ собранного движка, кладётся
+# scripts/build_web_template.sh (и CI) перед сборкой приложения.
+apps/main_app/assets/web_player/*.zip

@@ -19,6 +19,7 @@ Future<void> showQuestValidationPanel(
   BuildContext context, {
   required String questId,
   required void Function(String nodeId) onJumpToNode,
+  void Function(String scriptPath)? onOpenScript,
 }) {
   return showAdaptiveSheet<void>(
     context: context,
@@ -28,6 +29,7 @@ Future<void> showQuestValidationPanel(
     builder: (context) => _QuestValidationPanel(
       questId: questId,
       onJumpToNode: onJumpToNode,
+      onOpenScript: onOpenScript,
     ),
   );
 }
@@ -48,15 +50,40 @@ Map<String, String> get _kindLabels => {
   'visibility_conflict': tr('Конфликт видимости'),
   'empty_script': tr('Пустой скрипт'),
   'bad_expression': tr('Некорректное выражение'),
+  'bad_on_appear_trigger': tr('Ошибка триггера появления'),
+  'invalid_script_structure': tr('Ошибка структуры скрипта'),
+  'missing_start_node': tr('Нет стартовой ноды'),
+  'unknown_chapter': tr('Неизвестная глава'),
+  'duplicate_chapter_id': tr('Дубликат id главы'),
+  'no_chapters': tr('Нет глав'),
+  'unreachable_code': tr('Недостижимый код'),
+  'dead_end_node': tr('Тупик'),
+  'dead_script': tr('Мёртвый скрипт'),
+  'table_column_mismatch': tr('Колонки таблицы не совпадают'),
+  'loop_without_wait': tr('Цикл без задержки'),
 };
+
+/// Путь скрипта, который редактор умеет открыть, или `null`.
+///
+/// Редактор визуальных скриптов адресует файлы верхнего уровня
+/// (`scripts/<id>.json`); вложенные папки пока не открываются — для них
+/// остаётся только текст диагностики.
+String? scriptEditorPath(String? scriptPath) {
+  if (scriptPath == null || scriptPath.isEmpty) return null;
+  final parts = scriptPath.split('/');
+  if (parts.length != 2 || parts[0] != 'scripts') return null;
+  return scriptPath;
+}
 
 class _QuestValidationPanel extends StatefulWidget {
   final String questId;
   final void Function(String nodeId) onJumpToNode;
+  final void Function(String scriptPath)? onOpenScript;
 
   const _QuestValidationPanel({
     required this.questId,
     required this.onJumpToNode,
+    this.onOpenScript,
   });
 
   @override
@@ -103,6 +130,13 @@ class _QuestValidationPanelState extends State<_QuestValidationPanel> {
     if (nodeId == null || nodeId.isEmpty) return;
     Navigator.of(context).pop();
     widget.onJumpToNode(nodeId);
+  }
+
+  void _openScript(String? scriptPath) {
+    final handler = widget.onOpenScript;
+    if (handler == null || scriptPath == null || scriptPath.isEmpty) return;
+    Navigator.of(context).pop();
+    handler(scriptPath);
   }
 
   @override
@@ -163,7 +197,13 @@ class _QuestValidationPanelState extends State<_QuestValidationPanel> {
                 children: [
                   _StatsBar(report: report),
                   const Divider(height: 1),
-                  Expanded(child: _DiagnosticsList(report: report, onTap: _jump)),
+                  Expanded(
+                    child: _DiagnosticsList(
+                      report: report,
+                      onTapNode: _jump,
+                      onTapScript: _openScript,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -239,9 +279,14 @@ class _StatChip extends StatelessWidget {
 
 class _DiagnosticsList extends StatelessWidget {
   final QuestValidationReport report;
-  final void Function(String? nodeId) onTap;
+  final void Function(String? nodeId) onTapNode;
+  final void Function(String? scriptPath) onTapScript;
 
-  const _DiagnosticsList({required this.report, required this.onTap});
+  const _DiagnosticsList({
+    required this.report,
+    required this.onTapNode,
+    required this.onTapScript,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -270,10 +315,22 @@ class _DiagnosticsList extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         if (errors.isNotEmpty) _SectionHeader(title: trf('Ошибки ({p0})', {'p0': errors.length})),
-        ...errors.map((d) => _DiagnosticTile(diagnostic: d, onTap: onTap)),
+        ...errors.map(
+          (d) => _DiagnosticTile(
+            diagnostic: d,
+            onTapNode: onTapNode,
+            onTapScript: onTapScript,
+          ),
+        ),
         if (warnings.isNotEmpty)
           _SectionHeader(title: trf('Предупреждения ({p0})', {'p0': warnings.length})),
-        ...warnings.map((d) => _DiagnosticTile(diagnostic: d, onTap: onTap)),
+        ...warnings.map(
+          (d) => _DiagnosticTile(
+            diagnostic: d,
+            onTapNode: onTapNode,
+            onTapScript: onTapScript,
+          ),
+        ),
       ],
     );
   }
@@ -298,9 +355,16 @@ class _SectionHeader extends StatelessWidget {
 
 class _DiagnosticTile extends StatelessWidget {
   final QuestDiagnostic diagnostic;
-  final void Function(String? nodeId) onTap;
+  final void Function(String? nodeId) onTapNode;
+  final void Function(String? scriptPath) onTapScript;
 
-  const _DiagnosticTile({required this.diagnostic, required this.onTap});
+  const _DiagnosticTile({
+    required this.diagnostic,
+    required this.onTapNode,
+    required this.onTapScript,
+  });
+
+  bool get _canOpenScript => scriptEditorPath(diagnostic.scriptPath) != null;
 
   String _buildSubtitleText(BuildContext context) {
     // Show message with context: node/item info if available
@@ -330,9 +394,13 @@ class _DiagnosticTile extends StatelessWidget {
     final isError = diagnostic.severity == QuestSeverity.error;
     final color = isError ? scheme.error : scheme.tertiary;
     final canJump = diagnostic.nodeId != null && diagnostic.nodeId!.isNotEmpty;
+    final canOpenScript = !canJump && _canOpenScript;
+    final onTap = canJump
+        ? () => onTapNode(diagnostic.nodeId)
+        : (canOpenScript ? () => onTapScript(diagnostic.scriptPath) : null);
 
     return ListTile(
-      onTap: canJump ? () => onTap(diagnostic.nodeId) : null,
+      onTap: onTap,
       leading: Icon(
         isError ? Icons.error_rounded : Icons.warning_amber_rounded,
         color: color,
@@ -355,7 +423,7 @@ class _DiagnosticTile extends StatelessWidget {
               ),
             )
           : null,
-      trailing: canJump
+      trailing: canJump || canOpenScript
           ? Icon(Icons.arrow_forward_ios_rounded, size: 16, color: scheme.outline)
           : null,
     );

@@ -108,3 +108,28 @@ impl AppState {
         self.accounts.len()
     }
 }
+
+#[cfg(test)]
+impl AppState {
+    /// Состояние для тестов: пул ленивый (без реального подключения), поэтому
+    /// годится там, где нужна только сборка таблицы маршрутов.
+    pub fn for_tests() -> Arc<Self> {
+        let cfg = Config::load();
+        let db = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy(&cfg.database_url)
+            .expect("lazy pool");
+        Arc::new(Self {
+            cfg,
+            db,
+            http: reqwest::Client::new(),
+            accounts: DashMap::new(),
+            last_seen: DashMap::new(),
+            visits: DashMap::new(),
+            limiter: RateLimiter::new(),
+            io: OnceLock::new(),
+            google_jwks: JwksCache::new("https://example.invalid"),
+            apple_jwks: JwksCache::new("https://example.invalid"),
+            fcm: crate::services::fcm::FcmCache::default(),
+        })
+    }
+}

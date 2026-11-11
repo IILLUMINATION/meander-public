@@ -12,6 +12,10 @@
 //! мёртвые переменные, конфликты видимости onAppear-условий в одном
 //! контейнере (тот самый баг «второго пустого ряда»).
 //!
+//! Поток управления проверяется как в borrow checker: мёртвый код после
+//! перехода, тупики, скрипты без единой ссылки, циклы без «Задержки» и
+//! таблицы, строки которых не совпадают с колонками.
+//!
 //! Крейт не выполняет I/O — данные читаются через [`ScriptAssetStore`]
 //! (как `GameEngine::from_disk`).
 
@@ -64,6 +68,84 @@ pub enum DiagnosticKind {
     BadOnAppearTrigger,
     /// Структурная проблема скрипта (план 020-B: validate_script).
     InvalidScriptStructure,
+    /// В настройках квеста не указана стартовая нода.
+    MissingStartNode,
+    /// Нода ссылается на главу (тег), которой нет в `config.tags`.
+    UnknownChapter,
+    /// Два тега с одинаковым id — главы схлопнутся в одну.
+    DuplicateChapterId,
+    /// У квеста есть ноды, но нет ни одной главы: ноды не открываются в редакторе.
+    NoChapters,
+    /// Блоки после перехода: исполнитель остановится, хвост не выполнится.
+    UnreachableCode,
+    /// Из достижимой ноды нет выхода, а выйти из квеста тоже нельзя.
+    DeadEndNode,
+    /// Скрипт лежит в `scripts/`, но ни одна нода и ни один вызов не ссылается.
+    DeadScript,
+    /// Строки таблицы не совпадают с её колонками (данные теряются молча).
+    TableColumnMismatch,
+    /// Цикл перебирает всё за один кадр — окно замрёт на большом числе итераций.
+    LoopWithoutWait,
+}
+
+impl DiagnosticKind {
+    /// Все виды — для `mnd-cli quest spec` и справки. Список обязан совпадать
+    /// с перечислением выше: тест сверяет количество.
+    pub const ALL: &'static [DiagnosticKind] = &[
+        DiagnosticKind::MissingConfig,
+        DiagnosticKind::BrokenNodeLink,
+        DiagnosticKind::BrokenScriptLink,
+        DiagnosticKind::BrokenResourceLink,
+        DiagnosticKind::DuplicateNodeId,
+        DiagnosticKind::DuplicateTemplateId,
+        DiagnosticKind::DuplicateItemId,
+        DiagnosticKind::UnreachableNode,
+        DiagnosticKind::UnwrittenVariable,
+        DiagnosticKind::UnreadVariable,
+        DiagnosticKind::VisibilityConflict,
+        DiagnosticKind::EmptyScript,
+        DiagnosticKind::BadExpression,
+        DiagnosticKind::BadOnAppearTrigger,
+        DiagnosticKind::InvalidScriptStructure,
+        DiagnosticKind::MissingStartNode,
+        DiagnosticKind::UnknownChapter,
+        DiagnosticKind::DuplicateChapterId,
+        DiagnosticKind::NoChapters,
+        DiagnosticKind::UnreachableCode,
+        DiagnosticKind::DeadEndNode,
+        DiagnosticKind::DeadScript,
+        DiagnosticKind::TableColumnMismatch,
+        DiagnosticKind::LoopWithoutWait,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiagnosticKind::MissingConfig => "missing_config",
+            DiagnosticKind::BrokenNodeLink => "broken_node_link",
+            DiagnosticKind::BrokenScriptLink => "broken_script_link",
+            DiagnosticKind::BrokenResourceLink => "broken_resource_link",
+            DiagnosticKind::DuplicateNodeId => "duplicate_node_id",
+            DiagnosticKind::DuplicateTemplateId => "duplicate_template_id",
+            DiagnosticKind::DuplicateItemId => "duplicate_item_id",
+            DiagnosticKind::UnreachableNode => "unreachable_node",
+            DiagnosticKind::UnwrittenVariable => "unwritten_variable",
+            DiagnosticKind::UnreadVariable => "unread_variable",
+            DiagnosticKind::VisibilityConflict => "visibility_conflict",
+            DiagnosticKind::EmptyScript => "empty_script",
+            DiagnosticKind::BadExpression => "bad_expression",
+            DiagnosticKind::BadOnAppearTrigger => "bad_on_appear_trigger",
+            DiagnosticKind::InvalidScriptStructure => "invalid_script_structure",
+            DiagnosticKind::MissingStartNode => "missing_start_node",
+            DiagnosticKind::UnknownChapter => "unknown_chapter",
+            DiagnosticKind::DuplicateChapterId => "duplicate_chapter_id",
+            DiagnosticKind::NoChapters => "no_chapters",
+            DiagnosticKind::UnreachableCode => "unreachable_code",
+            DiagnosticKind::DeadEndNode => "dead_end_node",
+            DiagnosticKind::DeadScript => "dead_script",
+            DiagnosticKind::TableColumnMismatch => "table_column_mismatch",
+            DiagnosticKind::LoopWithoutWait => "loop_without_wait",
+        }
+    }
 }
 
 /// Одна диагностика валидации.
@@ -147,6 +229,9 @@ struct Validator {
     template_titles: HashMap<String, String>,
     /// Имя скрипта, внутри которого сейчас идёт анализ (контекст call_script).
     current_script_name: Option<String>,
+    /// Путь скрипта, внутри которого идёт анализ: попадает в диагностику,
+    /// чтобы редактор мог открыть источник (раньше это знал только текст).
+    current_script_path: Option<String>,
     /// Ноды-владельцы скрипта: `путь → {ноды}`. Общие скрипты
     /// (одна кнопка-действие в разных нодах) дают переходы из КАЖДОЙ.
     script_owners: HashMap<String, HashSet<String>>,
@@ -198,6 +283,7 @@ impl Validator {
             item_labels: HashMap::new(),
             template_titles: HashMap::new(),
             current_script_name: None,
+            current_script_path: None,
             script_owners: HashMap::new(),
             current_owners: HashSet::new(),
             has_dynamic_edge: false,
@@ -212,10 +298,14 @@ impl Validator {
         self.collect_node_timer_edges();
         self.walk_all_items();
         self.analyze_all_scripts();
+        self.check_chapters();
         self.check_reachability();
         self.check_dead_variables();
         self.check_visibility_conflicts();
         self.check_on_appear_triggers();
+        self.check_dead_ends();
+        self.check_dead_scripts();
+        self.check_tables();
         self.report.stats.warnings = self
             .report
             .diagnostics
@@ -249,8 +339,13 @@ impl Validator {
         fix_hint: Option<String>,
         node_id: Option<String>,
         item_id: Option<String>,
-        script_path: Option<String>,
+        mut script_path: Option<String>,
     ) {
+        // Внутри анализа скрипта путь известен из контекста: без него
+        // редактор не может открыть источник проблемы.
+        if script_path.is_none() && node_id.is_none() && item_id.is_none() {
+            script_path = self.current_script_path.clone();
+        }
         self.report.diagnostics.push(Diagnostic {
             severity,
             kind,
@@ -308,11 +403,7 @@ impl Validator {
             Some(raw) => {
                 let quest = Quest::from_json(&raw);
                 self.config = Some(quest);
-                self.nodes = self.load_array(
-                    &format!("{}nodes.json", self.prefix),
-                    "nodes",
-                    SavedNode::from_json,
-                );
+                self.nodes = load_nodes(self.store.as_ref(), &self.prefix);
                 self.report.stats.nodes = self.nodes.len();
                 for node in &self.nodes {
                     self.node_titles.insert(node.id.clone(), node.title.clone());
@@ -619,6 +710,11 @@ impl Validator {
         if let Some(rest) = path.strip_prefix("scripts/") {
             candidates.push(format!("_internal_scripts/{rest}"));
             candidates.push(format!("n/{rest}"));
+        } else if !path.contains('/') && !path.ends_with(".json") {
+            // Голый id скрипта: движок находит `scripts/<id>.json` (см.
+            // `resolve_script_path`), значит и проверка ссылки обязана.
+            candidates.push(format!("scripts/{path}.json"));
+            candidates.push(format!("_internal_scripts/{path}.json"));
         }
         candidates
     }
@@ -719,7 +815,9 @@ impl Validator {
         self.report.stats.scripts += 1;
 
         let prev_script = self.current_script_name.clone();
+        let prev_script_path = self.current_script_path.clone();
         let prev_owners = self.current_owners.clone();
+        self.current_script_path = Some(path.clone());
         self.current_script_name = script
             .get("name")
             .and_then(Value::as_str)
@@ -749,13 +847,13 @@ impl Validator {
                 Some("Добавьте блоки в скрипт или отвяжите его".into()),
             );
             self.current_script_name = prev_script;
+            self.current_script_path = prev_script_path;
             self.current_owners = prev_owners;
             return;
         }
-        for block in &blocks {
-            self.analyze_block(block);
-        }
+        self.analyze_block_list(&blocks);
         self.current_script_name = prev_script;
+        self.current_script_path = prev_script_path;
         self.current_owners = prev_owners;
     }
 
@@ -867,11 +965,83 @@ impl Validator {
         }
         for key in ["children", "then_blocks", "else_blocks", "condition_blocks"] {
             if let Some(children) = obj.get(key).and_then(Value::as_array) {
-                for child in children {
-                    self.analyze_block(child);
-                }
+                self.analyze_block_list(children);
             }
         }
+        if matches!(
+            block_type,
+            "while" | "while_loop" | "for_each" | "при_каждом" | "пока"
+        ) {
+            self.check_loop_pacing(obj);
+        }
+    }
+
+    /// Блоки одного списка: первый переход (`go_to_node`) останавливает
+    /// исполнителя, поэтому всё, что записано после него, — мёртвый код.
+    fn analyze_block_list(&mut self, blocks: &[Value]) {
+        // Сначала отмечаем недостижимый хвост: диагностика о нём должна идти
+        // раньше предупреждений из самих (мёртвых) блоков.
+        let first_terminator = blocks.iter().position(terminates_flow);
+        if let Some(index) = first_terminator {
+            let terminator = block_label(&blocks[index]);
+            let unreachable: Vec<String> = blocks[index + 1..].iter().map(block_label).collect();
+            if !unreachable.is_empty() {
+                self.push(
+                    Severity::Warning,
+                    DiagnosticKind::UnreachableCode,
+                    format!(
+                        "{}После «{terminator}» {tail} — исполнитель уже перешёл на другую ноду и до них не дойдёт",
+                        self.script_context(),
+                        tail = match unreachable.len() {
+                            1 => format!("блок «{}» не выполнится", unreachable[0]),
+                            n => format!("блоки ({n}) «{}» не выполнятся", unreachable.join("», «")),
+                        }
+                    ),
+                    Some(
+                        "Уберите блоки после перехода или перенесите переход в конец списка"
+                            .into(),
+                    ),
+                );
+            }
+        }
+        for child in blocks {
+            self.analyze_block(child);
+        }
+    }
+
+    /// Цикл без «Задержки» прокручивает все итерации в одном кадре. Это не
+    /// ошибка сама по себе (10 повторений пройдут мгновенно), но на таблице
+    /// в сотни строк или бесконечном `while` окно замрёт без шанса выйти.
+    fn check_loop_pacing(&mut self, block: &Map<String, Value>) {
+        if block_children(block)
+            .iter()
+            .any(|c| subtree_yields_to_ui(c))
+        {
+            return;
+        }
+        let is_while = block
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| matches!(t, "while" | "while_loop" | "пока"));
+        let has_limit = block
+            .get("max_iterations")
+            .and_then(Value::as_f64)
+            .is_some_and(|n| n > 0.0);
+        let hint = if is_while && !has_limit {
+            "Добавьте «Задержка» внутрь цикла или задайте «max_iterations» — иначе бесконечный цикл подвесит игру"
+        } else {
+            "Добавьте «Задержка» внутрь цикла, чтобы игра успевала отрисовывать кадры"
+        };
+        self.push(
+            Severity::Warning,
+            DiagnosticKind::LoopWithoutWait,
+            format!(
+                "{}Цикл «{}» выполняется за один кадр — на большом числе повторений окно перестанет отвечать",
+                self.script_context(),
+                block_label_value(block)
+            ),
+            Some(hint.into()),
+        );
     }
 
     fn analyze_all_scripts(&mut self) {
@@ -986,11 +1156,84 @@ impl Validator {
         }
     }
 
+    /// Главы квеста = `config.tags`. Нода без существующей главы не
+    /// открывается в редакторе (её не к чему привязать на канвасе), поэтому
+    /// это ошибка, а не предупреждение.
+    fn check_chapters(&mut self) {
+        let Some(config) = &self.config else { return };
+        if config.tags.is_empty() && !self.nodes.is_empty() {
+            self.push(
+                Severity::Error,
+                DiagnosticKind::NoChapters,
+                format!(
+                    "В квесте {} нод(ы), но ни одной главы — ноды не открываются в редакторе",
+                    self.nodes.len()
+                ),
+                Some("Добавьте главу (тег) в настройках квеста и привяжите к ней ноды".into()),
+            );
+            return;
+        }
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut duplicates: Vec<String> = Vec::new();
+        for tag in &config.tags {
+            if !seen.insert(tag.id.clone()) {
+                duplicates.push(tag.name.clone());
+            }
+        }
+        for name in duplicates {
+            self.push(
+                Severity::Error,
+                DiagnosticKind::DuplicateChapterId,
+                format!("Глава «{name}» встречается в настройках дважды с одним id"),
+                Some("Удалите дубликат главы в настройках квеста".into()),
+            );
+        }
+        let mut unknown: Vec<(String, String, String)> = Vec::new();
+        for node in &self.nodes {
+            if node.is_template_master_node() {
+                continue;
+            }
+            if node.chapter_id.is_empty() {
+                unknown.push((
+                    node.title.clone(),
+                    node.id.clone(),
+                    "глава не указана".to_string(),
+                ));
+                continue;
+            }
+            if !seen.contains(&node.chapter_id) {
+                unknown.push((
+                    node.title.clone(),
+                    node.id.clone(),
+                    format!("глава «{}» удалена", node.chapter_id),
+                ));
+            }
+        }
+        for (title, id, reason) in unknown {
+            self.push_with(
+                Severity::Error,
+                DiagnosticKind::UnknownChapter,
+                format!("Нода «{title}» не привязана к существующей главе ({reason})"),
+                Some("Откройте ноду и выберите главу, которая есть в списке глав".into()),
+                Some(id),
+                None,
+                None,
+            );
+        }
+    }
+
     fn check_reachability(&mut self) {
         let Some(config) = &self.config else { return };
-        let Some(start) = &config.start_node_id else {
+        let Some(start) = config.start_node_id.as_deref().filter(|s| !s.is_empty()) else {
+            self.push(
+                Severity::Error,
+                DiagnosticKind::MissingStartNode,
+                "В квесте не указана стартовая нода — игрок не сможет начать квест".to_string(),
+                Some("Откройте настройки квеста и выберите ноду, с которой начинается игра".into()),
+            );
             return;
         };
+        let start = &start.to_string();
         if !self.seen_node_ids.contains(start) {
             self.push(
                 Severity::Error,
@@ -1091,6 +1334,146 @@ impl Validator {
                     "Уберите присваивание или проверьте имя переменной — возможно, опечатка".into(),
                 ),
             );
+        }
+    }
+
+    // ---------- Поток управления ----------
+
+    /// Множество нод, до которых игрок дойдёт от стартовой.
+    /// `None` — граф неизвестен (нет старта, битый id или динамические переходы).
+    fn reachable_set(&self) -> Option<HashSet<String>> {
+        let config = self.config.as_ref()?;
+        let start = config.start_node_id.as_deref().filter(|s| !s.is_empty())?;
+        if self.has_dynamic_edge || !self.seen_node_ids.contains(start) {
+            return None;
+        }
+        let mut reached: HashSet<String> = HashSet::from([start.to_string()]);
+        let mut queue: Vec<String> = vec![start.to_string()];
+        while let Some(cur) = queue.pop() {
+            if let Some(targets) = self.transitions.get(&cur) {
+                for t in targets {
+                    if reached.insert(t.clone()) {
+                        queue.push(t.clone());
+                    }
+                }
+            }
+        }
+        Some(reached)
+    }
+
+    /// Тупик: до ноды можно дойти, но из неё нет ни одного перехода, а выйти
+    /// из игры тоже нечем (верхняя панель скрыта, шаг назад выключен).
+    /// Кнопки, которые только меняют видимость, тупик не отменяют.
+    fn check_dead_ends(&mut self) {
+        let Some(config) = &self.config else { return };
+        if !config.hide_top_panel || config.allow_step_back {
+            return;
+        }
+        let Some(reached) = self.reachable_set() else {
+            return;
+        };
+        let mut dead: Vec<(String, String)> = Vec::new();
+        for node in &self.nodes {
+            if node.is_template_master_node() || !reached.contains(&node.id) {
+                continue;
+            }
+            let has_exit = self
+                .transitions
+                .get(&node.id)
+                .is_some_and(|targets| !targets.is_empty());
+            if has_exit {
+                continue;
+            }
+            // Нода без интерактивных элементов — финальная сцена: игрок
+            // просто читает текст (и может закрыть игру). Тупик — когда
+            // автор нарисовал кнопки, а уйти по ним некуда.
+            let has_buttons = node_items(node)
+                .iter()
+                .any(|item| matches!(item.item_type.as_str(), "button" | "link"));
+            if has_buttons {
+                dead.push((node.title.clone(), node.id.clone()));
+            }
+        }
+        for (title, id) in dead {
+            self.push_with(
+                Severity::Warning,
+                DiagnosticKind::DeadEndNode,
+                format!(
+                    "Нода «{title}»: кнопки есть, но ни одна не ведёт на другую ноду, а верхняя панель скрыта и шаг назад выключен — игрок застрянет"
+                ),
+                Some(
+                    "Добавьте переход с кнопки или включите верхнюю панель / шаг назад в настройках квеста".into(),
+                ),
+                Some(id),
+                None,
+                None,
+            );
+        }
+    }
+
+    /// Скрипт, на который никто не ссылается и который не объявляет
+    /// квестовых событий, движок никогда не выполнит.
+    fn check_dead_scripts(&mut self) {
+        let dir = format!("{}scripts", self.prefix);
+        let mut files = self.store.list_dir(&dir);
+        files.sort();
+        let mut dead: Vec<(String, String)> = Vec::new();
+        for full in files {
+            let Some(rel) = full.strip_prefix(&self.prefix).map(str::to_string) else {
+                continue;
+            };
+            // Lua-файлы движок находит сам по объявленным событиям —
+            // статически судить о них нельзя.
+            if !rel.ends_with(".json") || self.analyzed_scripts.contains(&rel) {
+                continue;
+            }
+            let Some(value) = self.store.read_json(&format!("{}{}", self.prefix, rel)) else {
+                continue;
+            };
+            let Some(obj) = value.as_object() else {
+                continue;
+            };
+            // Скрипт-обработчик квеста запускается без ссылки из нод.
+            if crate::executor::declares_event(obj, crate::executor::EventType::OnQuestStart)
+                || crate::executor::declares_event(obj, crate::executor::EventType::OnDataChange)
+            {
+                continue;
+            }
+            let name = obj
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or(&rel)
+                .to_string();
+            dead.push((rel, name));
+        }
+        for (rel, name) in dead {
+            self.push_with(
+                Severity::Warning,
+                DiagnosticKind::DeadScript,
+                format!(
+                    "Скрипт «{name}» ни к чему не привязан и не вызывается — движок его не выполнит"
+                ),
+                Some("Привяжите скрипт к элементу/ноде или удалите файл".into()),
+                None,
+                None,
+                Some(rel),
+            );
+        }
+    }
+
+    /// Строки таблицы и список колонок должны совпадать: иначе скрипты
+    /// читают пустые ячейки, а лишние поля молча пропадают.
+    fn check_tables(&mut self) {
+        let Some(config) = &self.config else { return };
+        let mut tables: Vec<(String, Value)> = config
+            .tables
+            .iter()
+            .map(|(name, table)| (name.clone(), table.clone()))
+            .collect();
+        tables.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, table) in tables {
+            check_table_shape(self, &name, &table);
         }
     }
 
@@ -1304,6 +1687,161 @@ fn template_items(t: &TemplateItem) -> Vec<ContentItem> {
     Vec::new()
 }
 
+/// Проверка формы одной таблицы: колонки, строки, имена строк.
+fn check_table_shape(validator: &mut Validator, name: &str, table: &Value) {
+    let Some(obj) = table.as_object() else { return };
+    let columns: Vec<String> = obj
+        .get("columns")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let rows: Vec<&Map<String, Value>> = obj
+        .get("rows")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_object).collect())
+        .unwrap_or_default();
+    let mut problems: Vec<String> = Vec::new();
+
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut duplicates: Vec<&str> = Vec::new();
+    for column in &columns {
+        if !seen.insert(column.as_str()) {
+            duplicates.push(column);
+        }
+    }
+    if !duplicates.is_empty() {
+        problems.push(format!(
+            "колонки повторяются: «{}»",
+            duplicates.join("», «")
+        ));
+    }
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut extra: Vec<String> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let row_no = index + 1;
+        for column in &columns {
+            if !row.contains_key(column) && missing.len() < 4 {
+                missing.push(format!("в строке {row_no} нет «{column}»"));
+            }
+        }
+        for key in row.keys() {
+            if !key.starts_with("__") && !columns.iter().any(|c| c == key) && extra.len() < 4 {
+                extra.push(format!("в строке {row_no} лишнее поле «{key}»"));
+            }
+        }
+    }
+    if !missing.is_empty() {
+        problems.push(format!(
+            "колонка заполнена не во всех строках: {}{}",
+            missing.join(", "),
+            if missing.len() == 4 { " и др." } else { "" }
+        ));
+    }
+    if !extra.is_empty() {
+        problems.push(format!(
+            "поля вне колонок: {}{}",
+            extra.join(", "),
+            if extra.len() == 4 { " и др." } else { "" }
+        ));
+    }
+
+    let row_names = obj
+        .get("rowNames")
+        .or_else(|| obj.get("row_names"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    if row_names > 0 && row_names != rows.len() {
+        problems.push(format!(
+            "имён строк {row_names}, а самих строк {}",
+            rows.len()
+        ));
+    }
+
+    if problems.is_empty() {
+        return;
+    }
+    validator.push_with(
+        Severity::Warning,
+        DiagnosticKind::TableColumnMismatch,
+        format!("Таблица «{name}»: {}", problems.join("; ")),
+        Some(
+            "Приведите строки к колонкам: пропущенная ячейка читается как пустая, а поле вне колонок скриптам не видно".into(),
+        ),
+        None,
+        None,
+        None,
+    );
+}
+
+/// Списки вложенных блоков у всех типов (условие, циклы, события).
+const CHILD_KEYS: [&str; 4] = ["children", "then_blocks", "else_blocks", "condition_blocks"];
+
+/// Подписи блоков: «Переход» вместо `go_to_node`.
+fn block_label(block: &Value) -> String {
+    match block.as_object() {
+        Some(obj) => block_label_value(obj),
+        None => "блок".to_string(),
+    }
+}
+
+fn block_label_value(block: &Map<String, Value>) -> String {
+    let raw = block.get("type").and_then(Value::as_str).unwrap_or("");
+    crate::blocks::display_name(raw)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if raw.is_empty() {
+                "блок без типа".to_string()
+            } else {
+                raw.to_string()
+            }
+        })
+}
+
+/// Вложенные блоки в порядке исполнения (для обхода поддерева).
+fn block_children(block: &Map<String, Value>) -> Vec<&Value> {
+    let mut out = Vec::new();
+    for key in CHILD_KEYS {
+        if let Some(children) = block.get(key).and_then(Value::as_array) {
+            out.extend(children.iter());
+        }
+    }
+    out
+}
+
+/// `go_to_node` — единственный блок, который возвращает цель перехода и тем
+/// самым останавливает текущий список блоков.
+fn terminates_flow(block: &Value) -> bool {
+    block
+        .as_object()
+        .and_then(|obj| obj.get("type"))
+        .and_then(Value::as_str)
+        .is_some_and(|t| t == "go_to_node")
+}
+
+/// Отдаёт ли поддерево управление кадру: «Задержка», сетевой запрос или
+/// вызов другого скрипта (в нём может быть задержка).
+fn subtree_yields_to_ui(block: &Value) -> bool {
+    let Some(obj) = block.as_object() else {
+        return false;
+    };
+    let yields = obj.get("type").and_then(Value::as_str).is_some_and(|t| {
+        matches!(
+            t,
+            "wait" | "задержка" | "http_request" | "call_script" | "call_function" | "call_lua"
+        )
+    });
+    yields || block_children(obj).into_iter().any(subtree_yields_to_ui)
+}
+
 fn is_container(item_type: &str) -> bool {
     // Стек — контейнер на тех же правах: его дети живут одной группой
     // видимости, и их onAppear-условия надо проверять на конфликт между
@@ -1322,6 +1860,36 @@ fn is_expr_ref(s: &str) -> bool {
 /// про него сказать нельзя, и ребро графа из него тоже вести некуда.
 pub(crate) fn is_sentinel_target(s: &str) -> bool {
     s == "_CLOSE_MODAL"
+}
+
+/// Ноды квеста тем же порядком, что `GameEngine::from_disk`: v2
+/// (`nodes/index.json` + тела) — источник правды, иначе `nodes/nodes.json`,
+/// иначе legacy `nodes.json`. Без этого валидатор судил бы не то, что
+/// видит игрок: квесты в v2-раскладке выглядели бы «без нод».
+pub(crate) fn load_nodes(
+    store: &dyn crate::contracts::ScriptAssetStore,
+    prefix: &str,
+) -> Vec<SavedNode> {
+    if let Some(nodes) = crate::engine::load_per_node_nodes(store, prefix)
+        && !nodes.is_empty()
+    {
+        return nodes;
+    }
+    let canonical = crate::engine::load_json_array(
+        store,
+        &format!("{prefix}nodes/nodes.json"),
+        "nodes",
+        SavedNode::from_json,
+    );
+    if !canonical.is_empty() {
+        return canonical;
+    }
+    crate::engine::load_json_array(
+        store,
+        &format!("{prefix}nodes.json"),
+        "nodes",
+        SavedNode::from_json,
+    )
 }
 
 fn is_system_var(name: &str) -> bool {
@@ -1358,6 +1926,17 @@ fn extract_variables(s: &str) -> Vec<String> {
             let name = s[i + 1..i + 1 + end].trim();
             if is_valid_var_name(name) && seen.insert(name.to_string()) {
                 out.push(name.to_string());
+                i += 1 + end + 1;
+                continue;
+            }
+            // Не имя переменной, но внутри могла быть вложенная подстановка:
+            // `{{имя}}` (редактор одел ссылку в скобки, чтобы строка не
+            // считалась формулой) и `{Таблица["Колонка"]["{var}"]}`. Раньше
+            // такие вхождения просто проглатывались, и переменная выглядела
+            // неиспользуемой.
+            if name.contains('{') {
+                i += 1;
+                continue;
             }
             i += 1 + end + 1;
             continue;
@@ -1767,10 +2346,13 @@ mod tests {
     #[test]
     fn detects_visibility_conflict_slot_bug() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"empty","type":"image","resourcePath":"res/images/a.png",
                          "scriptTriggers":{"onContentAppear":"scripts/e1.json"}},
@@ -1808,10 +2390,13 @@ mod tests {
         // Стек — такой же контейнер, как row/column: дети лежат в одной группе
         // видимости, и конфликт их onAppear-условий обязан находиться.
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"st1","type":"stack","stackHeight":240,"children":[
                         {"id":"a","type":"image","scriptTriggers":{"onContentAppear":"scripts/a.json"}},
                         {"id":"b","type":"image","scriptTriggers":{"onContentAppear":"scripts/b.json"}}
@@ -1840,10 +2425,13 @@ mod tests {
     #[test]
     fn no_conflict_when_expressions_disjoint() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"a","type":"image","scriptTriggers":{"onContentAppear":"scripts/a.json"}},
                         {"id":"b","type":"image","scriptTriggers":{"onContentAppear":"scripts/b.json"}}
@@ -1871,10 +2459,13 @@ mod tests {
     fn no_false_conflict_on_expr_boundaries() {
         // Границы-выражения с разными коэффициентами — не делаем выводов.
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"row1","type":"row","children":[
                         {"id":"a","type":"image","scriptTriggers":{"onContentAppear":"scripts/a.json"}},
                         {"id":"b","type":"image","scriptTriggers":{"onContentAppear":"scripts/b.json"}},
@@ -1906,16 +2497,19 @@ mod tests {
     #[test]
     fn detects_broken_links_and_dead_vars() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Н1","content":{"items":[
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                         {"id":"b1","type":"button","text":"Идти","targetNodeId":"n3",
                          "scriptTriggers":{"onPress":"scripts/p.json"}},
                         {"id":"img1","type":"image","resourcePath":"res/images/нет.png"}
                     ]}},
-                    {"id":"n2","title":"Н2","content":{"items":[]}}
+                    {"id":"n2","title":"Н2","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -1946,15 +2540,56 @@ mod tests {
     }
 
     #[test]
-    fn detects_unreachable_node() {
+    fn double_braced_and_nested_variable_use_counts_as_read() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[{"id":"b1","type":"button","targetNodeId":"n2"}]}},
-                    {"id":"n2","title":"Достижима","content":{"items":[]}},
-                    {"id":"n3","title":"Заброшена","content":{"items":[]}}
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
+                        {"id":"t1","type":"text","text":"Выбор: {{выбор}}"},
+                        {"id":"b1","type":"button","text":"Взять",
+                         "scriptTriggers":{"onPress":"scripts/p.json"}}
+                    ]}}
+                ]}"#,
+            ),
+            (
+                "quests/q1/scripts/p.json",
+                r#"{"id":"p","name":"press","blocks":[{"type":"event","eventType":"onPress","children":[
+                    {"type":"assign_variable","variable":"выбор","value":"1"},
+                    {"type":"set_image","item_id":"i1","item_name":"Картинка",
+                     "source":"{{Оружие[\"Картинка\"][\"{выбор}\"]}}"}
+                ]}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        // `{{выбор}}` в тексте и вложенное `{выбор}` внутри ссылки на ячейку
+        // таблицы — это чтения: «получает значение, но не используется» ложно.
+        let unread = report_errors(&report, DiagnosticKind::UnwrittenVariable);
+        assert!(
+            unread.is_empty(),
+            "переменная читается через {{ }} и ссылку на таблицу: {unread:?}"
+        );
+        let unwritten = report_errors(&report, DiagnosticKind::UnreadVariable);
+        assert!(unwritten.is_empty(), "переменная пишется: {unwritten:?}");
+    }
+
+    #[test]
+    fn detects_unreachable_node() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[{"id":"b1","type":"button","targetNodeId":"n2"}]}},
+                    {"id":"n2","title":"Достижима","chapterId":"t1","content":{"items":[]}},
+                    {"id":"n3","title":"Заброшена","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
         ]);
@@ -1967,10 +2602,13 @@ mod tests {
     #[test]
     fn detects_broken_call_script_and_empty_script() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/caller.json"}}
                 ]}}]}"#,
             ),
@@ -1999,10 +2637,13 @@ mod tests {
     #[test]
     fn detects_broken_link_from_behaviours() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","behaviours":[
                         {"event":"onPress","kind":"action","script":"scripts/nope.json"}
                     ]}
@@ -2027,10 +2668,13 @@ mod tests {
     #[test]
     fn modal_show_timer_flag_is_not_a_script_link() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"m1","type":"modal","targetNodeId":"_CLOSE_MODAL","text":"3",
                      "showTimer":true},
                     {"id":"m2","type":"modal","targetNodeId":"_CLOSE_MODAL","text":"5",
@@ -2058,10 +2702,13 @@ mod tests {
     #[test]
     fn fn_ref_with_existing_function_is_ok() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json#fn=%D0%92%D0%BE%D0%B7%D1%80%D0%B0%D1%81%D1%82"}}
                 ]}}]}"#,
             ),
@@ -2086,10 +2733,13 @@ mod tests {
     #[test]
     fn fn_ref_with_missing_function_is_error() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json#fn=%D0%9D%D0%B5%D1%82%D1%83"}}
                 ]}}]}"#,
             ),
@@ -2115,10 +2765,13 @@ mod tests {
     #[test]
     fn script_in_internal_dir_is_ok() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json"}}
                 ]}}]}"#,
             ),
@@ -2141,10 +2794,13 @@ mod tests {
     #[test]
     fn garbage_braces_are_not_variables() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н1","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
                     {"id":"t1","type":"text","text":"JSON: {\"items\": []} и ${ешка]\\{y}"},
                     {"id":"b1","type":"button","scriptTriggers":{"onPress":"scripts/s1.json"}}
                 ]}}]}"#,
@@ -2180,10 +2836,13 @@ mod tests {
     #[test]
     fn broken_script_link_has_node_and_item_context() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Бой с боссом","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Бой с боссом","chapterId":"t1","content":{"items":[
                     {"id":"btn1","type":"button","text":"Атака и Защита","scriptTriggers":{"onPress":"scripts/no-such.json"}}
                 ]}}]}"#,
             ),
@@ -2202,12 +2861,15 @@ mod tests {
     #[test]
     fn reachability_via_on_node_enter_script() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","scriptAssetId":"scripts/enter.json","content":{"items":[]}},
-                    {"id":"n2","title":"Через скрипт","content":{"items":[]}}
+                    {"id":"n1","title":"Старт","chapterId":"t1","scriptAssetId":"scripts/enter.json","content":{"items":[]}},
+                    {"id":"n2","title":"Через скрипт","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -2232,14 +2894,17 @@ mod tests {
     #[test]
     fn reachability_via_script_item() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[
                         {"id":"s1","type":"script","resourcePath":"scripts/inline.json"}
                     ]}},
-                    {"id":"n2","title":"Через script-айтем","content":{"items":[]}}
+                    {"id":"n2","title":"Через script-айтем","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -2262,12 +2927,15 @@ mod tests {
     #[test]
     fn reachability_via_timer_default_action() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","timerDuration":5.0,"defaultActionNodeId":"n2","content":{"items":[]}},
-                    {"id":"n2","title":"По таймеру","content":{"items":[]}}
+                    {"id":"n1","title":"Старт","chapterId":"t1","timerDuration":5.0,"defaultActionNodeId":"n2","content":{"items":[]}},
+                    {"id":"n2","title":"По таймеру","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
         ]);
@@ -2285,12 +2953,15 @@ mod tests {
     #[test]
     fn no_unreachable_warning_when_dynamic_target() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[{"id":"b1","type":"button","targetNodeId":"={next}"}]}},
-                    {"id":"n2","title":"Динамическая цель","content":{"items":[]}}
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[{"id":"b1","type":"button","targetNodeId":"={next}"}]}},
+                    {"id":"n2","title":"Динамическая цель","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
         ]);
@@ -2308,18 +2979,21 @@ mod tests {
     #[test]
     fn shared_script_edges_from_every_owner() {
         let store = mem_store(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
                 r#"{"nodes":[
-                    {"id":"n1","title":"Старт","content":{"items":[
+                    {"id":"n1","title":"Старт","chapterId":"t1","content":{"items":[
                         {"id":"b0","type":"button","text":"Во вторую","targetNodeId":"n2"},
                         {"id":"b1","type":"button","text":"Действие","scriptTriggers":{"onPress":"scripts/shared.json"}}
                     ]}},
-                    {"id":"n2","title":"Вторая","content":{"items":[
+                    {"id":"n2","title":"Вторая","chapterId":"t1","content":{"items":[
                         {"id":"b2","type":"button","text":"Действие","scriptTriggers":{"onPress":"scripts/shared.json"}}
                     ]}},
-                    {"id":"n3","title":"Финал","content":{"items":[]}}
+                    {"id":"n3","title":"Финал","chapterId":"t1","content":{"items":[]}}
                 ]}"#,
             ),
             (
@@ -2362,6 +3036,283 @@ mod tests {
             "найденные конфликты должны касаться слотов: {conflicts:?}"
         );
     }
+
+    // ---------- Стартовая нода и главы ----------
+
+    #[test]
+    fn missing_start_node_is_error() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","tags":[{"id":"t1","name":"Г"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let found = report_errors(&report, DiagnosticKind::MissingStartNode);
+        assert_eq!(found.len(), 1, "квест без стартовой ноды обязан ругаться");
+        assert_eq!(found[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn node_without_chapter_is_error() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Г"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}},
+                    {"id":"n2","title":"Н2","chapterId":"deleted","content":{"items":[]}},
+                    {"id":"n3","title":"Н3","chapterId":"","content":{"items":[]}}
+                ]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let found = report_errors(&report, DiagnosticKind::UnknownChapter);
+        assert_eq!(
+            found.len(),
+            2,
+            "ноды с удалённой и пустой главой должны быть найдены"
+        );
+        assert!(found.iter().any(|d| d.node_id.as_deref() == Some("n2")));
+        assert!(found.iter().any(|d| d.node_id.as_deref() == Some("n3")));
+    }
+
+    #[test]
+    fn empty_chapter_list_with_nodes_is_error() {
+        // Ровно тот случай, из-за которого ноды не открываются в редакторе.
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        assert_eq!(
+            report_errors(&report, DiagnosticKind::NoChapters).len(),
+            1,
+            "квест с нодами без глав должен ругаться"
+        );
+    }
+
+    #[test]
+    fn per_node_layout_nodes_are_validated() {
+        // v2-раскладка (`nodes/index.json` + тела) — источник правды движка,
+        // валидатор обязан читать её так же, иначе квест выглядит пустым.
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Г"}]}"#,
+            ),
+            (
+                "quests/q1/nodes/index.json",
+                r#"{"format_version":2,"card_preview_version":1,"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","x":0,"y":0}]}"#,
+            ),
+            (
+                "quests/q1/nodes/n1.json",
+                r#"{"id":"n1","title":"Н1","chapterId":"t1","x":0,"y":0,"content":{"items":[{"id":"i1","type":"text","text":"привет"}]}}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        assert_eq!(
+            report.stats.nodes, 1,
+            "нода из v2-раскладки должна читаться"
+        );
+        assert_eq!(report.stats.items, 1, "айтемы тела ноды должны читаться");
+        assert_eq!(report.stats.errors, 0, "{:?}", report.diagnostics);
+    }
+    #[test]
+    fn detects_unreachable_code_after_transition() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[
+                    {"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
+                        {"id":"b1","type":"button","buttonText":"Дальше",
+                         "scriptTriggers":{"onPress":"scripts/flow.json"}}]}},
+                    {"id":"n2","title":"Н2","chapterId":"t1","content":{"items":[]}}
+                ]}"#,
+            ),
+            (
+                "quests/q1/scripts/flow.json",
+                r#"{"id":"flow","name":"переход","blocks":[
+                    {"type":"go_to_node","node_id":"n2"},
+                    {"type":"assign_variable","variable":"x","value":"1"}
+                ]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let dead = report_errors(&report, DiagnosticKind::UnreachableCode);
+        assert_eq!(dead.len(), 1, "хвост после перехода — мёртвый код");
+        assert!(dead[0].message.contains("Переход"));
+        assert!(dead[0].message.contains("Переменная"));
+        assert_eq!(
+            dead[0].script_path.as_deref(),
+            Some("scripts/flow.json"),
+            "диагностика скрипта должна нести путь для перехода к источнику"
+        );
+    }
+
+    #[test]
+    fn detects_loop_without_wait_but_accepts_paced_loop() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
+                    {"id":"b1","type":"button","buttonText":"Старт",
+                     "scriptTriggers":{"onPress":"scripts/busy.json"}}]}}]}"#,
+            ),
+            (
+                "quests/q1/scripts/busy.json",
+                r#"{"id":"busy","blocks":[
+                    {"type":"while","count":1000,"children":[
+                        {"type":"assign_variable","variable":"x","value":"1"}
+                    ]},
+                    {"type":"while","count":10,"children":[
+                        {"type":"wait","seconds":0.1}
+                    ]}
+                ]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let loops = report_errors(&report, DiagnosticKind::LoopWithoutWait);
+        assert_eq!(loops.len(), 1, "только цикл без задержки");
+        assert!(loops[0].message.contains("за один кадр"));
+    }
+
+    #[test]
+    fn detects_dead_scripts_but_skips_event_handlers() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[
+                    {"id":"b1","type":"button","buttonText":"Го",
+                     "scriptTriggers":{"onPress":"scripts/used.json"}}]}}]}"#,
+            ),
+            (
+                "quests/q1/scripts/used.json",
+                r#"{"id":"used","blocks":[{"type":"comment","text":"ok"}]}"#,
+            ),
+            (
+                "quests/q1/scripts/orphan.json",
+                r#"{"id":"orphan","name":"Забытый","blocks":[{"type":"comment","text":"ok"}]}"#,
+            ),
+            (
+                "quests/q1/scripts/boot.json",
+                r#"{"id":"boot","name":"Старт","blocks":[
+                    {"type":"event","eventType":"onQuestStart","children":[
+                        {"type":"assign_variable","variable":"started","value":"1"}]}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let dead = report_errors(&report, DiagnosticKind::DeadScript);
+        assert_eq!(dead.len(), 1, "мёртвым должен быть только orphan");
+        assert!(dead[0].message.contains("Забытый"));
+        assert_eq!(dead[0].script_path.as_deref(), Some("scripts/orphan.json"));
+    }
+
+    #[test]
+    fn detects_table_column_mismatch() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}],
+                    "tables":[
+                        {"name":"ладно","columns":["item","price"],
+                         "rows":[{"item":"меч","price":10},{"item":"щит","price":5}]},
+                        {"name":"кривая","columns":["item","price"],
+                         "rows":[{"item":"меч"},{"item":"щит","price":10,"color":"red"}],
+                         "rowNames":["меч","щит","третий"]}
+                    ]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Н1","chapterId":"t1","content":{"items":[]}}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let tables = report_errors(&report, DiagnosticKind::TableColumnMismatch);
+        assert_eq!(tables.len(), 1, "правильная таблица не должна ругаться");
+        let message = &tables[0].message;
+        assert!(message.contains("кривая"), "{message}");
+        assert!(message.contains("нет «price»"), "{message}");
+        assert!(message.contains("color"), "{message}");
+        assert!(message.contains("имён строк 3"), "{message}");
+    }
+
+    #[test]
+    fn detects_dead_end_with_hidden_panel() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","hideTopPanel":true,"allowStepBack":false,
+                    "tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[
+                    {"id":"n1","title":"Ловушка","chapterId":"t1","content":{"items":[
+                        {"id":"toggle","type":"button","buttonText":"Показать ещё",
+                         "scriptTriggers":{"onPress":"scripts/toggle.json"}}]}},
+                    {"id":"n2","title":"Дальше","chapterId":"t1","content":{"items":[]}},
+                    {"id":"n3","title":"Выход","chapterId":"t1","content":{"items":[
+                        {"id":"b3","type":"button","buttonText":"Дальше","targetNodeId":"n2"}]}}
+                ]}"#,
+            ),
+            (
+                "quests/q1/scripts/toggle.json",
+                r#"{"id":"toggle","blocks":[{"type":"set_visible","mode":"toggle"}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        let dead = report_errors(&report, DiagnosticKind::DeadEndNode);
+        assert_eq!(dead.len(), 1, "тупик — только нода с кнопками без выхода");
+        assert!(dead[0].message.contains("Ловушка"));
+    }
+
+    #[test]
+    fn no_dead_end_alert_when_player_can_leave() {
+        let store = mem_store(&[
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","hideTopPanel":true,"allowStepBack":true,
+                    "tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
+            (
+                "quests/q1/nodes.json",
+                r#"{"nodes":[{"id":"n1","title":"Финал","chapterId":"t1","content":{"items":[
+                    {"id":"b1","type":"button","buttonText":"Ещё"}]}}]}"#,
+            ),
+        ]);
+        let report = analyze_quest_with_store("q1", store);
+        assert_eq!(
+            report_errors(&report, DiagnosticKind::DeadEndNode).len(),
+            0,
+            "шаг назад — это выход, тупика нет"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2391,10 +3342,13 @@ mod script_structure_tests {
     fn validator_reports_invalid_script_structure_and_normalizes_legacy() {
         // Легаси-условие (variable/comparison) + call_lua без function.
         let store = store_with(&[
-            ("quests/q1/config.json", r#"{"id":"q1","startNodeId":"n1"}"#),
+            (
+                "quests/q1/config.json",
+                r#"{"id":"q1","startNodeId":"n1","tags":[{"id":"t1","name":"Глава 1"}]}"#,
+            ),
             (
                 "quests/q1/nodes.json",
-                r#"{"nodes":[{"id":"n1","title":"Н","content":{"items":[
+                r#"{"nodes":[{"id":"n1","title":"Н","chapterId":"t1","content":{"items":[
                     {"id":"it","type":"text","text":"привет",
                      "scriptTriggers":{"onContentAppear":"scripts/s1.json"}}
                 ]}}]}"#,

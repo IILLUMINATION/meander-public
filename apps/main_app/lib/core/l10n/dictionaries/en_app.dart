@@ -13,4 +13,9 @@ final Map<String, String> enApp = {
   'Отправить логи': 'Send logs',
   'Для сообщения об ошибке': 'To report an issue',
   'Нет данных': 'No data',
+  'Данный проект разрабатывается уже более года, за это время мы успели сделать многое и рады поделиться этим с вами.': 'This project has been in development for over a year: we have made a lot in that time and are glad to share it with you.',
+  'МЫ ПЕРЕЕХАЛИ НА НОВЫЕ СЕРВЕРА!!! ВОЗМОЖНО ВАШ КВЕСТ, ИЛИ ЧТО-ТО ЕЩЁ НЕ БЫЛИ ПЕРЕНЕСЕНЫ СО СТАРЫХ, ПИШИТЕ В НАШ ТЕЛЕГРАМ ЧАТ @MNDchat!!!': "WE'VE MOVED TO NEW SERVERS!!! YOUR QUEST OR OTHER CONTENT MAY NOT HAVE BEEN TRANSFERRED FROM THE OLD ONES YET — WRITE TO OUR TELEGRAM CHAT @MNDchat!!!",
+  'Напоминаю, делайте почаще резервные копии ваших квестов себе на устройство! Это можно сделать в меню ваших локальных квестов.': 'A reminder: back up your quests to your own device more often! You can do it in the menu of your local quests.',
+  'Если у вас не получается обновиться на новую версию, то пожалуйста напишите мне в Телеграм или другие соцсети о проблеме, приложив модель телефона': "If you can't update to the new version, please write to me on Telegram or other social networks about the problem and include your phone model.",
+  'Если у вас возникли проблемы, вопросы, сложности и т.д, не спешите ставить 1 звезду! Напишите мне, я помогу решить вам вашу проблему!': "If you run into problems, questions or difficulties, don't rush to leave 1 star! Write to me and I'll help you solve it.",
 };

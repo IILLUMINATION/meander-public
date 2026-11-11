@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 810672878;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1828745288;
 
 // Section: executor
 
@@ -2793,6 +2793,40 @@ fn wire__crate__api__quest_archive__quest_archive_import_impl(
         },
     )
 }
+fn wire__crate__api__quest_search__quest_search_schema_version_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "quest_search_schema_version",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::quest_search::quest_search_schema_version(),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__quest_store__quest_store_delete_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3237,6 +3271,47 @@ fn wire__crate__api__validation__run_quest_validation_impl(
         },
     )
 }
+fn wire__crate__api__quest_search__search_quest_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "search_quest",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_quest_id = <String>::sse_decode(&mut deserializer);
+            let api_quest_root = <String>::sse_decode(&mut deserializer);
+            let api_query = <String>::sse_decode(&mut deserializer);
+            let api_limit_per_kind = <Option<u32>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(crate::api::quest_search::search_quest(
+                        api_quest_id,
+                        api_quest_root,
+                        api_query,
+                        api_limit_per_kind,
+                    ))?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__script_executor__validate_script_json_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3472,6 +3547,17 @@ impl SseDecode for Option<String> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<String>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u32>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -3825,73 +3911,80 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        72 => wire__crate__api__quest_store__quest_store_delete_impl(
+        72 => wire__crate__api__quest_search__quest_search_schema_version_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        74 => wire__crate__api__quest_store__quest_store_list_files_impl(
+        73 => wire__crate__api__quest_store__quest_store_delete_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => wire__crate__api__quest_store__quest_store_metadata_mutate_impl(
+        75 => wire__crate__api__quest_store__quest_store_list_files_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        76 => wire__crate__api__quest_store__quest_store_read_json_impl(
+        76 => wire__crate__api__quest_store__quest_store_metadata_mutate_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => wire__crate__api__quest_store__quest_store_read_text_impl(
+        77 => wire__crate__api__quest_store__quest_store_read_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        78 => wire__crate__api__quest_store__quest_store_transact_impl(
+        78 => wire__crate__api__quest_store__quest_store_read_text_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => wire__crate__api__quest_store__quest_store_write_json_impl(
+        79 => wire__crate__api__quest_store__quest_store_transact_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        80 => wire__crate__api__quest_store__quest_store_write_text_impl(
+        80 => wire__crate__api__quest_store__quest_store_write_json_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__api__validation__quest_validation_schema_version_impl(
+        81 => wire__crate__api__quest_store__quest_store_write_text_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__api__validation__run_quest_validation_impl(
+        82 => wire__crate__api__validation__quest_validation_schema_version_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        83 => wire__crate__api__script_executor__validate_script_json_impl(
+        83 => wire__crate__api__validation__run_quest_validation_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        84 => {
+        84 => wire__crate__api__quest_search__search_quest_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__script_executor__validate_script_json_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        86 => {
             wire__crate__api__script_executor__values_equal_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -3973,7 +4066,7 @@ fn pde_ffi_dispatcher_sync_impl(
         ),
         65 => wire__crate__api__plugin__plugin_reset_impl(ptr, rust_vec_len, data_len),
         68 => wire__crate__api__plugin__plugin_unregister_impl(ptr, rust_vec_len, data_len),
-        73 => wire__crate__api__quest_store__quest_store_exists_impl(ptr, rust_vec_len, data_len),
+        74 => wire__crate__api__quest_store__quest_store_exists_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -4228,6 +4321,16 @@ impl SseEncode for Option<String> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <String>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u32>::sse_encode(value, serializer);
         }
     }
 }

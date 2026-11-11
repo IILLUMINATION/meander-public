@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.8.16+261
+version: 2.8.16+262
 
 environment:
   sdk: ^3.9.2
@@ -155,10 +155,12 @@ flutter:
   assets:
     - assets/images/
     - assets/images/cosmetics/
-    - assets/data/
     - assets/fonts/
     # Офлайн-гайды: JSON шагов и статья на каждом языке + видео.
     - assets/guides/
     - assets/guides/create_quest/
     - assets/guides/market/
     - assets/guides/hub/
+    # Готовая веб-оболочка для кнопки «Собрать веб-версию». Архив (~10 МБ)
+    # кладёт scripts/build_web_template.sh или CI — в git его нет.
+    - assets/web_player/

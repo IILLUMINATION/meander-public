@@ -1106,7 +1106,6 @@ final Map<String, String> frStrings = {
   'Скрипт не найден в ссылках нод/контента.': 'Script introuvable dans les liens nœud/contenu.',
   'Скрипт не читается: {p0}': 'Script illisible : {p0}',
   'Слои': 'Calques',
-  'Сохранить HTML': 'Enregistrer HTML',
   'Сохранить PDF': 'Enregistrer PDF',
   'Сохранить квест': 'Enregistrer la quête',
   'Сохранить логи': 'Enregistrer les journaux',
@@ -2083,6 +2082,11 @@ final Map<String, String> frStrings = {
   'Видео недоступно на этом устройстве': 'La vidéo n’est pas disponible sur cet appareil',
   'Не удалось загрузить гайд': 'Impossible de charger le guide',
   'Гайд прочитан': 'Guide lu',
+  'Данный проект разрабатывается уже более года, за это время мы успели сделать многое и рады поделиться этим с вами.': "Ce projet est en développement depuis plus d'un an : pendant ce temps, nous avons accompli beaucoup et nous sommes heureux de le partager avec vous.",
+  'МЫ ПЕРЕЕХАЛИ НА НОВЫЕ СЕРВЕРА!!! ВОЗМОЖНО ВАШ КВЕСТ, ИЛИ ЧТО-ТО ЕЩЁ НЕ БЫЛИ ПЕРЕНЕСЕНЫ СО СТАРЫХ, ПИШИТЕ В НАШ ТЕЛЕГРАМ ЧАТ @MNDchat!!!': "NOUS AVONS DÉMÉNAGÉ SUR DE NOUVEAUX SERVEURS !!! IL EST POSSIBLE QUE VOTRE QUÊTE OU AUTRE CHOSE N'AIT PAS ENCORE ÉTÉ TRANSFÉRÉ DEPUIS LES ANCIENS, ÉCRIVEZ À NOTRE CHAT TELEGRAM @MNDchat !!!",
+  'Напоминаю, делайте почаще резервные копии ваших квестов себе на устройство! Это можно сделать в меню ваших локальных квестов.': 'Rappel : faites plus souvent des copies de sauvegarde de vos quêtes sur votre appareil ! Cela se fait dans le menu de vos quêtes locales.',
+  'Если у вас не получается обновиться на новую версию, то пожалуйста напишите мне в Телеграм или другие соцсети о проблеме, приложив модель телефона': "Si vous n'arrivez pas à mettre à jour vers la nouvelle version, écrivez-moi sur Telegram ou sur d'autres réseaux sociaux en décrivant le problème et en indiquant le modèle de votre téléphone.",
+  'Если у вас возникли проблемы, вопросы, сложности и т.д, не спешите ставить 1 звезду! Напишите мне, я помогу решить вам вашу проблему!': 'Si vous rencontrez des problèmes, des questions ou des difficultés, ne vous empressez pas de mettre 1 étoile ! Écrivez-moi, je vous aiderai à résoudre votre problème !',
 };
 
 /// Формы числа: lemma первой русской формы -> список форм языка

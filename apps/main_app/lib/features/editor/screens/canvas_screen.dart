@@ -16,6 +16,8 @@ import 'package:canvas_app/features/editor/utils/template_applier.dart';
 import 'package:canvas_app/features/editor/screens/canvas/widgets/canvas_tool_picker.dart';
 import 'package:canvas_app/features/editor/widgets/template_picker_sheet.dart';
 import 'package:canvas_app/features/editor/widgets/template_save_dialog.dart';
+import 'package:canvas_app/features/editor/screens/quest_search_screen.dart';
+import 'package:canvas_app/features/editor/widgets/editor_ui.dart';
 import 'package:canvas_app/features/editor/widgets/quest_validation_panel.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
 import 'package:canvas_app/shared/widgets/canvas_painter.dart';
@@ -238,6 +240,14 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
     });
   }
 
+  void _openQuestSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => QuestSearchScreen(questId: widget.questId),
+      ),
+    );
+  }
+
   void _clearSearch() {
     _searchController.clear();
     _searchFocusNode.unfocus();
@@ -301,6 +311,25 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
       context,
       questId: widget.questId,
       onJumpToNode: _jumpToNode,
+      onOpenScript: _openScriptFromValidation,
+    );
+  }
+
+  /// Переход к источнику проблемы: валидатор отдаёт путь скрипта
+  /// (`scripts/<id>.json` или `.lua`), редактор адресует скрипты по имени.
+  void _openScriptFromValidation(String scriptPath) {
+    final fileName = scriptPath.split('/').last;
+    if (fileName.endsWith('.lua')) {
+      EditorDocumentLauncher.openLua(context, widget.questId, fileName);
+      return;
+    }
+    final dot = fileName.lastIndexOf('.');
+    final scriptId = dot > 0 ? fileName.substring(0, dot) : fileName;
+    EditorDocumentLauncher.openVisualScript(
+      context,
+      widget.questId,
+      scriptId,
+      title: fileName,
     );
   }
 
@@ -452,13 +481,10 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
         ref.invalidate(allQuestNodesProvider(widget.questId));
         await notifier.reloadData();
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name}),
-            ),
-            backgroundColor: Colors.cyan,
-          ),
+        showEditorNotice(
+          context,
+          trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name}),
+          color: Colors.cyan,
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -550,9 +576,7 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
               'p2': report.skippedExisting,
             })
           : trf('Нода «{p0}» вставлена', {'p0': newNode.title});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.blue),
-      );
+      showEditorNotice(context, msg, color: Colors.blue);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -2005,6 +2029,13 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
                       : scheme.onSurfaceVariant,
                   isActive: _isSearchVisible,
                   onPressed: _toggleSearch,
+                ),
+                // Поиск по всему квесту: ноды, скрипты, таблицы, ресурсы.
+                _buildToolbarButton(
+                  icon: Icons.manage_search_rounded,
+                  tooltip: tr('Найти в квесте'),
+                  color: scheme.onSurfaceVariant,
+                  onPressed: _openQuestSearch,
                 ),
                 // Ещё — выезжающая панель-пикер инструментов
                 _buildToolbarButton(

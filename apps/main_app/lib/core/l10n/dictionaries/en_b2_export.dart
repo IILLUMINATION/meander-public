@@ -29,4 +29,8 @@ final Map<String, String> enB2Export = {
   '{p0} / {p1} нод': '{p0} / {p1} nodes',
   'Не удалось перевести ноды в новый формат перед экспортом':
       'Could not convert nodes to the new format before export',
+
+  // core/services/quest_shot_export.dart
+  'Скриншот квеста в Meander': 'Quest screenshot from Meander',
+  'Квест «{questTitle}» в Meander': 'Quest "{questTitle}" in Meander',
 };

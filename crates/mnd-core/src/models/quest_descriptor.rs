@@ -119,6 +119,11 @@ pub struct Quest {
     pub screenshot_files: Option<Vec<String>>,
     pub dim_background: bool,
     pub hide_node_titles: bool,
+    /// Не показывать верхнюю панель игры (назад/сохранить/загрузить/громкость).
+    /// Скрипты могут вернуть её блоком `set_top_panel`.
+    pub hide_top_panel: bool,
+    /// Разрешить игроку вернуться на предыдущую ноду.
+    pub allow_step_back: bool,
     pub genres: Vec<String>,
     pub default_text_fit: String,
     pub is_read_only: bool,
@@ -155,6 +160,14 @@ impl Quest {
             .unwrap_or(true);
         let is_titles_hidden = obj
             .get("hideNodeTitles")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_top_panel_hidden = obj
+            .get("hideTopPanel")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let allow_step_back = obj
+            .get("allowStepBack")
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let text_fit = obj
@@ -272,6 +285,8 @@ impl Quest {
             screenshot_files,
             dim_background: is_dimmed,
             hide_node_titles: is_titles_hidden,
+            hide_top_panel: is_top_panel_hidden,
+            allow_step_back,
             genres: loaded_genres,
             default_text_fit: text_fit,
             is_read_only: read_only,
@@ -310,6 +325,8 @@ impl Quest {
         map.insert("version".into(), json!(self.version));
         map.insert("dimBackground".into(), json!(self.dim_background));
         map.insert("hideNodeTitles".into(), json!(self.hide_node_titles));
+        map.insert("hideTopPanel".into(), json!(self.hide_top_panel));
+        map.insert("allowStepBack".into(), json!(self.allow_step_back));
         map.insert("genres".into(), json!(self.genres));
         map.insert("defaultTextFit".into(), json!(self.default_text_fit));
         map.insert("isReadOnly".into(), json!(self.is_read_only));
@@ -394,6 +411,28 @@ impl Quest {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn panel_and_step_back_flags_round_trip() {
+        // Оба ключа пишет редактор, читает плеер; `to_json` обязан их
+        // сохранить, иначе сохранение настроек вернуло бы панель.
+        let q = Quest::from_json(&json!({
+            "id": "q1",
+            "title": "Квест",
+            "hideTopPanel": true,
+            "allowStepBack": true,
+        }));
+        assert!(q.hide_top_panel);
+        assert!(q.allow_step_back);
+        let round = q.to_json();
+        assert_eq!(round["hideTopPanel"], json!(true));
+        assert_eq!(round["allowStepBack"], json!(true));
+
+        // По умолчанию оба выключены: старые квесты не меняют поведение.
+        let plain = Quest::from_json(&json!({"id": "q2", "title": "Без"}));
+        assert!(!plain.hide_top_panel);
+        assert!(!plain.allow_step_back);
+    }
 
     #[test]
     fn language_round_trip() {

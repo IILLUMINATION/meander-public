@@ -23,6 +23,7 @@ pub mod quest_analytics;
 pub mod quest_genres;
 pub mod quest_language;
 pub mod quest_scan;
+pub mod quest_stream;
 pub mod rewards;
 pub mod sync_settings_crypto;
 pub mod system_chat;

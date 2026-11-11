@@ -31,7 +31,7 @@ class StackPinBoxEditor extends StatelessWidget {
   static Size viewportOf(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final pad = MediaQuery.paddingOf(context);
-    const cap = 720.0;
+    const cap = kContentColumnMaxWidth;
     return Size(
       size.width < cap ? size.width : cap,
       (size.height - pad.top - pad.bottom).clamp(160.0, 4000.0),
@@ -157,7 +157,10 @@ class StackPinBoxEditor extends StatelessWidget {
           ],
         ),
         Text(
-          trf('px экрана {p0}×{p1}: на другом телефоне рамка поедет вместе с долями якорей, а поля останутся такими же. Ш и В схлопнутой оси = размер холста, он же правится в полях холста.', {'p0': viewport.width.round(), 'p1': viewport.height.round()}),
+          trf(
+            'px экрана {p0}×{p1}: на другом телефоне рамка поедет вместе с долями якорей, а поля останутся такими же. Ш и В схлопнутой оси = размер холста, он же правится в полях холста.',
+            {'p0': viewport.width.round(), 'p1': viewport.height.round()},
+          ),
           style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
         ),
         const SizedBox(height: 6),
@@ -211,7 +214,9 @@ class StackPinBoxEditor extends StatelessWidget {
             ],
           ),
           Text(
-            tr('Закрыть может и скрипт: блок «показать/скрыть» этого стека перехватывает окно, а явное «показать» возвращает его даже после тапа игрока.'),
+            tr(
+              'Закрыть может и скрипт: блок «показать/скрыть» этого стека перехватывает окно, а явное «показать» возвращает его даже после тапа игрока.',
+            ),
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
           ),
         ],
@@ -350,7 +355,10 @@ class _StretchChip extends StatelessWidget {
                   : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             const SizedBox(width: 6),
-            Text(trf('Растянуть {label}', {'label': label}), style: const TextStyle(fontSize: 12)),
+            Text(
+              trf('Растянуть {label}', {'label': label}),
+              style: const TextStyle(fontSize: 12),
+            ),
           ],
         ),
       ),

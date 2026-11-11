@@ -1,4 +1,7 @@
+
 import 'package:flutter/material.dart';
+
+import 'package:canvas_app/core/l10n/l10n.dart';
 
 // ================================================================
 // === СЕМАНТИЧЕСКИЕ РОЛИ ЦВЕТА НОДЫ (Material 3) ===
@@ -106,6 +109,11 @@ class CanvasTheme {
   static Color surface = const Color(0xFF1A1A1A);
   static Color commentBody = const Color(0xFF2A2A1E);
   static Color commentText = Colors.white;
+
+  /// Семейство шрифта подписей на холсте. `null` — системное по умолчанию.
+  /// Тесты подставляют загруженный шрифт: иначе Flutter рисует заглушки Ahem,
+  /// и снимок карточки не показывает, влезает ли текст.
+  static String? cardFontFamily;
   static Color selection = Colors.blue;
   static bool isDark = true;
 
@@ -183,6 +191,52 @@ NodeColorRole nodeColorRoleFromLegacyColor(Color color) {
 // ================================================================
 // === МОДЕЛЬ НОДЫ (для UI) ===
 // ================================================================
+/// Компактное содержимое ноды из индекса канваса.
+///
+/// Канвас не читает тела нод: `quests/<id>/nodes/index.json` несёт готовые
+/// строки реплик и подписи кнопок. Здесь они приводятся к виду, который
+/// нужен карточке, — без повторного обхода `content.items`.
+class NodeCardPreview {
+  const NodeCardPreview({
+    this.lines = const [],
+    this.branches = const [],
+    this.branchTotal = 0,
+    this.replies = 0,
+    this.scripts = 0,
+    this.hasImage = false,
+    this.hasAudio = false,
+  });
+
+  /// Реплики (уже обрезанные по длине строки).
+  final List<String> lines;
+
+  /// Подписи первых кнопок; полное число — [branchTotal].
+  final List<String> branches;
+  final int branchTotal;
+  final int replies;
+  final int scripts;
+  final bool hasImage;
+  final bool hasAudio;
+
+  static NodeCardPreview? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final branches = (raw['branches'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toList();
+    return NodeCardPreview(
+      lines: (raw['lines'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
+      branches: List<String>.unmodifiable(branches),
+      branchTotal: ((raw['branchesTotal'] as num?)?.toInt() ?? branches.length),
+      replies: (raw['replies'] as num?)?.toInt() ?? 0,
+      scripts: (raw['scripts'] as num?)?.toInt() ?? 0,
+      hasImage: ((raw['images'] as num?)?.toInt() ?? 0) > 0,
+      hasAudio: ((raw['audio'] as num?)?.toInt() ?? 0) > 0,
+    );
+  }
+}
+
 class Node {
   String id;
   String? chapterId;
@@ -192,6 +246,9 @@ class Node {
   String label;
   String description;
   Map<String, dynamic>? content;
+
+  /// Готовое превью из индекса. Если задано, обход [content] не нужен.
+  NodeCardPreview? preview;
   String? backgroundAssetId;
   String? backgroundAudioId;
   double? backgroundAudioVolume;
@@ -201,9 +258,43 @@ class Node {
   bool? timerHidden;
   bool isStartNode;
 
+  // --- Кеш подписей карточки ---
+  //
+  // Тело карточки рисуется каждый кадр, поэтому всё, что дороже `paint`,
+  // кешируется на ноде: строки реплик, подписи веток и разложенные
+  // `TextPainter`. Ключ кеша строк — ширина, цвет и их число: ширина ноды
+  // постоянна, а число строк художник выбирает под высоту карточки и бюджет
+  // кадра.
   TextPainter? _titlePainter;
-  TextPainter? _descPainter;
-  bool _textCacheDirty = true;
+  double _titleWidth = -1;
+  int _titleColor = 0;
+  List<TextPainter> _bodyPainters = const [];
+  double _bodyWidth = -1;
+  int _bodyPaintersCount = -1;
+  int _bodyPaintersColor = 0;
+  List<TextPainter> _chipPainters = const [];
+  double _chipsWidth = -1;
+  int _chipsCount = -1;
+  int _chipsColor = 0;
+  TextPainter? _countersPainter;
+  double _countersWidth = -1;
+  int _countersColor = 0;
+  bool _titleDirty = true;
+  bool _bodyDirty = true;
+
+  List<String>? _textLines;
+  List<String>? _branchLabels;
+  int _branchTotal = 0;
+  String? _countersLabel;
+  int _replyCount = 0;
+  int _scriptCount = 0;
+  bool _hasImageItem = false;
+  bool _hasAudioItem = false;
+
+  /// Отступ справа в шапке под иконки-индикаторы. Ставит художник: подпись
+  /// рисуется отдельным проходом (после тела), и ей нужно знать, сколько места
+  /// заняли иконки.
+  double headerRightInset = 0;
 
   Node({
     required this.id,
@@ -214,6 +305,7 @@ class Node {
     required this.label,
     required this.description,
     this.content,
+    this.preview,
     this.backgroundAssetId,
     this.backgroundAudioId,
     this.backgroundAudioVolume,
@@ -254,6 +346,7 @@ class Node {
     String? label,
     String? description,
     Map<String, dynamic>? content,
+    NodeCardPreview? preview,
     String? backgroundAssetId,
     String? backgroundAudioId,
     double? backgroundAudioVolume,
@@ -272,6 +365,7 @@ class Node {
       label: label ?? this.label,
       description: description ?? this.description,
       content: content ?? this.content,
+      preview: preview ?? this.preview,
       backgroundAssetId: backgroundAssetId ?? this.backgroundAssetId,
       backgroundAudioId: backgroundAudioId ?? this.backgroundAudioId,
       backgroundAudioVolume:
@@ -284,55 +378,312 @@ class Node {
     );
   }
 
-  void ensureTextPainters(double maxWidth) {
-    if (!_textCacheDirty && _titlePainter != null) return;
+  /// Реплики ноды в порядке показа — включая вложенные в row/column.
+  List<String> get textLines {
+    _ensureSummary();
+    return _textLines!;
+  }
+
+  /// Подписи кнопок-веток: «→ Во двор».
+  List<String> get branchLabels {
+    _ensureSummary();
+    return _branchLabels!;
+  }
+
+  int get replyCount {
+    _ensureSummary();
+    return _replyCount;
+  }
+
+  /// Полное число кнопок-веток: рисуем не все, но счётчик должен быть честным.
+  int get branchTotal {
+    _ensureSummary();
+    return _branchTotal;
+  }
+
+  int get scriptCount {
+    _ensureSummary();
+    return _scriptCount;
+  }
+
+  bool get hasImageItem {
+    _ensureSummary();
+    return _hasImageItem;
+  }
+
+  bool get hasAudioItem {
+    _ensureSummary();
+    return _hasAudioItem;
+  }
+
+  /// Сводка состава для нижней строки карточки.
+  String get countersLabel {
+    if (_countersLabel != null) return _countersLabel!;
+    final parts = <String>[];
+    if (replyCount > 0) {
+      parts.add('$replyCount ${trp(['реплика', 'реплики', 'реплик'], replyCount)}');
+    }
+    final branches = _branchTotal;
+    if (branches > 0) {
+      parts.add('$branches ${trp(['ветка', 'ветки', 'веток'], branches)}');
+    }
+    _countersLabel = parts.join(' · ');
+    return _countersLabel!;
+  }
+
+  /// Собирает текст, ветки и счётчики одним обходом контента.
+  ///
+  /// Идём по `row`/`column` рекурсивно: текст у авторов живёт во вложенных
+  /// контейнерах, и плоский обход верхнего уровня показывал пустую карточку
+  /// при полной сцене.
+  void _ensureSummary() {
+    if (_textLines != null) return;
+
+    // Превью из индекса уже содержит строки и счётчики: канвас не читает
+    // тела нод, поэтому обход `content` здесь — только для старых данных.
+    final preview = this.preview;
+    if (preview != null) {
+      final lines = List<String>.of(preview.lines);
+      if (lines.isEmpty) _appendLines(lines, description);
+      var scripts = preview.scripts;
+      if ((scriptAssetId ?? '').trim().isNotEmpty) scripts++;
+      _textLines = lines;
+      _branchLabels = preview.branches;
+      _branchTotal = preview.branchTotal > 0
+          ? preview.branchTotal
+          : preview.branches.length;
+      _replyCount = preview.replies;
+      _scriptCount = scripts;
+      _hasImageItem = preview.hasImage;
+      _hasAudioItem = preview.hasAudio;
+      return;
+    }
+
+    final lines = <String>[];
+    final branches = <String>[];
+    var replies = 0;
+    var scripts = 0;
+    var hasImage = false;
+    var hasAudio = false;
+
+    void walk(List<dynamic> items) {
+      for (final raw in items) {
+        if (raw is! Map) continue;
+        final type = raw['type'];
+        final text = (raw['text'] as String? ?? '').trim();
+        switch (type) {
+          case 'text':
+            replies++;
+            _appendLines(lines, text);
+          case 'chat':
+            replies++;
+            final sender = (raw['senderName'] as String? ?? '').trim();
+            _appendLines(lines, sender.isEmpty ? text : '$sender: $text');
+          case 'input':
+            replies++;
+            _appendLines(lines, text);
+          case 'button':
+            if (text.isNotEmpty) branches.add(text);
+          case 'script':
+            scripts++;
+          case 'image':
+            hasImage = true;
+          case 'audio':
+            hasAudio = true;
+        }
+        final children = raw['children'];
+        if (children is List) walk(children);
+      }
+    }
+
+    final items = content?['items'];
+    if (items is List) walk(items);
+    if (lines.isEmpty) _appendLines(lines, description);
+    if ((scriptAssetId ?? '').trim().isNotEmpty) scripts++;
+
+    _textLines = lines;
+    _branchLabels = branches;
+    _branchTotal = branches.length;
+    _replyCount = replies;
+    _scriptCount = scripts;
+    _hasImageItem = hasImage;
+    _hasAudioItem = hasAudio;
+  }
+
+  static void _appendLines(List<String> target, String text) {
+    if (text.isEmpty) return;
+    for (final line in text.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isNotEmpty) target.add(trimmed);
+    }
+  }
+
+  /// Заголовок в шапке. Кешируется вместе с цветом: цвет меняется при смене
+  /// темы и затемнении поиском, и тогда текст надо переложить один раз.
+  TextPainter titlePainterFor(double maxWidth, {required Color color}) {
+    if (!_titleDirty &&
+        _titlePainter != null &&
+        _titleWidth == maxWidth &&
+        _titleColor == color.value) {
+      return _titlePainter!;
+    }
+    _titlePainter?.dispose();
     _titlePainter = TextPainter(
       text: TextSpan(
         text: label,
         style: TextStyle(
-          color: CanvasTheme.nodeTitle,
-          fontSize: 15,
-          fontWeight: FontWeight.w800,
+          color: color,
+          fontSize: 14,
+          height: 1.15,
+          fontWeight: FontWeight.w700,
+          fontFamily: CanvasTheme.cardFontFamily,
         ),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-      maxLines: 1,
-      ellipsis: '...',
-    )..layout(maxWidth: maxWidth);
-
-    final items = content?['items'] as List<dynamic>? ?? [];
-    Map<String, dynamic>? firstText;
-    for (final item in items) {
-      if (item is Map && item['type'] == 'text') {
-        firstText = Map<String, dynamic>.from(item);
-        break;
-      }
-    }
-    String previewText = description;
-    if (firstText != null) {
-      previewText = (firstText['text'] as String? ?? '').split('\n').first;
-    }
-
-    _descPainter = TextPainter(
-      text: TextSpan(
-        text: previewText,
-        style: TextStyle(color: CanvasTheme.nodePreview, fontSize: 14),
       ),
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.left,
       maxLines: 2,
-      ellipsis: '...',
+      ellipsis: '…',
     )..layout(maxWidth: maxWidth);
-    _textCacheDirty = false;
+    _titleWidth = maxWidth;
+    _titleColor = color.value;
+    _titleDirty = false;
+    return _titlePainter!;
+  }
+
+  /// Подписи веток: «→ текст кнопки», по одной на чип.
+  List<TextPainter> chipPainters(
+    double maxWidth,
+    int count, {
+    required Color color,
+  }) {
+    final shown = count < branchLabels.length ? count : branchLabels.length;
+    if (_chipsWidth == maxWidth &&
+        _chipsCount == shown &&
+        _chipsColor == color.value) {
+      return _chipPainters;
+    }
+    for (final painter in _chipPainters) {
+      painter.dispose();
+    }
+    _chipPainters = [
+      for (final label in branchLabels.take(shown))
+        TextPainter(
+          text: TextSpan(
+            text: '→ $label',
+            style: TextStyle(
+              color: color,
+              fontSize: 10.5,
+              fontFamily: CanvasTheme.cardFontFamily,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )..layout(maxWidth: maxWidth - 16),
+    ];
+    _chipsWidth = maxWidth;
+    _chipsCount = shown;
+    _chipsColor = color.value;
+    return _chipPainters;
+  }
+
+  /// Сводка состава ноды: «5 реплик · 2 ветки».
+  TextPainter countersPainter(
+    double maxWidth, {
+    required Color color,
+  }) {
+    final cached = _countersPainter;
+    if (cached != null &&
+        _countersWidth == maxWidth &&
+        _countersColor == color.value) {
+      return cached;
+    }
+    cached?.dispose();
+    _countersPainter = TextPainter(
+      text: TextSpan(
+        text: countersLabel,
+        style: TextStyle(
+          color: color,
+          fontSize: 9.5,
+          fontFamily: CanvasTheme.cardFontFamily,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: maxWidth);
+    _countersWidth = maxWidth;
+    _countersColor = color.value;
+    return _countersPainter!;
+  }
+
+  /// Разложенные строки тела — не больше [maxLines], с кешем по ширине/цвету.
+  List<TextPainter> bodyPainters(
+    double maxWidth,
+    int maxLines, {
+    required Color color,
+  }) {
+    final count = maxLines < textLines.length ? maxLines : textLines.length;
+    if (!_bodyDirty &&
+        _bodyWidth == maxWidth &&
+        _bodyPaintersCount == count &&
+        _bodyPaintersColor == color.value) {
+      return _bodyPainters;
+    }
+    for (final painter in _bodyPainters) {
+      painter.dispose();
+    }
+    _bodyPainters = [
+      for (final line in textLines.take(count))
+        TextPainter(
+          text: TextSpan(
+            text: line,
+            style: TextStyle(
+              color: color,
+              fontSize: 12.5,
+              height: 1.2,
+              fontFamily: CanvasTheme.cardFontFamily,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )..layout(maxWidth: maxWidth),
+    ];
+    _bodyWidth = maxWidth;
+    _bodyPaintersCount = count;
+    _bodyPaintersColor = color.value;
+    _bodyDirty = false;
+    return _bodyPainters;
   }
 
   TextPainter? get titlePainter => _titlePainter;
-  TextPainter? get descPainter => _descPainter;
-  void invalidateTextCache() => _textCacheDirty = true;
+
+  void invalidateTextCache() {
+    _titleDirty = true;
+    _bodyDirty = true;
+    _textLines = null;
+    _branchLabels = null;
+    _countersLabel = null;
+    for (final painter in _chipPainters) {
+      painter.dispose();
+    }
+    _chipPainters = const [];
+    _chipsCount = -1;
+    _countersPainter?.dispose();
+    _countersPainter = null;
+    _countersWidth = -1;
+  }
+
   void dispose() {
     _titlePainter?.dispose();
-    _descPainter?.dispose();
+    for (final painter in _bodyPainters) {
+      painter.dispose();
+    }
+    for (final painter in _chipPainters) {
+      painter.dispose();
+    }
+    _countersPainter?.dispose();
   }
 }
 
@@ -560,9 +911,107 @@ class Indicator {
   Indicator(this.icon, this.color);
 }
 
+/// Сколько содержимого влезает в тело карточки.
+///
+/// Вынесено из художника, чтобы правило проверялось без растеризации:
+/// реплики главнее сводки, но подписи веток не отнимают у текста больше,
+/// чем до трёх строк.
+class NodeBodyLayout {
+  final int lines;
+  final int chips;
+  final bool counters;
+
+  const NodeBodyLayout({
+    required this.lines,
+    required this.chips,
+    required this.counters,
+  });
+
+  static NodeBodyLayout fit({
+    required double height,
+    required int lineCount,
+    required int branchCount,
+    required bool hasCounters,
+  }) {
+    final usable = height -
+        NodeRenderer.headerHeight -
+        NodeRenderer._bodyPadTop -
+        NodeRenderer._bodyPadBottom;
+    final wanted = lineCount < NodeRenderer.maxBodyLines
+        ? lineCount
+        : NodeRenderer.maxBodyLines;
+    final chipsLimit = wanted == 0 ? 4 : NodeRenderer.maxBranchChips;
+    final chipsCap = branchCount < chipsLimit ? branchCount : chipsLimit;
+
+    double chipsHeight(int n) => n == 0
+        ? 0
+        : n * NodeRenderer._chipHeight +
+            (n - 1) * NodeRenderer._chipGap +
+            NodeRenderer._chipsTopGap;
+
+    int fitLines(int n, bool withCounters) {
+      final free = usable -
+          chipsHeight(n) -
+          (withCounters
+              ? NodeRenderer._countersHeight + NodeRenderer._countersGap
+              : 0);
+      final fit = (free / NodeRenderer._bodyLineHeight).floor();
+      if (fit <= 0) return 0;
+      return fit < wanted ? fit : wanted;
+    }
+
+    if (wanted == 0) {
+      var chips = chipsCap;
+      while (chips > 0 && chipsHeight(chips) > usable) {
+        chips--;
+      }
+      final counters = hasCounters &&
+          chipsHeight(chips) +
+                  NodeRenderer._countersHeight +
+                  NodeRenderer._countersGap <=
+              usable;
+      return NodeBodyLayout(lines: 0, chips: chips, counters: counters);
+    }
+
+    var lines = fitLines(0, false);
+    var chips = 0;
+    // Каждый чип отнимает строку, но не ниже трёх: ветки не должны съесть
+    // реплики целиком.
+    while (chips < chipsCap) {
+      final next = fitLines(chips + 1, false);
+      final floor = lines < 3 ? lines : 3;
+      if (next < floor) break;
+      chips++;
+      lines = next;
+    }
+    // Сводка — последней: показываем, только если она не отнимает реплику.
+    final counters = hasCounters && fitLines(chips, true) >= lines;
+    return NodeBodyLayout(lines: lines, chips: chips, counters: counters);
+  }
+}
+
 class NodeRenderer {
   /// Высота шапки ноды — общая для тела ноды и её подписи.
   static const double headerHeight = 44.0;
+
+  // Тело карточки: плотная раскладка «реплики → ветки → сводка».
+  //
+  // Нода по умолчанию 150×150: шапка 44, тело 106. Раньше в тело попадали
+  // две строки первой реплики, а снизу висела пилюля индикаторов — 36 px
+  // пустоты на каждой карточке. Теперь индикаторы уехали в шапку, а тело
+  // отдано тексту и веткам.
+  static const double _bodyPadX = 14.0;
+  static const double _bodyPadTop = 8.0;
+  static const double _bodyPadBottom = 10.0;
+  static const double _bodyLineHeight = 15.5;
+  static const double _chipHeight = 17.0;
+  static const double _chipGap = 2.0;
+  static const double _chipsTopGap = 4.0;
+  static const double _countersHeight = 13.0;
+  static const double _countersGap = 2.0;
+  static const int maxBodyLines = 6;
+  static const int maxBranchChips = 2;
+  static const int maxHeaderIcons = 3;
 
   void drawNode(
     Canvas canvas,
@@ -637,9 +1086,12 @@ class NodeRenderer {
 
     // Подпись рисует художник (см. `drawNodeTitle`): она нужна и на большом
     // отдалении, но нормируется бюджетом на кадр.
-    if (!showDetails) return;
-    _drawDescription(canvas, node, rect, headerHeight, opacity);
-    _drawIndicators(
+    if (!showDetails) {
+      node.headerRightInset = 0;
+      return;
+    }
+    _drawBodyContent(canvas, node, rect, opacity);
+    _drawHeaderIndicators(
       canvas,
       node,
       rect,
@@ -652,10 +1104,13 @@ class NodeRenderer {
   /// Заголовок ноды. Вызывается отдельно от тела ноды: художник решает, сколько
   /// подписей влезает в кадр (`CanvasFrameCost.budgetFor`).
   void drawNodeTitle(Canvas canvas, Node node, {bool isDimmed = false}) {
+    final width = node.size.width - 2 * _bodyPadX - node.headerRightInset;
+    if (width <= 0) return;
     _drawTitle(
       canvas,
       node,
       node.rect,
+      width,
       headerHeight,
       isDimmed ? 0.3 : 1.0,
       _headerTextColor(node),
@@ -683,67 +1138,159 @@ class NodeRenderer {
     Canvas canvas,
     Node node,
     Rect rect,
+    double titleWidth,
     double headerHeight,
     double opacity,
     Color titleColor,
   ) {
-    final padding = 14.0;
-    final titleLeft = rect.left + padding;
-    final titleWidth = node.size.width - 2 * padding;
-    node.ensureTextPainters(node.size.width - 2 * padding);
-
-    final titlePainter = node.titlePainter;
-    if (titlePainter == null) return;
-    titlePainter.textAlign = TextAlign.left;
-    titlePainter.text = TextSpan(
-      text: (titlePainter.text as TextSpan).text,
-      style: titlePainter.text!.style!.copyWith(
-        color: titleColor.withOpacity(opacity),
-      ),
+    final titlePainter = node.titlePainterFor(
+      titleWidth,
+      color: titleColor.withOpacity(opacity),
     );
-    titlePainter.layout(maxWidth: titleWidth);
     titlePainter.paint(
       canvas,
-      Offset(titleLeft, rect.top + (headerHeight - titlePainter.height) / 2),
-    );
-  }
-
-  void _drawDescription(
-    Canvas canvas,
-    Node node,
-    Rect rect,
-    double headerHeight,
-    double opacity,
-  ) {
-    final descWidth = node.size.width - 2 * 14.0;
-    node.ensureTextPainters(descWidth);
-
-    final descPainter = node.descPainter;
-    if (descPainter == null) return;
-    final oldColor = descPainter.text!.style!.color!;
-    descPainter.text = TextSpan(
-      text: (descPainter.text as TextSpan).text,
-      style: descPainter.text!.style!.copyWith(
-        color: oldColor.withOpacity(opacity),
+      Offset(
+        rect.left + _bodyPadX,
+        rect.top + (headerHeight - titlePainter.height) / 2,
       ),
     );
-    descPainter.layout(maxWidth: descWidth);
-    descPainter.paint(
-      canvas,
-      Offset(rect.left + 14, rect.top + headerHeight + 12),
-    );
   }
 
-  void _drawIndicators(
+  /// Тело карточки: реплики, подписи веток и сводка состава.
+  void _drawBodyContent(
     Canvas canvas,
     Node node,
     Rect rect,
-    List<Connection> allConnections,
-    double opacity, {
+    double opacity,
+  ) {
+    final width = rect.width - 2 * _bodyPadX;
+    if (width <= 0) return;
+    final branches = node.branchLabels;
+    final counters = node.countersLabel;
+    final layout = NodeBodyLayout.fit(
+      height: rect.height,
+      lineCount: node.textLines.length,
+      branchCount: branches.length,
+      hasCounters: counters.isNotEmpty,
+    );
+    final top = rect.top + headerHeight + _bodyPadTop;
+
+    final dim = opacity < 1;
+    if (dim) {
+      canvas.saveLayer(
+        rect,
+        Paint()..color = Color.fromRGBO(0, 0, 0, opacity),
+      );
+    }
+
+    if (layout.lines > 0) {
+      final painters = node.bodyPainters(
+        width,
+        layout.lines,
+        color: CanvasTheme.nodePreview,
+      );
+      var y = top;
+      for (final painter in painters) {
+        painter.paint(canvas, Offset(rect.left + _bodyPadX, y));
+        y += _bodyLineHeight;
+      }
+    }
+
+    var chipTop = top +
+        layout.lines * _bodyLineHeight +
+        (layout.lines > 0 ? _chipsTopGap : 0);
+    Rect? lastChipRect;
+    final chipPainters = layout.chips > 0
+        ? node.chipPainters(
+            width,
+            layout.chips,
+            color: CanvasTheme.nodePreview,
+          )
+        : const <TextPainter>[];
+    for (var i = 0; i < chipPainters.length; i++) {
+      final chip = chipPainters[i];
+      final chipWidth = chip.width + 16;
+      final chipRect = Rect.fromLTWH(
+        rect.left + _bodyPadX,
+        chipTop,
+        chipWidth,
+        _chipHeight,
+      );
+      final chipRRect = RRect.fromRectAndRadius(
+        chipRect,
+        const Radius.circular(_chipHeight / 2),
+      );
+      canvas.drawRRect(
+        chipRRect,
+        Paint()..color = CanvasTheme.nodeHeader.withOpacity(0.85),
+      );
+      canvas.drawRRect(
+        chipRRect,
+        Paint()
+          ..color = CanvasTheme.nodeBorder
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+      chip.paint(
+        canvas,
+        Offset(
+          chipRect.left + 8,
+          chipRect.top + (_chipHeight - chip.height) / 2,
+        ),
+      );
+      lastChipRect = chipRect;
+      chipTop += _chipHeight + _chipGap;
+    }
+
+    // Скрытые ветки не должны пропадать молча: у нод-меню их бывает 20+.
+    // Счётчик — по полному числу веток: из индекса приходят только первые
+    // `cardPreviewBranches` подписей, а «+N» должно быть честным.
+    final hiddenBranches = node.branchTotal - layout.chips;
+    if (hiddenBranches > 0 && lastChipRect != null) {
+      final more = TextPainter(
+        text: TextSpan(
+          text: '+$hiddenBranches',
+          style: TextStyle(
+            color: CanvasTheme.nodePreview,
+            fontSize: 9.5,
+            fontFamily: CanvasTheme.cardFontFamily,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final x = lastChipRect.right + 6;
+      if (x + more.width <= rect.right - _bodyPadX) {
+        more.paint(
+          canvas,
+          Offset(x, lastChipRect.center.dy - more.height / 2),
+        );
+      }
+      more.dispose();
+    }
+
+    if (layout.counters && counters.isNotEmpty) {
+      final painter = node.countersPainter(
+        width,
+        color: CanvasTheme.nodePreview,
+      );
+      painter.paint(
+        canvas,
+        Offset(
+          rect.left + _bodyPadX,
+          rect.bottom - _bodyPadBottom - painter.height,
+        ),
+      );
+    }
+
+    if (dim) canvas.restore();
+  }
+
+  List<Indicator> _buildIndicators(
+    Node node,
+    List<Connection> allConnections, {
     bool hasValidationIssue = false,
   }) {
     final List<Indicator> indicators = [];
-    final contentItems = (node.content?['items'] as List<dynamic>? ?? []);
 
     // Иконки-индикаторы используют единую приглушённую M3 tonal-палитру
     // (tone ~70) вместо ярких *Accent-цветов — это убирает «радужную кашу»
@@ -754,8 +1301,11 @@ class NodeRenderer {
     const indicatorScript = Color(0xFF8FB6E0); // blue 70 — скрипт
     const indicatorImage = Color(0xFF7FCFB6); // teal 70 — изображение
     const indicatorAudio = Color(0xFFD79BC0); // pink 70 — аудио
-    const indicatorButton = Color(0xFFB39DDB); // violet 70 — кнопка
 
+    // Порядок — по важности: при нехватке места отпадают последние.
+    if (hasValidationIssue) {
+      indicators.add(Indicator(Icons.error_rounded, indicatorStop));
+    }
     if (node.isStartNode) {
       indicators.add(
         Indicator(Icons.play_circle_filled_rounded, indicatorStart),
@@ -765,84 +1315,92 @@ class NodeRenderer {
         !node.isStartNode) {
       indicators.add(Indicator(Icons.stop_circle_rounded, indicatorStop));
     }
-
     if (node.timerDuration != null && node.timerDuration! > 0) {
       indicators.add(Indicator(Icons.timer_rounded, indicatorTimer));
     }
-    if (contentItems.any((i) => i['type'] == 'script')) {
+    if (node.scriptCount > 0) {
       indicators.add(Indicator(Icons.code_rounded, indicatorScript));
     }
-
-    if (contentItems.any((i) => i['type'] == 'text')) {
-      indicators.add(
-        Indicator(Icons.text_fields_rounded, CanvasTheme.nodePreview),
-      );
-    }
-    if (contentItems.any((i) => i['type'] == 'image')) {
+    if (node.hasImageItem || (node.backgroundAssetId ?? '').trim().isNotEmpty) {
       indicators.add(Indicator(Icons.image_rounded, indicatorImage));
     }
-    if (contentItems.any((i) => i['type'] == 'audio')) {
+    if (node.hasAudioItem) {
       indicators.add(Indicator(Icons.audiotrack_rounded, indicatorAudio));
     }
-    if (contentItems.any((i) => i['type'] == 'button')) {
-      indicators.add(Indicator(Icons.smart_button_rounded, indicatorButton));
+    return indicators;
+  }
+
+  /// Индикаторы в шапке: раньше это была пилюля внизу, и она отнимала у тела
+  /// 36 px из 106.
+  void _drawHeaderIndicators(
+    Canvas canvas,
+    Node node,
+    Rect rect,
+    List<Connection> allConnections,
+    double opacity, {
+    bool hasValidationIssue = false,
+  }) {
+    final indicators = _buildIndicators(
+      node,
+      allConnections,
+      hasValidationIssue: hasValidationIssue,
+    );
+    if (indicators.isEmpty) {
+      node.headerRightInset = 0;
+      return;
     }
-    if (hasValidationIssue) {
-      indicators.add(Indicator(Icons.error_rounded, indicatorStop));
+    final shown = indicators.length <= maxHeaderIcons
+        ? indicators
+        : indicators.sublist(0, maxHeaderIcons);
+
+    const iconSize = 11.0;
+    const iconGap = 3.0;
+    final total = shown.length * iconSize + (shown.length - 1) * iconGap;
+    node.headerRightInset = total + 8;
+
+    var x = rect.right - _bodyPadX - total;
+    final iconY = rect.top + (headerHeight - iconSize) / 2;
+    for (final indicator in shown) {
+      _iconPainter(
+        indicator,
+        iconSize,
+        indicator.color.withOpacity(opacity),
+      ).paint(canvas, Offset(x, iconY));
+      x += iconSize + iconGap;
     }
+  }
 
-    if (indicators.isEmpty) return;
+  /// Глифы индикаторов не меняются от кадра к кадру — раскладываем один раз.
+  static final Map<String, TextPainter> _iconCache = <String, TextPainter>{};
 
-    final iconSize = 15.0;
-    final iconGap = 8.0;
-    final hPad = 8.0;
-    final pillHeight = 26.0;
-    final totalIcons =
-        indicators.length * iconSize + (indicators.length - 1) * iconGap;
-    final pillWidth = totalIcons + hPad * 2;
-
-    final pillRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        rect.left + (rect.width - pillWidth) / 2,
-        rect.bottom - pillHeight - 10,
-        pillWidth,
-        pillHeight,
-      ),
-      const Radius.circular(13),
-    );
-
-    // M3-«таблетка» под иконками индикаторов
-    canvas.drawRRect(
-      pillRect,
-      Paint()..color = CanvasTheme.nodeHeader.withOpacity(opacity * 0.9),
-    );
-    canvas.drawRRect(
-      pillRect,
-      Paint()
-        ..color = CanvasTheme.nodeBorder.withOpacity(opacity * 0.6)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-
-    double startX = pillRect.left + hPad;
-    final iconY = pillRect.top + (pillHeight - iconSize) / 2;
-
-    for (final indicator in indicators) {
-      final iconPainter = TextPainter(
-        text: TextSpan(
-          text: String.fromCharCode(indicator.icon.codePoint),
-          style: TextStyle(
-            fontSize: iconSize,
-            fontFamily: indicator.icon.fontFamily,
-            color: indicator.color.withOpacity(opacity),
-          ),
+  static TextPainter _iconPainter(
+    Indicator indicator,
+    double size,
+    Color color,
+  ) {
+    final key = '${indicator.icon.codePoint}|${size}|${color.value}';
+    final cached = _iconCache[key];
+    if (cached != null) return cached;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(indicator.icon.codePoint),
+        style: TextStyle(
+          fontSize: size,
+          fontFamily: indicator.icon.fontFamily,
+          color: color,
         ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-
-      iconPainter.paint(canvas, Offset(startX, iconY));
-      startX += iconSize + iconGap;
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    // Ключей мало (глиф × цвет), но на всякий случай не растём бесконечно.
+    if (_iconCache.length > 256) {
+      for (final old in _iconCache.values) {
+        old.dispose();
+      }
+      _iconCache.clear();
     }
+    _iconCache[key] = painter;
+    return painter;
   }
 
   void _drawAnchors(Canvas canvas, Node node) {

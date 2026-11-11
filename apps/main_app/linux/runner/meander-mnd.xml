@@ -3,9 +3,13 @@
   <mime-type type="application/x-meander">
     <comment>Meander Quest File</comment>
     <glob pattern="*.mnd"/>
+    <!-- Имя значка типа файла: его ищут GTK/Nautilus в hicolor.
+         Без строки файл .mnd получает generic-иконку данных. -->
+    <icon name="x-meander"/>
   </mime-type>
   <mime-type type="application/vnd.meander.quest">
     <comment>Meander Quest File</comment>
     <glob pattern="*.mnd"/>
+    <icon name="x-meander"/>
   </mime-type>
 </mime-info>

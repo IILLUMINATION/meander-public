@@ -3,6 +3,9 @@
 // Used by Runner.rc
 //
 #define IDI_APP_ICON                    101
+// Значок файла .mnd: отдельный ресурс, чтобы проводник показывал
+// документ Meander, а не иконку приложения.
+#define IDI_MND_ICON                    102
 
 // Next default values for new objects
 //
