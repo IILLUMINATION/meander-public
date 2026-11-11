@@ -1361,11 +1361,8 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
         return;
       }
 
-      await _applyNodeView(view);
+      await _applyNodeView(view, pacingSteps: pacingSteps);
       _armPendingTimers();
-      if (pacingSteps.isNotEmpty) {
-        unawaited(_paceNodeEnterInBackground(pacingSteps, enteredNodeId));
-      }
       perfLog('scene ready');
       _log('✅ loadInitialNode complete');
     } catch (e, stack) {
@@ -1380,6 +1377,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
   Future<void> _applyNodeView(
     Map<String, dynamic> view, {
     bool preservePresentation = false,
+    List<Map<String, dynamic>> pacingSteps = const [],
   }) async {
     // Сессия могла завершиться, пока парсился view (reload после редактора +
     // закрытие игры): дальше идут эмиссии state= и reveal-цикл — только
@@ -1444,6 +1442,15 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     _log('   UI State updated. Starting reveal...');
     revealNextItem();
 
+    // Задержки `onNodeEnter` доигрываются фоном: сцена уже отрисована, игрок
+    // видит кадр до `wait`. Фьючерс живёт здесь, а не в вызывающем коде,
+    // потому что ветка перехода ниже обязана дождаться ИМЕННО этой очереди:
+    // шаги уже сняты из движка, и повторный `_paceScriptDelays` вернул бы
+    // пустоту — `wait` перед `go_to_node` терялся бы целиком.
+    final nodeEnterPacing = pacingSteps.isEmpty
+        ? null
+        : _paceNodeEnterInBackground(pacingSteps, nodeId);
+
     final audio = view['backgroundAudio'];
     if (audio is Map<String, dynamic>) {
       await _playBackgroundMusic(
@@ -1469,7 +1476,13 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
 
     final transition = view['transition'] as String?;
     if (transition != null && transition.isNotEmpty) {
-      await _paceScriptDelays();
+      // Переход из скрипта входа ждёт задержки этого же события. Без
+      // фьючерса — сливаем очередь как обычно (её могли наполнить плагины).
+      if (nodeEnterPacing != null) {
+        await nodeEnterPacing;
+      } else {
+        await _paceScriptDelays();
+      }
       if (!mounted || _currentNodeId != nodeId) return;
       _log('🚀 Transition to: $transition');
       Future.microtask(() => loadNode(transition));
@@ -1594,11 +1607,8 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
         dismissedStacks: const {},
       );
 
-      await _applyNodeView(view);
+      await _applyNodeView(view, pacingSteps: pacingSteps);
       _armPendingTimers();
-      if (pacingSteps.isNotEmpty) {
-        unawaited(_paceNodeEnterInBackground(pacingSteps, nodeId));
-      }
     } catch (e, stack) {
       _log('❌ CRITICAL ERROR in loadNode: $e\n$stack');
       _err(e, stack, 'loadNode($nodeId)');

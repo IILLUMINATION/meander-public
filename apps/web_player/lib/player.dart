@@ -293,9 +293,12 @@ class QuestPlayer extends ChangeNotifier {
     if (gen != _gen) return;
     _armPendingTimers();
 
+    Future<void>? nodeEnterPacing;
     if (pacingSteps.isNotEmpty) {
       // Первый кадр задержки уже отражён в сцене; остальные доигрывает фон.
-      unawaited(_paceInBackground(pacingSteps, gen));
+      // Фьючерс держим: ветка перехода ниже обязана дождаться ИМЕННО этой
+      // очереди — шаги уже сняты из движка, повторный drain вернёт пустоту.
+      nodeEnterPacing = _paceInBackground(pacingSteps, gen);
     }
 
     final timer = view['timer'];
@@ -310,7 +313,11 @@ class QuestPlayer extends ChangeNotifier {
 
     final transition = view['transition'] as String?;
     if (transition != null && transition.isNotEmpty) {
-      await _paceScriptDelays();
+      if (nodeEnterPacing != null) {
+        await nodeEnterPacing;
+      } else {
+        await _paceScriptDelays();
+      }
       if (gen != _gen) return;
       unawaited(loadNode(transition));
     }

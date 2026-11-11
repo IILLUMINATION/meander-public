@@ -1857,3 +1857,71 @@ mod validation_ffi_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod node_enter_delay_tests {
+    /// `wait` в `onNodeEnter` без перехода тоже обязан попадать в очередь
+    /// задержек: клиенту нечего ждать, если ядро отдаёт готовое состояние.
+    /// Шаг несёт и снимок переменных до задержки — по нему клиент рисует
+    /// кадр до `wait`, а мутацию после него откладывает.
+    #[test]
+    fn wait_in_on_node_enter_without_transition_enqueues_delay() {
+        let init = crate::api::game_engine::GameEngineInit {
+            quest_id: "q1".into(),
+            config_json: serde_json::json!({
+                "id": "q1", "title": "Q", "version": "1.0.0", "startNodeId": "n1",
+            })
+            .to_string(),
+            nodes_json: serde_json::json!({
+                "nodes": [
+                    {"id": "n1", "title": "Start", "scriptAssetId": "scripts/s.json",
+                     "content": {"items": []}},
+                ]
+            })
+            .to_string(),
+            templates_json: "[]".into(),
+            platform_os: "linux".into(),
+            is_web: false,
+            embedded_scripts: std::collections::HashMap::from([(
+                "scripts/s.json".to_string(),
+                serde_json::json!({
+                    "name": "s",
+                    "blocks": [
+                        {"type": "event", "eventType": "onNodeEnter", "children": [
+                            {"type": "wait", "expression": "1000"},
+                            {"type": "assign_variable", "variable": "x", "value": "1"}
+                        ]}
+                    ]
+                })
+                .to_string(),
+            )]),
+            quest_root: None,
+        };
+        let engine = crate::api::game_engine::game_engine_new(init);
+        let view: serde_json::Value = serde_json::from_str(
+            &crate::api::game_engine::game_engine_start_new(engine, None).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            view["transition"].is_null(),
+            "перехода в скрипте нет: {view}"
+        );
+
+        let delays: serde_json::Value = serde_json::from_str(
+            &crate::api::game_engine::game_engine_drain_delay_queue(engine),
+        )
+        .unwrap();
+        assert_eq!(
+            delays,
+            serde_json::json!([
+                {"type": "delay", "ms": 1000, "variables": {}, "tables": {}, "audio": []}
+            ])
+        );
+
+        let again: serde_json::Value = serde_json::from_str(
+            &crate::api::game_engine::game_engine_drain_delay_queue(engine),
+        )
+        .unwrap();
+        assert_eq!(again, serde_json::json!([]));
+    }
+}
