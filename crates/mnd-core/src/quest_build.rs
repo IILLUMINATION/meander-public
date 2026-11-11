@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::models::SavedNode;
+use crate::quest_plan::ApplyReport;
 use crate::quest_store::{FsQuestStore, MetaMutation, StoreOp};
 use crate::script_format;
 
@@ -20,6 +21,9 @@ use crate::script_format;
 #[derive(Debug)]
 pub enum BuildError {
     NotFound(String),
+    /// Ссылка не разрешилась: сообщение уже содержит варианты, поэтому
+    /// префикс «не найдено» только мешает.
+    RefNotFound(String),
     NotAQuest(String),
     Invalid(String),
     UnsupportedLayout(String),
@@ -30,6 +34,7 @@ impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BuildError::NotFound(s) => write!(f, "не найдено: {s}"),
+            BuildError::RefNotFound(s) => write!(f, "{s}"),
             BuildError::NotAQuest(s) => write!(f, "не квест: {s}"),
             BuildError::Invalid(s) => write!(f, "некорректные данные: {s}"),
             BuildError::UnsupportedLayout(s) => write!(f, "раскладка не поддерживается: {s}"),
@@ -86,6 +91,8 @@ pub struct NodeSpec {
     pub x: Option<f64>,
     pub y: Option<f64>,
     pub start: bool,
+    /// Явный id: нужен генератору для повторяемых прогонов и ссылок вперёд.
+    pub id: Option<String>,
 }
 
 /// Правка существующего айтема: `None` — поле не менять.
@@ -104,6 +111,15 @@ pub struct NodeEdit {
     pub x: Option<f64>,
     pub y: Option<f64>,
     pub start: Option<bool>,
+}
+
+/// Параметры применения плана.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ApplyOptions {
+    /// Только проверить и показать, что изменилось бы.
+    pub dry_run: bool,
+    /// Писать, даже если валидатор нашёл ошибки.
+    pub force: bool,
 }
 
 /// Спецификация нового контент-айтема.
@@ -150,6 +166,36 @@ impl QuestBuilder {
         author: Option<&str>,
         chapter_name: Option<&str>,
     ) -> Result<Self, BuildError> {
+        Self::create_with_defaults(quest_id, root, title, author, chapter_name, true)
+    }
+
+    /// Создать пустой квест: без главы и без ноды.
+    ///
+    /// Нужен генератору, который сразу применяет план: заготовка «Начало» и
+    /// «Глава 1» остались бы в квесте мусором и давали предупреждения
+    /// валидатора. Главы/ноды/старт добавляет `apply`.
+    pub fn create_empty(
+        quest_id: &str,
+        root: &Path,
+        title: &str,
+        author: Option<&str>,
+    ) -> Result<Self, BuildError> {
+        Self::create_with_defaults(quest_id, root, title, author, None, false)
+    }
+
+    /// Создать новый квест.
+    ///
+    /// `with_defaults: false` — пустой каркас: ни главы, ни ноды, старт не
+    /// задан. Валидатор такой квест ругает (`NoChapters`, `MissingStartNode`),
+    /// поэтому пустой квест имеет смысл только вместе с последующим `apply`.
+    pub fn create_with_defaults(
+        quest_id: &str,
+        root: &Path,
+        title: &str,
+        author: Option<&str>,
+        chapter_name: Option<&str>,
+        with_defaults: bool,
+    ) -> Result<Self, BuildError> {
         let builder = Self {
             store: FsQuestStore::new(root),
             quest_id: quest_id.to_string(),
@@ -166,24 +212,35 @@ impl QuestBuilder {
         let start_node_id = Uuid::new_v4().to_string();
         let chapter_name = chapter_name.unwrap_or("Глава 1");
 
+        let tags = if with_defaults {
+            json!([{
+                "id": chapter_id,
+                "name": chapter_name,
+                "cameraState": {"offsetX": 0.0, "offsetY": 0.0, "scale": 1.0}
+            }])
+        } else {
+            json!([])
+        };
+        let start_field = if with_defaults {
+            json!(start_node_id)
+        } else {
+            Value::Null
+        };
+
         let config = json!({
             "id": quest_id,
             "title": title,
             "author": author,
             "description": null,
             "version": "1.0.0",
-            "startNodeId": start_node_id,
+            "startNodeId": start_field,
             "backgroundAssetId": null,
             "dimBackground": true,
             "hideNodeTitles": false,
             "nodeTransitionMode": "none",
             "scriptEngineMode": "new",
             "pluginDependencies": [],
-            "tags": [{
-                "id": chapter_id,
-                "name": chapter_name,
-                "cameraState": {"offsetX": 0.0, "offsetY": 0.0, "scale": 1.0}
-            }],
+            "tags": tags,
             "nodes": [],
             "connections": [],
             "variables": [],
@@ -221,7 +278,11 @@ impl QuestBuilder {
         });
 
         // Индекс v2: previews не собираем — редактор дособерёт сам.
-        let index = make_v2_index(std::slice::from_ref(&start_node), Map::new());
+        let index = if with_defaults {
+            make_v2_index(std::slice::from_ref(&start_node), Map::new())
+        } else {
+            make_v2_index(&[], Map::new())
+        };
 
         // Те же каталоги, что создаёт редактор: редактор ресурсов и экспорт
         // рассчитывают, что папки уже есть, и падают на «нет каталога».
@@ -236,10 +297,12 @@ impl QuestBuilder {
             .store
             .write_json(&builder.config_path(), &config)
             .map_err(store_err)?;
-        builder
-            .store
-            .write_json(&builder.node_body_path(&start_node_id), &start_node)
-            .map_err(store_err)?;
+        if with_defaults {
+            builder
+                .store
+                .write_json(&builder.node_body_path(&start_node_id), &start_node)
+                .map_err(store_err)?;
+        }
         builder
             .store
             .write_json(&builder.index_path(), &index)
@@ -250,6 +313,41 @@ impl QuestBuilder {
 
     pub fn quest_id(&self) -> &str {
         &self.quest_id
+    }
+
+    /// Применить декларативный план (см. [`crate::quest_plan`]).
+    ///
+    /// План разбирается и разрешается целиком в памяти, проверяется
+    /// валидатором на «состоянии после записи» и только потом пишется одной
+    /// транзакцией. Ошибки плана или валидатора возвращаются в отчёте, а не
+    /// как исключение: вызывающий должен увидеть сразу всё, что не так.
+    pub fn apply(&self, plan: &Value, opts: &ApplyOptions) -> Result<ApplyReport, BuildError> {
+        self.ensure_v2_layout()?;
+        let parsed = crate::quest_plan::parse_plan(plan)?;
+        let mut outcome =
+            crate::quest_plan::build_plan(&self.store, &self.quest_id, &parsed, opts.dry_run)?;
+
+        if !outcome.report.issues.is_empty() {
+            outcome.report.ok = false;
+            outcome.report.applied = false;
+            outcome.report.dry_run = opts.dry_run;
+            return Ok(outcome.report);
+        }
+
+        let validation = crate::quest_plan::validate_outcome(&self.root, &self.quest_id, &outcome);
+        outcome.report.diagnostics = validation.diagnostics.clone();
+        let blocked = validation.has_errors() && !opts.force;
+        outcome.report.ok = !crate::quest_plan::has_errors(&outcome.report);
+        outcome.report.dry_run = opts.dry_run;
+
+        if opts.dry_run || blocked {
+            outcome.report.applied = false;
+            return Ok(outcome.report);
+        }
+
+        crate::quest_plan::write_outcome(&self.store, &self.quest_id, &outcome)?;
+        outcome.report.applied = true;
+        Ok(outcome.report)
     }
 
     /// Добавить главу (тег). Возвращает id тега.
@@ -328,7 +426,19 @@ impl QuestBuilder {
             }
         };
 
-        let id = Uuid::new_v4().to_string();
+        let id = spec
+            .id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        // id становится именем файла: слеши и `..` недопустимы, повтор запрещён.
+        if id.contains('/') || id.contains('\\') || id.contains("..") {
+            return Err(BuildError::Invalid(format!(
+                "id ноды «{id}» не может содержать слеши или «..»"
+            )));
+        }
+        if self.store.exists(&self.node_body_path(&id)) {
+            return Err(BuildError::Invalid(format!("нода с id '{id}' уже есть")));
+        }
         let x = spec.x.unwrap_or(0.0);
         let y = spec.y.unwrap_or(0.0);
 
@@ -445,7 +555,10 @@ impl QuestBuilder {
                     return Err(BuildError::NotFound(format!("скрипт {script_id}")));
                 }
                 item.insert("text".into(), Value::String(text));
-                item.insert("scriptTriggers".into(), json!({"onPress": script_path}));
+                item.insert(
+                    "behaviours".into(),
+                    json!([{"event": "onPress", "script": script_path}]),
+                );
             }
             ItemKind::Row => {
                 let to_move: HashSet<String> = spec.children.iter().cloned().collect();
@@ -564,9 +677,16 @@ impl QuestBuilder {
         }
         if let Some(script_id) = &patch.script_id {
             if !self.store.exists(&self.script_path(script_id)) {
-                return Err(BuildError::NotFound(format!("scripts/{script_id}.json")));
+                return Err(BuildError::RefNotFound(format!(
+                    "скрипт «{script_id}» не найден — список: `mnd-cli quest show`"
+                )));
             }
-            obj.insert("scriptId".into(), Value::String(script_id.clone()));
+            let event = if obj.get("type").and_then(Value::as_str) == Some("input") {
+                "onSubmit"
+            } else {
+                "onPress"
+            };
+            set_item_trigger(obj, event, &format!("scripts/{script_id}.json"));
         }
 
         self.write_node_body_and_index(node_id, body)?;
@@ -589,6 +709,224 @@ impl QuestBuilder {
         }
         self.write_node_body_and_index(node_id, body)?;
         Ok(())
+    }
+
+    /// Тело ноды целиком (для `quest show`). Нода ищется по точному id.
+    pub fn node_body_json(&self, node_id: &str) -> Result<Value, BuildError> {
+        self.load_node_body_object(node_id)
+            .map(Value::Object)
+            .map_err(|_| BuildError::NotFound(format!("нода '{node_id}' не найдена")))
+    }
+
+    /// Тело скрипта целиком (для `quest show --script`).
+    pub fn script_json(&self, script_id: &str) -> Result<Value, BuildError> {
+        self.load_script_object(script_id)
+            .map(Value::Object)
+            .map_err(|_| BuildError::NotFound(format!("скрипт '{script_id}' не найден")))
+    }
+
+    /// Обзор квеста: главы с нодами, скрипты, таблицы, переменные.
+    ///
+    /// Отличается от [`Self::info`] тем, что группирует ноды по главам и
+    /// даёт счётчики контента — то, что нужно, чтобы понять структуру квеста,
+    /// не открывая каждый файл.
+    pub fn tree(&self) -> Value {
+        let config = self
+            .store
+            .read_json(&self.config_path())
+            .unwrap_or(Value::Null);
+        let start = config
+            .get("startNodeId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let nodes = self.load_node_bodies().unwrap_or_default();
+
+        let mut chapters = Vec::new();
+        for tag in config
+            .get("tags")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
+            let id = tag.get("id").and_then(Value::as_str).unwrap_or("");
+            let list: Vec<Value> = nodes
+                .iter()
+                .filter(|(node, _)| node.chapter_id == id)
+                .map(|(node, body)| {
+                    json!({
+                        "id": node.id,
+                        "title": node.title,
+                        "items": body
+                            .get("content")
+                            .and_then(|c| c.get("items"))
+                            .and_then(Value::as_array)
+                            .map(Vec::len)
+                            .unwrap_or(0),
+                        "isStart": Some(node.id.as_str()) == start.as_deref(),
+                    })
+                })
+                .collect();
+            chapters.push(json!({
+                "id": id,
+                "name": tag.get("name").and_then(Value::as_str).unwrap_or(""),
+                "nodes": list,
+            }));
+        }
+        // Ноды без главы тоже видны: иначе они теряются из обзора.
+        let orphans: Vec<Value> = nodes
+            .iter()
+            .filter(|(node, _)| {
+                !chapters
+                    .iter()
+                    .any(|c| c["id"].as_str() == Some(node.chapter_id.as_str()))
+            })
+            .map(|(node, _)| {
+                json!({
+                    "id": node.id,
+                    "title": node.title,
+                    "chapterId": node.chapter_id,
+                    "isStart": Some(node.id.as_str()) == start.as_deref(),
+                })
+            })
+            .collect();
+
+        let scripts: Vec<Value> = self
+            .store
+            .list_files(&self.rel_in_quest("scripts"), Some("json"))
+            .into_iter()
+            .map(|file| {
+                let id = file.trim_end_matches(".json").to_string();
+                let body = self
+                    .store
+                    .read_json(&self.script_path(&id))
+                    .unwrap_or(Value::Null);
+                let blocks = body
+                    .get("blocks")
+                    .and_then(Value::as_array)
+                    .map(|blocks| {
+                        blocks
+                            .iter()
+                            .filter(|b| b.get("type").and_then(Value::as_str) == Some("event"))
+                            .flat_map(|b| {
+                                b.get("children")
+                                    .and_then(Value::as_array)
+                                    .cloned()
+                                    .unwrap_or_default()
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+                json!({
+                    "id": id,
+                    "name": body.get("name").and_then(Value::as_str).unwrap_or(""),
+                    "event": body
+                        .get("blocks")
+                        .and_then(Value::as_array)
+                        .and_then(|b| b.first())
+                        .and_then(|b| b.get("eventType"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                    "blocks": blocks,
+                })
+            })
+            .collect();
+
+        let tables: Vec<Value> = config
+            .get("tables")
+            .and_then(Value::as_array)
+            .map(|tables| {
+                tables
+                    .iter()
+                    .map(|t| {
+                        json!({
+                            "name": t.get("name").and_then(Value::as_str).unwrap_or(""),
+                            "columns": t
+                                .get("columns")
+                                .and_then(Value::as_array)
+                                .map(Vec::len)
+                                .unwrap_or(0),
+                            "rows": t
+                                .get("rows")
+                                .and_then(Value::as_array)
+                                .map(Vec::len)
+                                .unwrap_or(0),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        json!({
+            "questId": self.quest_id,
+            "title": config.get("title").and_then(Value::as_str).unwrap_or(""),
+            "author": config.get("author").cloned().unwrap_or(Value::Null),
+            "startNodeId": start,
+            "chapters": chapters,
+            "orphanNodes": orphans,
+            "scripts": scripts,
+            "tables": tables,
+            "variables": config.get("variables").cloned().unwrap_or(json!([])),
+        })
+    }
+
+    /// Ссылка на ноду: id, уникальный префикс id или название.
+    pub fn resolve_node(&self, raw: &str) -> Result<String, BuildError> {
+        self.resolver()?.node(raw).map_err(BuildError::RefNotFound)
+    }
+
+    /// Ссылка на скрипт: id, имя, `scripts/<id>.json`.
+    pub fn resolve_script(&self, raw: &str) -> Result<String, BuildError> {
+        self.resolver()?
+            .script(raw)
+            .map_err(BuildError::RefNotFound)
+    }
+
+    /// Ссылка на главу: id или название.
+    pub fn resolve_chapter(&self, raw: &str) -> Result<String, BuildError> {
+        self.resolver()?
+            .chapter(raw)
+            .map_err(BuildError::RefNotFound)
+    }
+
+    fn resolver(&self) -> Result<crate::quest_plan::RefResolver, BuildError> {
+        self.ensure_v2_layout()?;
+        let nodes = self
+            .load_node_bodies()?
+            .into_iter()
+            .map(|(node, _)| (node.id.clone(), node.title.clone()))
+            .collect();
+        let scripts = self
+            .store
+            .list_files(&self.rel_in_quest("scripts"), Some("json"))
+            .into_iter()
+            .map(|file| {
+                let id = file.trim_end_matches(".json").to_string();
+                let name = self
+                    .store
+                    .read_json(&self.script_path(&id))
+                    .and_then(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
+                    .unwrap_or_default();
+                (id, name)
+            })
+            .collect();
+        let config = self.load_config_object()?;
+        let chapters = config
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|tags| {
+                tags.iter()
+                    .filter_map(|t| {
+                        Some((
+                            t.get("id").and_then(Value::as_str)?.to_string(),
+                            t.get("name").and_then(Value::as_str)?.to_string(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(crate::quest_plan::RefResolver::new(
+            nodes, scripts, chapters,
+        ))
     }
 
     /// Установить стартовую ноду.
@@ -1127,14 +1465,22 @@ impl QuestBuilder {
         self.store
             .read_json(&self.node_body_path(node_id))
             .and_then(|v| v.as_object().cloned())
-            .ok_or_else(|| BuildError::NotFound(format!("nodes/{node_id}.json")))
+            .ok_or_else(|| {
+                BuildError::RefNotFound(format!(
+                    "нода «{node_id}» не найдена — список: `mnd-cli quest show`"
+                ))
+            })
     }
 
     fn load_script_object(&self, script_id: &str) -> Result<Map<String, Value>, BuildError> {
         self.store
             .read_json(&self.script_path(script_id))
             .and_then(|v| v.as_object().cloned())
-            .ok_or_else(|| BuildError::NotFound(format!("scripts/{script_id}.json")))
+            .ok_or_else(|| {
+                BuildError::RefNotFound(format!(
+                    "скрипт «{script_id}» не найден — список: `mnd-cli quest show`"
+                ))
+            })
     }
 
     /// Убедиться, что у квеста v2-раскладка: если индекса нет, мигрировать.
@@ -1338,6 +1684,29 @@ fn default_item_map(id: &str, kind: ItemKind) -> Map<String, Value> {
 /// Тело ноды вместе с разобранной моделью — как их отдаёт чтение с диска.
 type NodeBodies = Result<Vec<(SavedNode, Map<String, Value>)>, BuildError>;
 
+/// Прописать айтему действие-скрипт так, как его исполняет движок.
+///
+/// Движок читает `behaviours` (новый формат) и legacy `scriptTriggers`.
+/// Поле `scriptAssetId` у айтема не исполняется вообще — именно на нём легко
+/// «собрать» кнопку, которая в редакторе выглядит живой, а в игре молчит.
+/// Прежний триггер того же события заменяется, остальные события сохраняются.
+pub(crate) fn set_item_trigger(item: &mut Map<String, Value>, event: &str, script_path: &str) {
+    let mut list: Vec<Value> = item
+        .get("behaviours")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    list.retain(|b| b.get("event").and_then(Value::as_str) != Some(event));
+    list.push(json!({"event": event, "script": script_path}));
+    item.insert("behaviours".into(), Value::Array(list));
+    if let Some(triggers) = item
+        .get_mut("scriptTriggers")
+        .and_then(Value::as_object_mut)
+    {
+        triggers.remove(event);
+    }
+}
+
 /// Найти айтем по id, включая вложенные в ряды и стеки.
 fn find_item_mut<'a>(items: &'a mut [Value], item_id: &str) -> Option<&'a mut Value> {
     if let Some(pos) = items
@@ -1432,7 +1801,7 @@ fn store_err(e: crate::quest_store::StoreError) -> BuildError {
 }
 
 /// ISO-8601 без часового пояса с миллисекундами.
-fn iso8601_now() -> String {
+pub(crate) fn iso8601_now() -> String {
     let nanos = crate::time::unix_now_nanos();
     let secs = (nanos / 1_000_000_000) as i64;
     let ms = ((nanos / 1_000_000) % 1000) as u32;
@@ -1667,6 +2036,7 @@ mod tests {
                 x: Some(100.0),
                 y: Some(200.0),
                 start: false,
+                id: None,
             })
             .unwrap();
 
@@ -1744,7 +2114,10 @@ mod tests {
                 },
             )
             .unwrap_err();
-        assert!(matches!(err, BuildError::NotFound(_)));
+        assert!(matches!(
+            err,
+            BuildError::NotFound(_) | BuildError::RefNotFound(_)
+        ));
 
         let after = std::fs::metadata(&config_abs).unwrap().modified().unwrap();
         assert_eq!(before, after, "ошибка add_item не должна трогать файлы");

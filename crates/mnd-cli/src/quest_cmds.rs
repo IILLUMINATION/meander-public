@@ -4,6 +4,11 @@
 //!
 //! Все операции делегируются [`mnd_core::quest_build::QuestBuilder`],
 //! чтобы не было прямой правки JSON в CLI.
+//!
+//! Интерфейс рассчитан на автоматического автора (генератор): любая команда
+//! либо печатает один JSON-объект (`--json`), либо короткий текст для
+//! человека; ссылки на ноды/скрипты/главы принимаются по названию, а не
+//! только по uuid; код возврата — 1, если запись не произошла.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -13,7 +18,8 @@ use clap::{Args, Subcommand};
 use serde_json::{Value, json};
 
 use mnd_core::quest_build::{
-    ItemKind, ItemPatch, ItemSpec, NodeEdit, NodeSpec, QuestBuilder, ResourceKind, ScriptEvent,
+    ApplyOptions, ItemKind, ItemPatch, ItemSpec, NodeEdit, NodeSpec, QuestBuilder, ResourceKind,
+    ScriptEvent,
 };
 use mnd_core::validation::analyze_quest;
 
@@ -22,6 +28,16 @@ use mnd_core::validation::analyze_quest;
 pub enum QuestCmd {
     /// Создать новый квест.
     New(QuestNew),
+    /// Применить декларативный план (JSON) одной транзакцией.
+    #[command(
+        after_help = "План описывает главы/ноды/скрипты/таблицы/переменные одним \
+документом; ссылки — по названию. Формат: `mnd-cli quest spec`."
+    )]
+    Apply(QuestApply),
+    /// Показать ноду, скрипт или дерево квеста.
+    Show(QuestShow),
+    /// Описание формата квеста и плана (JSON).
+    Spec,
     /// Провалидировать квест.
     Validate(QuestValidate),
     /// Вывести сводную информацию о квесте.
@@ -46,6 +62,37 @@ pub enum QuestCmd {
     Resource(ResourceCmd),
 }
 
+/// Общий контекст выполнения: корень хранилища, квест и режим вывода.
+pub struct Ctx<'a> {
+    pub root: &'a str,
+    pub quest_id: Option<&'a str>,
+    pub json: bool,
+}
+
+impl Ctx<'_> {
+    fn qid(&self, local: Option<&str>) -> Result<String> {
+        local
+            .map(str::to_string)
+            .or_else(|| self.quest_id.map(str::to_string))
+            .with_context(|| "не задан --quest-id (глобально или для подкоманды)")
+    }
+
+    fn open(&self, quest_id: &str) -> Result<QuestBuilder> {
+        let root = self.root;
+        QuestBuilder::open(std::path::Path::new(root), quest_id)
+            .with_context(|| format!("не удалось открыть квест {quest_id} в {root}/quests/"))
+    }
+
+    /// Один JSON-объект или строка для человека.
+    fn emit(&self, value: &Value, human: impl Into<String>) {
+        if self.json {
+            println!("{}", serde_json::to_string_pretty(value).unwrap());
+        } else {
+            println!("{}", human.into());
+        }
+    }
+}
+
 #[derive(Args)]
 pub struct QuestNew {
     /// Название квеста.
@@ -60,9 +107,38 @@ pub struct QuestNew {
     /// Имя первой главы.
     #[arg(long)]
     chapter: Option<String>,
-    /// Вывести результат как JSON.
+    /// Пустой каркас: без главы и без ноды «Начало» (для последующего `apply`).
     #[arg(long)]
-    json: bool,
+    empty: bool,
+}
+
+#[derive(Args)]
+pub struct QuestApply {
+    /// Путь к JSON-плану, `-` — stdin.
+    #[arg(long)]
+    file: String,
+    /// Показать, что изменилось бы, ничего не записывая.
+    #[arg(long)]
+    dry_run: bool,
+    /// Писать, даже если валидатор нашёл ошибки.
+    #[arg(long)]
+    force: bool,
+    /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
+    #[arg(long)]
+    quest_id: Option<String>,
+}
+
+#[derive(Args)]
+pub struct QuestShow {
+    /// Нода: id, префикс id или название.
+    #[arg(long, conflicts_with = "script")]
+    node: Option<String>,
+    /// Скрипт: id, имя или `scripts/<id>.json`.
+    #[arg(long)]
+    script: Option<String>,
+    /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
+    #[arg(long)]
+    quest_id: Option<String>,
 }
 
 #[derive(Args)]
@@ -70,9 +146,6 @@ pub struct QuestValidate {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -80,9 +153,6 @@ pub struct QuestInfo {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -96,15 +166,12 @@ pub struct ChapterAdd {
     /// Название главы.
     #[arg(long)]
     name: String,
-    /// ID главы. Если не задан — генерируется.uuid v4.
+    /// ID главы. Если не задан — генерируется uuid v4.
     #[arg(long)]
     id: Option<String>,
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -132,7 +199,10 @@ pub struct NodeAdd {
     /// Название ноды.
     #[arg(long)]
     title: String,
-    /// ID главы. Если не задан — используется первая глава.
+    /// ID ноды. Если не задан — генерируется uuid v4.
+    #[arg(long)]
+    id: Option<String>,
+    /// Глава: id или название. Если не задана — первая глава.
     #[arg(long)]
     chapter: Option<String>,
     /// Сделать эту ноду стартовой.
@@ -147,9 +217,6 @@ pub struct NodeAdd {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -175,9 +242,6 @@ pub struct NodeSet {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -200,9 +264,6 @@ pub struct NodeItemSet {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -216,9 +277,6 @@ pub struct NodeItemRemove {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -232,9 +290,6 @@ pub struct NodeText {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -248,9 +303,6 @@ pub struct NodeImage {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -261,15 +313,12 @@ pub struct NodeButton {
     /// Текст кнопки.
     #[arg(long)]
     text: String,
-    /// ID скрипта.
+    /// Скрипт: id или имя.
     #[arg(long)]
     script: String,
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -283,9 +332,6 @@ pub struct NodeRow {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -306,7 +352,7 @@ pub enum ScriptCmd {
 
 #[derive(Args)]
 pub struct ScriptCommon {
-    /// ID скрипта.
+    /// Скрипт: id, имя или `scripts/<id>.json`.
     #[arg(long)]
     script: String,
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
@@ -319,15 +365,15 @@ pub struct ScriptNew {
     /// Имя скрипта.
     #[arg(long)]
     name: String,
+    /// ID скрипта. Если не задан — генерируется uuid v4.
+    #[arg(long)]
+    id: Option<String>,
     /// Событие скрипта.
     #[arg(long, value_parser = parse_script_event, default_value = "onPress")]
     event: ScriptEvent,
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(Args)]
@@ -367,14 +413,14 @@ pub struct ScriptWait {
 pub struct ScriptGoto {
     #[command(flatten)]
     common: ScriptCommon,
-    /// ID целевой ноды.
+    /// Целевая нода: id или название.
     #[arg(long)]
     node: String,
 }
 
 #[derive(Args)]
 pub struct ScriptAddBlock {
-    /// ID скрипта.
+    /// Скрипт: id, имя или `scripts/<id>.json`.
     #[arg(long)]
     script: String,
     /// JSON блока.
@@ -399,7 +445,7 @@ pub struct TableSet {
     /// Колонки через запятую.
     #[arg(long, value_delimiter = ',')]
     columns: Vec<String>,
-    /// Имена строк через запятую. Если не заданы — генерируются индексы.
+    /// Имена строк через запятую. Если не заданы — берутся индексы.
     #[arg(long, value_delimiter = ',')]
     row_names: Option<Vec<String>>,
     /// Путь к файлу с JSON-массивом строк, или `-` для stdin.
@@ -449,251 +495,474 @@ pub struct ResourceAdd {
     /// ID квеста. Если не задан — берётся из глобального `--quest-id`.
     #[arg(long)]
     quest_id: Option<String>,
-    /// Вывести результат как JSON.
-    #[arg(long)]
-    json: bool,
 }
 
-pub fn run_quest_cmd(cmd: QuestCmd, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
+/// Выполнить подкоманду. Возвращает код возврата (0 — успех, 1 — отказ).
+pub fn run_quest_cmd(cmd: QuestCmd, ctx: &Ctx) -> Result<i32> {
     match cmd {
-        QuestCmd::New(args) => cmd_new(args, quest_root, global_qid)?,
-        QuestCmd::Validate(args) => cmd_validate(args, quest_root, global_qid)?,
-        QuestCmd::Info(args) => cmd_info(args, quest_root, global_qid)?,
-        QuestCmd::Chapter(ChapterCmd::Add(args)) => cmd_chapter_add(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::Add(args)) => cmd_node_add(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::Set(args)) => cmd_node_set(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::Text(args)) => cmd_node_text(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::Image(args)) => cmd_node_image(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::Button(args)) => cmd_node_button(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::Row(args)) => cmd_node_row(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::ItemSet(args)) => cmd_node_item_set(args, quest_root, global_qid)?,
-        QuestCmd::Node(NodeCmd::ItemRemove(args)) => {
-            cmd_node_item_remove(args, quest_root, global_qid)?
-        }
-        QuestCmd::Script(ScriptCmd::New(args)) => cmd_script_new(args, quest_root, global_qid)?,
-        QuestCmd::Script(ScriptCmd::SetImage(args)) => {
-            cmd_script_set_image(args, quest_root, global_qid)?;
-        }
-        QuestCmd::Script(ScriptCmd::Assign(args)) => {
-            cmd_script_assign(args, quest_root, global_qid)?;
-        }
-        QuestCmd::Script(ScriptCmd::Wait(args)) => {
-            cmd_script_wait(args, quest_root, global_qid)?;
-        }
-        QuestCmd::Script(ScriptCmd::Goto(args)) => {
-            cmd_script_goto(args, quest_root, global_qid)?;
-        }
-        QuestCmd::Script(ScriptCmd::AddBlock(args)) => {
-            cmd_script_add_block(args, quest_root, global_qid)?;
-        }
-        QuestCmd::Table(TableCmd::Set(args)) => cmd_table_set(args, quest_root, global_qid)?,
-        QuestCmd::Var(VarCmd::Set(args)) => cmd_var_set(args, quest_root, global_qid)?,
-        QuestCmd::Resource(ResourceCmd::Add(args)) => {
-            cmd_resource_add(args, quest_root, global_qid)?
-        }
+        QuestCmd::New(args) => cmd_new(args, ctx)?,
+        QuestCmd::Apply(args) => return cmd_apply(args, ctx),
+        QuestCmd::Show(args) => cmd_show(args, ctx)?,
+        QuestCmd::Spec => println!(
+            "{}",
+            serde_json::to_string_pretty(&mnd_core::quest_spec::describe()).unwrap()
+        ),
+        QuestCmd::Validate(args) => return cmd_validate(args, ctx),
+        QuestCmd::Info(args) => cmd_info(args, ctx)?,
+        QuestCmd::Chapter(ChapterCmd::Add(args)) => cmd_chapter_add(args, ctx)?,
+        QuestCmd::Node(NodeCmd::Add(args)) => cmd_node_add(args, ctx)?,
+        QuestCmd::Node(NodeCmd::Set(args)) => cmd_node_set(args, ctx)?,
+        QuestCmd::Node(NodeCmd::Text(args)) => cmd_node_text(args, ctx)?,
+        QuestCmd::Node(NodeCmd::Image(args)) => cmd_node_image(args, ctx)?,
+        QuestCmd::Node(NodeCmd::Button(args)) => cmd_node_button(args, ctx)?,
+        QuestCmd::Node(NodeCmd::Row(args)) => cmd_node_row(args, ctx)?,
+        QuestCmd::Node(NodeCmd::ItemSet(args)) => cmd_node_item_set(args, ctx)?,
+        QuestCmd::Node(NodeCmd::ItemRemove(args)) => cmd_node_item_remove(args, ctx)?,
+        QuestCmd::Script(ScriptCmd::New(args)) => cmd_script_new(args, ctx)?,
+        QuestCmd::Script(ScriptCmd::SetImage(args)) => cmd_script_set_image(args, ctx)?,
+        QuestCmd::Script(ScriptCmd::Assign(args)) => cmd_script_assign(args, ctx)?,
+        QuestCmd::Script(ScriptCmd::Wait(args)) => cmd_script_wait(args, ctx)?,
+        QuestCmd::Script(ScriptCmd::Goto(args)) => cmd_script_goto(args, ctx)?,
+        QuestCmd::Script(ScriptCmd::AddBlock(args)) => cmd_script_add_block(args, ctx)?,
+        QuestCmd::Table(TableCmd::Set(args)) => cmd_table_set(args, ctx)?,
+        QuestCmd::Var(VarCmd::Set(args)) => cmd_var_set(args, ctx)?,
+        QuestCmd::Resource(ResourceCmd::Add(args)) => cmd_resource_add(args, ctx)?,
     }
-    Ok(())
+    Ok(0)
 }
 
-fn resolve_quest_id(local: Option<&str>, global: Option<&str>) -> Result<String> {
-    local
-        .map(|s| s.to_string())
-        .or_else(|| global.map(String::from))
-        .with_context(|| "не задан --quest-id (глобально или для подкоманды)")
-}
+// ---------------------------------------------------------------------------
+// Команды
+// ---------------------------------------------------------------------------
 
-fn open_builder(quest_root: &str, quest_id: &str) -> Result<QuestBuilder> {
-    QuestBuilder::open(std::path::Path::new(quest_root), quest_id)
-        .with_context(|| format!("не удалось открыть квест {quest_id} в {quest_root}/quests/"))
-}
-
-fn cmd_new(args: QuestNew, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
+fn cmd_new(args: QuestNew, ctx: &Ctx) -> Result<()> {
     // Глобальный `--quest-id` тоже принимаем: иначе один и тот же флаг в
     // одной позиции означает «создать с этим id», а в другой — молча
     // игнорируется, и квест создаётся с чужим uuid.
     let quest_id = args
         .quest_id
-        .or_else(|| global_qid.map(str::to_string))
+        .or_else(|| ctx.quest_id.map(str::to_string))
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let qb = QuestBuilder::create(
-        &quest_id,
-        std::path::Path::new(quest_root),
-        &args.title,
-        args.author.as_deref(),
-        args.chapter.as_deref(),
-    )
+    let qb = if args.empty {
+        QuestBuilder::create_empty(
+            &quest_id,
+            std::path::Path::new(ctx.root),
+            &args.title,
+            args.author.as_deref(),
+        )
+    } else {
+        QuestBuilder::create(
+            &quest_id,
+            std::path::Path::new(ctx.root),
+            &args.title,
+            args.author.as_deref(),
+            args.chapter.as_deref(),
+        )
+    }
     .with_context(|| "не удалось создать квест")?;
     let info = qb.info();
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "questId": info["questId"],
-                "startNodeId": info["startNodeId"]
-            }))
-            .unwrap()
-        );
-    } else {
-        println!("Квест создан: {}", quest_id);
-        println!(
-            "Стартовая нода: {}",
-            info["startNodeId"].as_str().unwrap_or("")
-        );
-    }
+    let start = info["startNodeId"].as_str().unwrap_or("").to_string();
+    let chapter = info["chapters"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|c| c["id"].as_str())
+        .unwrap_or("")
+        .to_string();
+    ctx.emit(
+        &json!({
+            "ok": true,
+            "questId": quest_id,
+            "startNodeId": start,
+            "chapterId": chapter,
+        }),
+        format!("Квест создан: {quest_id}\nСтартовая нода: {start}"),
+    );
     Ok(())
 }
 
-fn cmd_validate(args: QuestValidate, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let report = analyze_quest(&quest_id, quest_root);
+fn cmd_apply(args: QuestApply, ctx: &Ctx) -> Result<i32> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let raw = if args.file == "-" {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf)?;
+        buf
+    } else {
+        std::fs::read_to_string(&args.file)
+            .with_context(|| format!("не удалось прочитать {}", args.file))?
+    };
+    let plan: Value =
+        serde_json::from_str(&raw).with_context(|| format!("{} — не JSON", args.file))?;
 
-    if args.json {
+    let opts = ApplyOptions {
+        dry_run: args.dry_run,
+        force: args.force,
+    };
+    let report = qb.apply(&plan, &opts).with_context(|| "план не применён")?;
+    let ok = report.ok && (args.dry_run || report.applied);
+
+    if ctx.json {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
-        println!("Статистика: {:?}", report.stats);
-        for d in &report.diagnostics {
-            println!("[{:?}/{:?}] {}", d.severity, d.kind, d.message);
-        }
+        print_apply_human(&report, args.dry_run);
     }
-
-    if report.has_errors() {
-        bail!("валидатор нашёл ошибки");
-    }
-    Ok(())
+    Ok(if ok { 0 } else { 1 })
 }
 
-fn cmd_info(args: QuestInfo, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    let info = qb.info();
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&info).unwrap());
+fn print_apply_human(report: &mnd_core::quest_plan::ApplyReport, dry_run: bool) {
+    let mut lines = Vec::new();
+    let head = if dry_run {
+        "Проверка плана (ничего не записано)"
+    } else if report.applied {
+        "План применён"
     } else {
-        println!("Квест: {}", info["title"].as_str().unwrap_or(""));
-        println!("ID: {}", info["questId"].as_str().unwrap_or(""));
-        println!(
-            "Стартовая нода: {}",
-            info["startNodeId"].as_str().unwrap_or("")
-        );
-        println!("\nГлавы:");
-        for ch in info["chapters"].as_array().unwrap_or(&Vec::new()) {
-            let id = ch["id"].as_str().unwrap_or("");
-            let name = ch["name"].as_str().unwrap_or("");
-            let count = ch["nodeCount"].as_u64().unwrap_or(0);
-            println!("  [{}] {} ({} нод)", id, name, count);
+        "План не применён"
+    };
+    lines.push(head.to_string());
+    for (label, list) in [
+        ("создано глав", &report.created.chapters),
+        ("создано нод", &report.created.nodes),
+        ("создано скриптов", &report.created.scripts),
+        ("обновлено нод", &report.updated.nodes),
+        ("обновлено скриптов", &report.updated.scripts),
+        ("удалено нод", &report.deleted.nodes),
+        ("удалено скриптов", &report.deleted.scripts),
+    ] {
+        if list.is_empty() {
+            continue;
         }
-        println!("\nНоды:");
-        for n in info["nodes"].as_array().unwrap_or(&Vec::new()) {
-            let id = n["id"].as_str().unwrap_or("");
-            let title = n["title"].as_str().unwrap_or("");
-            let chapter = n["chapterId"].as_str().unwrap_or("");
-            let items = n["items"].as_u64().unwrap_or(0);
-            println!(
-                "  [{}] {} (глава {}, айтемов: {})",
-                id, title, chapter, items
-            );
+        lines.push(format!("  {label}: {}", list.len()));
+        for item in list {
+            if item.title.is_empty() {
+                lines.push(format!("    {}", item.id));
+            } else {
+                lines.push(format!("    {} [{}]", item.title, item.id));
+            }
         }
-        println!("\nСкрипты:");
-        for s in info["scripts"].as_array().unwrap_or(&Vec::new()) {
-            let id = s["id"].as_str().unwrap_or("");
-            let name = s["name"].as_str().unwrap_or("");
-            let blocks = s["blocks"].as_u64().unwrap_or(0);
-            println!("  [{}] {} ({} блоков)", id, name, blocks);
+    }
+    for name in &report.updated.tables {
+        lines.push(format!("  таблица «{name}» обновлена"));
+    }
+    for name in &report.updated.variables {
+        lines.push(format!("  переменная «{name}» обновлена"));
+    }
+    if report.applied {
+        lines.push(format!("  файлов записано: {}", report.files.len()));
+    }
+    for issue in &report.issues {
+        lines.push(format!("  ✗ {}: {}", issue.path, issue.message));
+    }
+    for d in &report.diagnostics {
+        let mark = if matches!(d.severity, mnd_core::validation::Severity::Error) {
+            "✗"
+        } else {
+            "!"
+        };
+        lines.push(format!("  {mark} {}", d.message));
+        if let Some(hint) = &d.fix_hint {
+            lines.push(format!("    → {hint}"));
         }
-        if let Some(tables) = info["tables"].as_array() {
-            println!("\nТаблицы: {}", tables.len());
+    }
+    println!("{}", lines.join("\n"));
+}
+
+fn cmd_show(args: QuestShow, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+
+    if let Some(node_ref) = args.node {
+        let node_id = qb.resolve_node(&node_ref)?;
+        let body = qb.node_body_json(&node_id)?;
+        if ctx.json {
+            println!("{}", serde_json::to_string_pretty(&body).unwrap());
+        } else {
+            println!("{}", render_node(&body));
         }
-        if let Some(vars) = info["variables"].as_array() {
-            println!("Переменные: {}", vars.len());
+        return Ok(());
+    }
+    if let Some(script_ref) = args.script {
+        let script_id = qb.resolve_script(&script_ref)?;
+        let body = qb.script_json(&script_id)?;
+        if ctx.json {
+            println!("{}", serde_json::to_string_pretty(&body).unwrap());
+        } else {
+            println!("{}", render_script(&body));
         }
+        return Ok(());
+    }
+
+    let tree = qb.tree();
+    if ctx.json {
+        println!("{}", serde_json::to_string_pretty(&tree).unwrap());
+    } else {
+        println!("{}", render_tree(&tree));
     }
     Ok(())
 }
 
-fn cmd_chapter_add(args: ChapterAdd, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn render_node(body: &Value) -> String {
+    let mut out = Vec::new();
+    out.push(format!(
+        "Нода «{}» [{}]",
+        body["title"].as_str().unwrap_or(""),
+        body["id"].as_str().unwrap_or("")
+    ));
+    out.push(format!(
+        "  глава: {}  позиция: {},{}",
+        body["chapterId"].as_str().unwrap_or(""),
+        body["x"].as_f64().unwrap_or(0.0),
+        body["y"].as_f64().unwrap_or(0.0)
+    ));
+    for key in ["backgroundAssetId", "backgroundAudioId", "scriptAssetId"] {
+        if let Some(value) = body[key].as_str() {
+            out.push(format!("  {key}: {value}"));
+        }
+    }
+    out.push("  содержимое:".to_string());
+    let items = body["content"]["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for item in &items {
+        out.push(format!("    {}", describe_item(item, 0)));
+    }
+    out.join("\n")
+}
+
+fn describe_item(item: &Value, depth: usize) -> String {
+    let pad = "  ".repeat(depth);
+    let kind = item["type"].as_str().unwrap_or("?");
+    let id = item["id"].as_str().unwrap_or("");
+    let text = item["text"]
+        .as_str()
+        .map(|t| truncate(t, 60))
+        .or_else(|| item["resourcePath"].as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let script = item["scriptAssetId"]
+        .as_str()
+        .map(|s| format!("  script={s}"))
+        .unwrap_or_default();
+    let mut line = format!("{pad}[{kind}] {id}  {text}{script}");
+    if let Some(children) = item["children"].as_array() {
+        for child in children {
+            line.push('\n');
+            line.push_str(&describe_item(child, depth + 1));
+        }
+    }
+    line
+}
+
+fn truncate(text: &str, limit: usize) -> String {
+    let flat = text.replace('\n', " ");
+    if flat.chars().count() <= limit {
+        return flat;
+    }
+    let cut: String = flat.chars().take(limit).collect();
+    format!("{cut}…")
+}
+
+fn render_script(body: &Value) -> String {
+    let mut out = Vec::new();
+    out.push(format!(
+        "Скрипт «{}» [{}]",
+        body["name"].as_str().unwrap_or(""),
+        body["id"].as_str().unwrap_or("")
+    ));
+    for block in body["blocks"].as_array().cloned().unwrap_or_default() {
+        out.push(format!("  {}", describe_block(&block, 1)));
+    }
+    out.join("\n")
+}
+
+fn describe_block(block: &Value, depth: usize) -> String {
+    let pad = "  ".repeat(depth);
+    let kind = block["type"].as_str().unwrap_or("?");
+    let mut extras = Vec::new();
+    for key in [
+        "node_id",
+        "script_id",
+        "item_id",
+        "variable",
+        "value",
+        "expression",
+        "mode",
+        "url",
+        "text",
+    ] {
+        if let Some(value) = block.get(key) {
+            if value.is_string() {
+                let raw = value.as_str().unwrap_or("");
+                if !raw.is_empty() {
+                    extras.push(format!("{key}={}", truncate(raw, 40)));
+                }
+            } else if !value.is_null() {
+                extras.push(format!("{key}={value}"));
+            }
+        }
+    }
+    let mut line = format!("{pad}[{kind}] {}", extras.join(" "));
+    for key in ["children", "then_blocks", "else_blocks"] {
+        if let Some(list) = block[key].as_array() {
+            for child in list {
+                line.push('\n');
+                line.push_str(&describe_block(child, depth + 1));
+            }
+        }
+    }
+    line.trim_end().to_string()
+}
+
+fn render_tree(tree: &Value) -> String {
+    let mut out = Vec::new();
+    out.push(format!(
+        "Квест «{}» [{}]",
+        tree["title"].as_str().unwrap_or(""),
+        tree["questId"].as_str().unwrap_or("")
+    ));
+    if let Some(start) = tree["startNodeId"].as_str() {
+        out.push(format!("  старт: {start}"));
+    }
+    for chapter in tree["chapters"].as_array().cloned().unwrap_or_default() {
+        out.push(format!(
+            "Глава «{}» [{}]",
+            chapter["name"].as_str().unwrap_or(""),
+            chapter["id"].as_str().unwrap_or("")
+        ));
+        for node in chapter["nodes"].as_array().cloned().unwrap_or_default() {
+            out.push(format!(
+                "  [{kind}] {id} «{title}» — {items} айтемов",
+                kind = if node["isStart"].as_bool().unwrap_or(false) {
+                    "START"
+                } else {
+                    "NODE"
+                },
+                id = node["id"].as_str().unwrap_or(""),
+                title = node["title"].as_str().unwrap_or(""),
+                items = node["items"].as_u64().unwrap_or(0)
+            ));
+        }
+    }
+    out.push("Скрипты:".to_string());
+    for script in tree["scripts"].as_array().cloned().unwrap_or_default() {
+        out.push(format!(
+            "  {} «{}» — {} блоков",
+            script["id"].as_str().unwrap_or(""),
+            script["name"].as_str().unwrap_or(""),
+            script["blocks"].as_u64().unwrap_or(0)
+        ));
+    }
+    if let Some(tables) = tree["tables"].as_array() {
+        out.push("Таблицы:".to_string());
+        for table in tables {
+            out.push(format!(
+                "  «{}» — {} колонок, {} строк",
+                table["name"].as_str().unwrap_or(""),
+                table["columns"].as_u64().unwrap_or(0),
+                table["rows"].as_u64().unwrap_or(0)
+            ));
+        }
+    }
+    if let Some(vars) = tree["variables"].as_array() {
+        out.push("Переменные:".to_string());
+        for var in vars {
+            out.push(format!(
+                "  {} = {}",
+                var["name"].as_str().unwrap_or(""),
+                var["defaultValue"]
+            ));
+        }
+    }
+    out.join("\n")
+}
+
+fn cmd_validate(args: QuestValidate, ctx: &Ctx) -> Result<i32> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let report = analyze_quest(&quest_id, ctx.root);
+    let errors = report.stats.errors;
+    let warnings = report.stats.warnings;
+
+    if ctx.json {
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    } else {
+        let mut out = Vec::new();
+        out.push(format!(
+            "Нод: {}, айтемов: {}, скриптов: {}, шаблонов: {}. Ошибок: {errors}, предупреждений: {warnings}",
+            report.stats.nodes,
+            report.stats.items,
+            report.stats.scripts,
+            report.stats.templates
+        ));
+        for d in &report.diagnostics {
+            let mark = if matches!(d.severity, mnd_core::validation::Severity::Error) {
+                "✗"
+            } else {
+                "!"
+            };
+            out.push(format!("  {mark} [{}] {}", d.kind.as_str(), d.message));
+            if let Some(hint) = &d.fix_hint {
+                out.push(format!("      → {hint}"));
+            }
+        }
+        if errors == 0 {
+            out.push("Ошибок нет.".to_string());
+        }
+        println!("{}", out.join("\n"));
+    }
+    Ok(if errors > 0 { 1 } else { 0 })
+}
+
+fn cmd_info(args: QuestInfo, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let tree = qb.tree();
+    if ctx.json {
+        println!("{}", serde_json::to_string_pretty(&tree).unwrap());
+    } else {
+        println!("{}", render_tree(&tree));
+    }
+    Ok(())
+}
+
+fn cmd_chapter_add(args: ChapterAdd, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
     let id = qb
         .add_chapter(&args.name, args.id.as_deref())
         .with_context(|| "не удалось добавить главу")?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": id})).unwrap()
-        );
-    } else {
-        println!("Добавлена глава: {id}");
-    }
+    ctx.emit(
+        &json!({"ok": true, "id": id, "name": args.name}),
+        format!("Добавлена глава: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_node_add(args: NodeAdd, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_node_add(args: NodeAdd, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let chapter_id = match args.chapter.as_deref() {
+        Some(raw) => Some(qb.resolve_chapter(raw)?),
+        None => None,
+    };
     let spec = NodeSpec {
-        title: args.title,
-        chapter_id: args.chapter,
+        title: args.title.clone(),
+        chapter_id,
         x: args.x,
         y: args.y,
         start: args.start,
+        id: args.id,
     };
     let id = qb
         .add_node(&spec)
         .with_context(|| "не удалось добавить ноду")?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": id})).unwrap()
-        );
-    } else {
-        println!("Добавлена нода: {id}");
-    }
+    ctx.emit(
+        &json!({"ok": true, "id": id, "title": args.title}),
+        format!("Добавлена нода: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_node_item_set(args: NodeItemSet, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    let patch = ItemPatch {
-        text: args.text,
-        source: args.source,
-        script_id: args.script,
-    };
-    qb.update_item(&args.node, &args.item, &patch)
-        .with_context(|| format!("не удалось изменить айтем {}", args.item))?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": args.item, "updated": true})).unwrap()
-        );
-    } else {
-        println!("Айтем {} изменён", args.item);
-    }
-    Ok(())
-}
-
-fn cmd_node_item_remove(
-    args: NodeItemRemove,
-    quest_root: &str,
-    global_qid: Option<&str>,
-) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    qb.remove_item(&args.node, &args.item)
-        .with_context(|| format!("не удалось удалить айтем {}", args.item))?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": args.item, "removed": true})).unwrap()
-        );
-    } else {
-        println!("Айтем {} удалён", args.item);
-    }
-    Ok(())
-}
-
-fn cmd_node_set(args: NodeSet, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
+fn cmd_node_set(args: NodeSet, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
     if args.title.is_none()
         && args.chapter.is_none()
         && args.x.is_none()
@@ -702,170 +971,246 @@ fn cmd_node_set(args: NodeSet, quest_root: &str, global_qid: Option<&str>) -> Re
     {
         bail!("нечего менять: задайте --title/--chapter/--x/--y/--start");
     }
-    let qb = open_builder(quest_root, &quest_id)?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
+    let chapter_id = match args.chapter.as_deref() {
+        Some(raw) => Some(qb.resolve_chapter(raw)?),
+        None => None,
+    };
     let edit = NodeEdit {
         title: args.title,
-        chapter_id: args.chapter,
+        chapter_id,
         x: args.x,
         y: args.y,
         start: args.start.then_some(true),
     };
-    qb.update_node(&args.node, &edit)
-        .with_context(|| format!("не удалось изменить ноду {}", args.node))?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": args.node, "updated": true})).unwrap()
-        );
-    } else {
-        println!("Нода {} изменена", args.node);
-    }
+    qb.update_node(&node_id, &edit)
+        .with_context(|| format!("не удалось изменить ноду {node_id}"))?;
+    ctx.emit(
+        &json!({"ok": true, "id": node_id, "updated": true}),
+        format!("Нода {node_id} изменена"),
+    );
     Ok(())
 }
 
-fn cmd_node_text(args: NodeText, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_node_text(args: NodeText, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
     let spec = ItemSpec {
         kind: ItemKind::Text,
         text: Some(args.text),
         ..Default::default()
     };
     let id = qb
-        .add_item(&args.node, &spec)
+        .add_item(&node_id, &spec)
         .with_context(|| "не удалось добавить текст")?;
-    print_id(id, args.json, "текстовый айтем");
+    ctx.emit(
+        &json!({"ok": true, "id": id, "type": "text", "node": node_id}),
+        format!("Добавлен текстовый айтем: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_node_image(args: NodeImage, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_node_image(args: NodeImage, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
     let spec = ItemSpec {
         kind: ItemKind::Image,
         source: Some(args.source),
         ..Default::default()
     };
     let id = qb
-        .add_item(&args.node, &spec)
+        .add_item(&node_id, &spec)
         .with_context(|| "не удалось добавить картинку")?;
-    print_id(id, args.json, "айтем-картинку");
+    ctx.emit(
+        &json!({"ok": true, "id": id, "type": "image", "node": node_id}),
+        format!("Добавлен айтем-картинка: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_node_button(args: NodeButton, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_node_button(args: NodeButton, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
+    let script_id = qb.resolve_script(&args.script)?;
     let spec = ItemSpec {
         kind: ItemKind::Button,
         text: Some(args.text),
-        script_id: Some(args.script),
+        script_id: Some(script_id.clone()),
         ..Default::default()
     };
     let id = qb
-        .add_item(&args.node, &spec)
+        .add_item(&node_id, &spec)
         .with_context(|| "не удалось добавить кнопку")?;
-    print_id(id, args.json, "кнопку");
+    ctx.emit(
+        &json!({"ok": true, "id": id, "type": "button", "node": node_id, "script": script_id}),
+        format!("Добавлена кнопка: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_node_row(args: NodeRow, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_node_row(args: NodeRow, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
     let spec = ItemSpec {
         kind: ItemKind::Row,
         children: args.children,
         ..Default::default()
     };
     let id = qb
-        .add_item(&args.node, &spec)
+        .add_item(&node_id, &spec)
         .with_context(|| "не удалось добавить ряд")?;
-    print_id(id, args.json, "ряд");
+    ctx.emit(
+        &json!({"ok": true, "id": id, "type": "row", "node": node_id}),
+        format!("Добавлен ряд: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_script_new(args: ScriptNew, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_node_item_set(args: NodeItemSet, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
+    let script_id = match args.script.as_deref() {
+        Some(raw) => Some(qb.resolve_script(raw)?),
+        None => None,
+    };
+    let patch = ItemPatch {
+        text: args.text,
+        source: args.source,
+        script_id,
+    };
+    qb.update_item(&node_id, &args.item, &patch)
+        .with_context(|| format!("не удалось изменить айтем {}", args.item))?;
+    ctx.emit(
+        &json!({"ok": true, "id": args.item, "node": node_id, "updated": true}),
+        format!("Айтем {} изменён", args.item),
+    );
+    Ok(())
+}
+
+fn cmd_node_item_remove(args: NodeItemRemove, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let node_id = qb.resolve_node(&args.node)?;
+    qb.remove_item(&node_id, &args.item)
+        .with_context(|| format!("не удалось удалить айтем {}", args.item))?;
+    ctx.emit(
+        &json!({"ok": true, "id": args.item, "node": node_id, "removed": true}),
+        format!("Айтем {} удалён", args.item),
+    );
+    Ok(())
+}
+
+fn cmd_script_new(args: ScriptNew, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
     let id = qb
-        .create_script(&args.name, args.event, None)
+        .create_script(&args.name, args.event, args.id.as_deref())
         .with_context(|| "не удалось создать скрипт")?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": id})).unwrap()
-        );
-    } else {
-        println!("Создан скрипт: {id}");
-    }
+    ctx.emit(
+        &json!({"ok": true, "id": id, "name": args.name}),
+        format!("Создан скрипт: {id}"),
+    );
     Ok(())
 }
 
-fn cmd_script_set_image(
-    args: ScriptSetImage,
-    quest_root: &str,
-    global_qid: Option<&str>,
-) -> Result<()> {
-    let quest_id = resolve_quest_id(args.common.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    qb.set_image_block(&args.common.script, &args.item, &args.source)
+fn script_id(qb: &QuestBuilder, raw: &str) -> Result<String> {
+    qb.resolve_script(raw).map_err(anyhow::Error::from)
+}
+
+fn cmd_script_set_image(args: ScriptSetImage, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.common.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let script = script_id(&qb, &args.common.script)?;
+    qb.set_image_block(&script, &args.item, &args.source)
         .with_context(|| "не удалось добавить блок set_image")?;
+    ctx.emit(
+        &json!({"ok": true, "script": script, "block": "set_image"}),
+        format!("Блок set_image добавлен в {script}"),
+    );
     Ok(())
 }
 
-fn cmd_script_assign(args: ScriptAssign, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.common.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    let value: Value = serde_json::from_str(&args.value)
-        .with_context(|| format!("не удалось распарсить значение '{}'", args.value))?;
-    qb.assign_block(&args.common.script, &args.var, &value)
+fn cmd_script_assign(args: ScriptAssign, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.common.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let script = script_id(&qb, &args.common.script)?;
+    let value: Value = serde_json::from_str(&args.value).with_context(|| {
+        format!(
+            "значение «{}» — не JSON (строка должна быть в кавычках)",
+            args.value
+        )
+    })?;
+    qb.assign_block(&script, &args.var, &value)
         .with_context(|| "не удалось добавить блок assign_variable")?;
+    ctx.emit(
+        &json!({"ok": true, "script": script, "block": "assign_variable", "variable": args.var}),
+        format!("Блок assign_variable добавлен в {script}"),
+    );
     Ok(())
 }
 
-fn cmd_script_wait(args: ScriptWait, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.common.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    qb.wait_block(&args.common.script, args.ms)
+fn cmd_script_wait(args: ScriptWait, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.common.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let script = script_id(&qb, &args.common.script)?;
+    qb.wait_block(&script, args.ms)
         .with_context(|| "не удалось добавить блок wait")?;
+    ctx.emit(
+        &json!({"ok": true, "script": script, "block": "wait", "ms": args.ms}),
+        format!("Блок wait добавлен в {script}"),
+    );
     Ok(())
 }
 
-fn cmd_script_goto(args: ScriptGoto, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.common.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    qb.goto_block(&args.common.script, &args.node)
+fn cmd_script_goto(args: ScriptGoto, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.common.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let script = script_id(&qb, &args.common.script)?;
+    let node_id = qb.resolve_node(&args.node)?;
+    qb.goto_block(&script, &node_id)
         .with_context(|| "не удалось добавить блок go_to_node")?;
+    ctx.emit(
+        &json!({"ok": true, "script": script, "block": "go_to_node", "node": node_id}),
+        format!("Блок go_to_node добавлен в {script}"),
+    );
     Ok(())
 }
 
-fn cmd_script_add_block(
-    args: ScriptAddBlock,
-    quest_root: &str,
-    global_qid: Option<&str>,
-) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_script_add_block(args: ScriptAddBlock, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let script = script_id(&qb, &args.script)?;
     let block: Value =
         serde_json::from_str(&args.json).with_context(|| "не удалось распарсить JSON блока")?;
-    qb.add_block(&args.script, block)
+    qb.add_block(&script, block)
         .with_context(|| "не удалось добавить блок")?;
+    ctx.emit(
+        &json!({"ok": true, "script": script, "added": true}),
+        format!("Блок добавлен в {script}"),
+    );
     Ok(())
 }
 
-fn cmd_table_set(args: TableSet, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_table_set(args: TableSet, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
 
     let rows: Vec<Value> = if args.rows_json == "-" {
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf)?;
-        serde_json::from_str(&buf).with_context(|| "не удалось распарсить rows-json из stdin")?
+        serde_json::from_str(&buf)
+            .with_context(|| "не удалось распарсить rows-json из stdin (нужен массив объектов)")?
     } else {
         let content = std::fs::read_to_string(&args.rows_json)
             .with_context(|| format!("не удалось прочитать {}", args.rows_json))?;
         serde_json::from_str(&content)
-            .with_context(|| format!("не удалось распарсить {}", args.rows_json))?
+            .with_context(|| format!("{} — не массив объектов строк", args.rows_json))?
     };
 
     let row_names = args
@@ -874,47 +1219,42 @@ fn cmd_table_set(args: TableSet, quest_root: &str, global_qid: Option<&str>) -> 
 
     qb.set_table(&args.name, &args.columns, &row_names, &rows)
         .with_context(|| "не удалось установить таблицу")?;
-    println!("Таблица '{}' установлена", args.name);
+    ctx.emit(
+        &json!({"ok": true, "table": args.name, "rows": rows.len()}),
+        format!("Таблица '{}' установлена", args.name),
+    );
     Ok(())
 }
 
-fn cmd_var_set(args: VarSet, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
-    let value: Value = serde_json::from_str(&args.value)
-        .with_context(|| format!("не удалось распарсить значение '{}'", args.value))?;
+fn cmd_var_set(args: VarSet, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
+    let value: Value = serde_json::from_str(&args.value).with_context(|| {
+        format!(
+            "значение «{}» — не JSON (строка должна быть в кавычках)",
+            args.value
+        )
+    })?;
     qb.set_variable(&args.name, value)
         .with_context(|| "не удалось установить переменную")?;
-    println!("Переменная '{}' установлена", args.name);
+    ctx.emit(
+        &json!({"ok": true, "variable": args.name}),
+        format!("Переменная '{}' установлена", args.name),
+    );
     Ok(())
 }
 
-fn cmd_resource_add(args: ResourceAdd, quest_root: &str, global_qid: Option<&str>) -> Result<()> {
-    let quest_id = resolve_quest_id(args.quest_id.as_deref(), global_qid)?;
-    let qb = open_builder(quest_root, &quest_id)?;
+fn cmd_resource_add(args: ResourceAdd, ctx: &Ctx) -> Result<()> {
+    let quest_id = ctx.qid(args.quest_id.as_deref())?;
+    let qb = ctx.open(&quest_id)?;
     let path = qb
         .add_resource(&args.file, args.name.as_deref(), args.kind)
         .with_context(|| "не удалось добавить ресурс")?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"path": path})).unwrap()
-        );
-    } else {
-        println!("Ресурс добавлен: {path}");
-    }
+    ctx.emit(
+        &json!({"ok": true, "path": path}),
+        format!("Ресурс добавлен: {path}"),
+    );
     Ok(())
-}
-
-fn print_id(id: String, as_json: bool, label: &str) {
-    if as_json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"id": id})).unwrap()
-        );
-    } else {
-        println!("Добавлен {label}: {id}");
-    }
 }
 
 fn parse_script_event(s: &str) -> Result<ScriptEvent, String> {

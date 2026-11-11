@@ -188,6 +188,32 @@ impl BlockCategory {
 
 type HandlerMap = Vec<(BlockInfo, Box<dyn BlockHandler>)>;
 
+/// Публичное описание блока — для `mnd-cli quest spec` и справки.
+///
+/// Собирается из того же реестра, что и исполнение, поэтому список не может
+/// разойтись с реально поддерживаемыми блоками.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockCatalogEntry {
+    pub name: &'static str,
+    pub title: &'static str,
+    pub aliases: &'static [&'static str],
+    pub category: &'static str,
+}
+
+/// Все блоки скриптов, которые понимает движок.
+pub fn catalog() -> Vec<BlockCatalogEntry> {
+    registry()
+        .iter()
+        .map(|(info, _)| BlockCatalogEntry {
+            name: info.name,
+            title: info.display_name,
+            aliases: info.aliases,
+            category: info.category.as_str(),
+        })
+        .collect()
+}
+
 /// Метаданные блока для UI редактора.
 struct BlockInfo {
     name: &'static str,

@@ -41,6 +41,10 @@ struct Cli {
     #[arg(long)]
     save_slot: Option<String>,
 
+    /// Машиночитаемый вывод: один JSON-объект на stdout, ошибки — тоже JSON.
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -63,13 +67,35 @@ enum Command {
 
 struct Session {
     engine: GameEngine,
+    /// Накопитель событий для `--json`: печатать в stdout в этом режиме
+    /// нельзя, иначе получится текст с JSON.
+    trace: Option<Vec<Value>>,
 }
 
 impl Session {
     fn new(quest_root: &str, quest_id: &str) -> Result<Self> {
         let engine = GameEngine::from_disk(quest_id, quest_root)
             .with_context(|| format!("квест {quest_id} не найден в {quest_root}/quests/"))?;
-        Ok(Self { engine })
+        Ok(Self {
+            engine,
+            trace: None,
+        })
+    }
+
+    fn tracing(quest_root: &str, quest_id: &str) -> Result<Self> {
+        let mut session = Self::new(quest_root, quest_id)?;
+        session.trace = Some(Vec::new());
+        Ok(session)
+    }
+
+    fn note(&mut self, value: Value) {
+        if let Some(trace) = self.trace.as_mut() {
+            trace.push(value);
+        }
+    }
+
+    fn quiet(&self) -> bool {
+        self.trace.is_some()
     }
 
     fn start(&mut self, save_slot: Option<&str>) -> Result<()> {
@@ -87,6 +113,20 @@ impl Session {
                 .start_new(None)
                 .context("не удалось начать новую игру")?
         };
+
+        self.note(serde_json::json!({
+            "event": "start",
+            "nodeId": view.node_id,
+            "title": view.title,
+            "backgroundImage": view.background_image_id,
+            "transition": view.transition,
+        }));
+        if self.quiet() {
+            if let Some(t) = view.transition.clone() {
+                self.note(serde_json::json!({"event": "transition", "nodeId": t}));
+            }
+            return Ok(());
+        }
 
         println!(
             "{} {}{}{}",
@@ -126,16 +166,29 @@ impl Session {
             match self.engine.next_item() {
                 NextStep::Item(item) => {
                     let ci = &*item;
-                    let type_str = format!("[{}]", ci.item_type).dimmed();
                     let text = ci
                         .text
                         .as_deref()
                         .unwrap_or_else(|| ci.content_markdown.as_deref().unwrap_or(""));
+                    self.note(serde_json::json!({
+                        "event": "reveal",
+                        "itemId": ci.id,
+                        "type": ci.item_type,
+                        "text": text,
+                        "resourcePath": ci.resource_path,
+                    }));
+                    if self.quiet() {
+                        continue;
+                    }
+                    let type_str = format!("[{}]", ci.item_type).dimmed();
                     let id_str = format!("({})", ci.id).dimmed();
                     println!("  {} {} {}", type_str, text, id_str);
                 }
                 NextStep::Transition(node_id) => {
-                    println!("  {} → {}", "↳".yellow(), node_id.yellow());
+                    self.note(serde_json::json!({"event": "transition", "nodeId": node_id}));
+                    if !self.quiet() {
+                        println!("  {} → {}", "↳".yellow(), node_id.yellow());
+                    }
                     break;
                 }
                 NextStep::Done => break,
@@ -144,20 +197,108 @@ impl Session {
         Ok(())
     }
 
-    /// Нажать айтем по id (кнопка/айтем со скриптом).
+    /// Найти айтем текущей ноды по id, а если такого нет — по тексту.
+    ///
+    /// Текст удобнее id, когда сценарий пишет человек или ИИ по сценарию
+    /// квеста: id айтема меняется при каждом применении плана.
+    fn resolve_item(&self, target: &str) -> Result<String, String> {
+        if self.engine.item_json_by_id(target).is_some() {
+            return Ok(target.to_string());
+        }
+        let matched: Vec<Value> = self
+            .engine
+            .current_items()
+            .into_iter()
+            .filter(|item| item.get("text").and_then(Value::as_str) == Some(target))
+            .collect();
+        match matched.as_slice() {
+            [only] => match only.get("id").and_then(Value::as_str) {
+                Some(id) => Ok(id.to_string()),
+                None => Err(self.unknown_item_message(target)),
+            },
+            [] => Err(self.unknown_item_message(target)),
+            many => {
+                let ids: Vec<&str> = many
+                    .iter()
+                    .filter_map(|item| item.get("id").and_then(Value::as_str))
+                    .collect();
+                Err(format!(
+                    "айтемов с текстом «{target}» несколько — нажимайте по id: {}",
+                    ids.join(", ")
+                ))
+            }
+        }
+    }
+
+    /// Что вообще можно нажать в текущей ноде: только айтемы с триггером —
+    /// остальные (текст, картинки) движок не исполнит.
+    fn unknown_item_message(&self, target: &str) -> String {
+        let listed: Vec<String> = self
+            .engine
+            .current_items()
+            .iter()
+            .filter(|item| {
+                let has_behaviour = item
+                    .get("behaviours")
+                    .and_then(Value::as_array)
+                    .is_some_and(|list| !list.is_empty());
+                let has_legacy = item
+                    .get("scriptTriggers")
+                    .and_then(Value::as_object)
+                    .is_some_and(|map| !map.is_empty());
+                has_behaviour || has_legacy
+            })
+            .filter_map(|item| {
+                let id = item.get("id").and_then(Value::as_str)?;
+                let text = item.get("text").and_then(Value::as_str).unwrap_or("");
+                Some(format!("«{text}» ({id})"))
+            })
+            .collect();
+        if listed.is_empty() {
+            format!("айтем «{target}» не найден: в текущей ноде нет нажимаемых айтемов")
+        } else {
+            format!(
+                "айтем «{target}» не найден в текущей ноде; нажимаемые: {}",
+                listed.join(", ")
+            )
+        }
+    }
+
+    /// Нажать айтем по id или тексту (кнопка/айтем со скриптом).
     ///
     /// Работает без отрисовки: ядро находит JSON айтема в текущей ноде и
     /// исполняет его `onPress`. Если скрипт увёл игру дальше — печатаем и
     /// грузим новую ноду, чтобы `press` в скрипте команд вёл себя как в игре.
     fn press(&mut self, target: &str) -> Result<()> {
-        let item_id = target.trim();
-        if item_id.is_empty() {
-            bail!("press: укажите id айтема (см. reveal)");
+        // Кавычки необязательны, но привычны: `press "Шагнуть на мост"`.
+        let target = target.trim();
+        let target = target
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .unwrap_or(target)
+            .trim();
+        if target.is_empty() {
+            bail!("press: укажите id или текст айтема (см. reveal)");
         }
-        if self.engine.item_json_by_id(item_id).is_none() {
-            bail!("press: айтем '{item_id}' не найден в текущей ноде");
+        let item_id = self.resolve_item(target).map_err(|e| anyhow::anyhow!(e))?;
+        let transition = self.engine.press_item(&item_id);
+        self.note(serde_json::json!({
+            "event": "press",
+            "itemId": item_id,
+            "transition": transition,
+        }));
+        if self.quiet() {
+            if let Some(node_id) = &transition
+                && let Some(view) = self.engine.load_node(node_id)
+            {
+                self.note(serde_json::json!({
+                    "event": "transition",
+                    "nodeId": node_id,
+                    "title": view.title,
+                }));
+            }
+            return Ok(());
         }
-        let transition = self.engine.press_item(item_id);
         match &transition {
             Some(node_id) => {
                 println!("{} {}", "↳".yellow(), node_id.yellow());
@@ -176,9 +317,14 @@ impl Session {
         Ok(())
     }
 
-    fn print_state(&self) {
-        let vars = self.engine.all_variables();
+    fn print_state(&mut self) {
+        let vars = self.engine.all_variables().clone();
         if vars.is_empty() {
+            return;
+        }
+        // Итоговое состояние и так уходит в `emit_trace`, дублировать его в
+        // событиях незачем.
+        if self.quiet() {
             return;
         }
         println!("{}", "Переменные:".dimmed());
@@ -226,30 +372,77 @@ impl Session {
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
     let cli = Cli::parse();
+    let json = cli.json;
+    let code = match run(cli) {
+        Ok(code) => code,
+        Err(err) => {
+            if json {
+                // Один объект на stdout: парсер не должен разбирать текст.
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": false,
+                        "error": {
+                            "message": format!("{err}"),
+                            "detail": err
+                                .chain()
+                                .skip(1)
+                                .map(|e| e.to_string())
+                                .collect::<Vec<_>>(),
+                        }
+                    }))
+                    .unwrap()
+                );
+            } else {
+                eprintln!("{}: {err}", "ошибка".red().bold());
+                for cause in err.chain().skip(1) {
+                    eprintln!("  {} {cause}", "причина:".dimmed());
+                }
+            }
+            1
+        }
+    };
+    if code != 0 {
+        std::process::exit(code);
+    }
+}
+
+fn run(cli: Cli) -> Result<i32> {
     let quest_cmd = cli.quest_id.as_deref();
     let root = cli.quest_root;
     let save_slot = cli.save_slot;
+    let ctx = quest_cmds::Ctx {
+        root: &root,
+        quest_id: quest_cmd,
+        json: cli.json,
+    };
 
-    match cli.command {
-        Command::Quest(cmd) => {
-            quest_cmds::run_quest_cmd(cmd, &root, quest_cmd)?;
-            Ok(())
-        }
+    let code = match cli.command {
+        Command::Quest(cmd) => quest_cmds::run_quest_cmd(cmd, &ctx)?,
         Command::Reveal => {
             let quest_id =
                 quest_cmd.ok_or_else(|| anyhow::anyhow!("--quest-id обязателен для reveal"))?;
-            let mut session = Session::new(&root, quest_id)?;
+            let mut session = if ctx.json {
+                Session::tracing(&root, quest_id)?
+            } else {
+                Session::new(&root, quest_id)?
+            };
             session.start(save_slot.as_deref())?;
             session.reveal_all()?;
             session.print_state();
-            Ok(())
+            emit_trace(session);
+            0
         }
         Command::Run { file } => {
             let quest_id =
                 quest_cmd.ok_or_else(|| anyhow::anyhow!("--quest-id обязателен для run"))?;
-            let mut session = Session::new(&root, quest_id)?;
+            let mut session = if ctx.json {
+                Session::tracing(&root, quest_id)?
+            } else {
+                Session::new(&root, quest_id)?
+            };
             session.start(save_slot.as_deref())?;
             let reader: Box<dyn BufRead> = if let Some(path) = file {
                 let f = std::fs::File::open(&path)
@@ -260,7 +453,8 @@ fn main() -> Result<()> {
             };
             run_script(&mut session, reader)?;
             session.print_state();
-            Ok(())
+            emit_trace(session);
+            0
         }
         Command::Repl => {
             let quest_id =
@@ -268,9 +462,50 @@ fn main() -> Result<()> {
             let mut session = Session::new(&root, quest_id)?;
             session.start(save_slot.as_deref())?;
             repl(&mut session)?;
-            Ok(())
+            0
         }
-    }
+    };
+    Ok(code)
+}
+
+/// В `--json` печатает трассу прогона: события по порядку + итоговые
+/// переменные и таблицы. Это единственный способ проверить ветку скрипта без
+/// отрисовки.
+fn emit_trace(session: Session) {
+    let Some(events) = session.trace else {
+        return;
+    };
+    let snapshot = session.engine.current_state_snapshot();
+    let tables: serde_json::Map<String, Value> = snapshot
+        .tables
+        .iter()
+        .map(|(name, raw)| {
+            (
+                name.clone(),
+                serde_json::from_str::<Value>(raw).unwrap_or(Value::Null),
+            )
+        })
+        .collect();
+    let variables: serde_json::Map<String, Value> = snapshot
+        .variables
+        .iter()
+        .map(|(name, raw)| {
+            (
+                name.clone(),
+                serde_json::from_str::<Value>(raw).unwrap_or(Value::Null),
+            )
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "finalNodeId": snapshot.current_node_id,
+            "events": events,
+            "variables": variables,
+            "tables": tables,
+        })
+    );
 }
 
 fn run_script(session: &mut Session, reader: impl BufRead) -> Result<()> {

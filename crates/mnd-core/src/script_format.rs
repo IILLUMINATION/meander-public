@@ -465,7 +465,10 @@ fn walk_validate(
                     issues.push(ValidationIssue::error(
                         "missing_field",
                         &child_path,
-                        format!("table_operation без '{field}'"),
+                        format!(
+                            "table_operation без '{field}' — имя таблицы задаётся полем \
+                             tableName (не 'table'): {{\"tableName\": \"склад\"}}"
+                        ),
                     ));
                 }
                 let op = map.get("operation").and_then(Value::as_str);
@@ -478,7 +481,10 @@ fn walk_validate(
                     issues.push(ValidationIssue::error(
                         "bad_value",
                         &child_path,
-                        format!("неизвестная операция '{op}'"),
+                        format!(
+                            "неизвестная операция '{op}'; допустимые: get, set, add, \
+                             remove, remove_value, clear, contains"
+                        ),
                     ));
                 }
                 // Часть промахов движок раньше глотал молча: блок «работает», а

@@ -74,6 +74,56 @@ pub enum DiagnosticKind {
     NoChapters,
 }
 
+impl DiagnosticKind {
+    /// Все виды — для `mnd-cli quest spec` и справки. Список обязан совпадать
+    /// с перечислением выше: тест сверяет количество.
+    pub const ALL: &'static [DiagnosticKind] = &[
+        DiagnosticKind::MissingConfig,
+        DiagnosticKind::BrokenNodeLink,
+        DiagnosticKind::BrokenScriptLink,
+        DiagnosticKind::BrokenResourceLink,
+        DiagnosticKind::DuplicateNodeId,
+        DiagnosticKind::DuplicateTemplateId,
+        DiagnosticKind::DuplicateItemId,
+        DiagnosticKind::UnreachableNode,
+        DiagnosticKind::UnwrittenVariable,
+        DiagnosticKind::UnreadVariable,
+        DiagnosticKind::VisibilityConflict,
+        DiagnosticKind::EmptyScript,
+        DiagnosticKind::BadExpression,
+        DiagnosticKind::BadOnAppearTrigger,
+        DiagnosticKind::InvalidScriptStructure,
+        DiagnosticKind::MissingStartNode,
+        DiagnosticKind::UnknownChapter,
+        DiagnosticKind::DuplicateChapterId,
+        DiagnosticKind::NoChapters,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiagnosticKind::MissingConfig => "missing_config",
+            DiagnosticKind::BrokenNodeLink => "broken_node_link",
+            DiagnosticKind::BrokenScriptLink => "broken_script_link",
+            DiagnosticKind::BrokenResourceLink => "broken_resource_link",
+            DiagnosticKind::DuplicateNodeId => "duplicate_node_id",
+            DiagnosticKind::DuplicateTemplateId => "duplicate_template_id",
+            DiagnosticKind::DuplicateItemId => "duplicate_item_id",
+            DiagnosticKind::UnreachableNode => "unreachable_node",
+            DiagnosticKind::UnwrittenVariable => "unwritten_variable",
+            DiagnosticKind::UnreadVariable => "unread_variable",
+            DiagnosticKind::VisibilityConflict => "visibility_conflict",
+            DiagnosticKind::EmptyScript => "empty_script",
+            DiagnosticKind::BadExpression => "bad_expression",
+            DiagnosticKind::BadOnAppearTrigger => "bad_on_appear_trigger",
+            DiagnosticKind::InvalidScriptStructure => "invalid_script_structure",
+            DiagnosticKind::MissingStartNode => "missing_start_node",
+            DiagnosticKind::UnknownChapter => "unknown_chapter",
+            DiagnosticKind::DuplicateChapterId => "duplicate_chapter_id",
+            DiagnosticKind::NoChapters => "no_chapters",
+        }
+    }
+}
+
 /// Одна диагностика валидации.
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnostic {
@@ -624,6 +674,11 @@ impl Validator {
         if let Some(rest) = path.strip_prefix("scripts/") {
             candidates.push(format!("_internal_scripts/{rest}"));
             candidates.push(format!("n/{rest}"));
+        } else if !path.contains('/') && !path.ends_with(".json") {
+            // Голый id скрипта: движок находит `scripts/<id>.json` (см.
+            // `resolve_script_path`), значит и проверка ссылки обязана.
+            candidates.push(format!("scripts/{path}.json"));
+            candidates.push(format!("_internal_scripts/{path}.json"));
         }
         candidates
     }

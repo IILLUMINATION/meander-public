@@ -1402,6 +1402,39 @@ impl GameEngine {
         self.state.all_variables()
     }
 
+    /// JSON всех айтемов текущей ноды, включая вложенные в ряды/стеки.
+    ///
+    /// Нужен headless-клиентам: перечислить, что вообще можно нажать, не
+    /// отрисовывая ноду.
+    pub fn current_items(&self) -> Vec<Value> {
+        let Some(current) = self.current_node_id.as_deref() else {
+            return Vec::new();
+        };
+        let Some(node) = self.nodes.get(current).cloned() else {
+            return Vec::new();
+        };
+        let node = self.resolve_node(node);
+        let items = node
+            .content
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        fn flatten(items: &[Value], out: &mut Vec<Value>) {
+            for item in items {
+                out.push(item.clone());
+                if let Some(children) = item.get("children").and_then(Value::as_array) {
+                    flatten(children, out);
+                }
+            }
+        }
+
+        let mut out = Vec::with_capacity(items.len());
+        flatten(&items, &mut out);
+        out
+    }
+
     /// JSON айтема текущей ноды по id — включая вложенные в ряды/стеки.
     ///
     /// Нужен headless-клиентам (CLI, тесты): нажать кнопку, не отрисовывая
