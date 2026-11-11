@@ -77,6 +77,10 @@
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>Meander Quest File</string>
+			<!-- Значок документа из бандла: Finder показывает его для .mnd,
+			     иначе системная «серая бумага». -->
+			<key>CFBundleTypeIconFile</key>
+			<string>MndDocument</string>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.meander.quest.mnd</string>

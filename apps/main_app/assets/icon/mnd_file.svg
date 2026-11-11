@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF0F4"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#D9DEE7"/>
+      <stop offset="1" stop-color="#C3CAD6"/>
+    </linearGradient>
+  </defs>
+  <!-- страница с загнутым углом -->
+  <path d="M28 12 H72 L84 24 V88 A8 8 0 0 1 76 96 H32 A8 8 0 0 1 24 88 V20 A8 8 0 0 1 28 12 Z" fill="url(#page)" stroke="#C9D0DA" stroke-width="2"/>
+  <path d="M72 12 L84 24 H76 A4 4 0 0 1 72 20 Z" fill="url(#fold)"/>
+  <!-- граф-мотив Meander -->
+  <g stroke="#121212" stroke-width="3.2" stroke-linecap="round">
+    <path d="M40 52 L54 40 M54 40 L68 52 M54 40 L54 58"/>
+  </g>
+  <circle cx="40" cy="52" r="6" fill="#92FF26" stroke="#121212" stroke-width="2"/>
+  <circle cx="68" cy="52" r="6" fill="#92FF26" stroke="#121212" stroke-width="2"/>
+  <circle cx="54" cy="40" r="6" fill="#92FF26" stroke="#121212" stroke-width="2"/>
+  <circle cx="54" cy="58" r="6" fill="#92FF26" stroke="#121212" stroke-width="2"/>
+  <!-- подпись типа файла -->
+  <text x="54" y="82" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.2" fill="#121212">MND</text>
+</svg>
