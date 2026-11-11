@@ -105,18 +105,33 @@ val buildMndFfiAndroid = tasks.register("buildMndFfiAndroid") {
         fun cargo(args: List<String>, quiet: Boolean): Int {
             val builder = ProcessBuilder(listOf("cargo") + args)
                 .directory(file("../../../../"))
-            val redirect =
-                if (quiet) ProcessBuilder.Redirect.DISCARD else ProcessBuilder.Redirect.INHERIT
+            // Вывод cargo идёт в файл, а не в INHERIT: у Gradle-демона
+            // stderr не всегда подключён к логу CI, и падение с кодом 101
+            // приходит без единой строки причины. Лог печатаем сами.
+            val log = file("../../../../target/cargo-ndk.log")
+            log.parentFile.mkdirs()
+            val redirect = if (quiet) {
+                ProcessBuilder.Redirect.DISCARD
+            } else {
+                if (log.exists()) log.delete()
+                ProcessBuilder.Redirect.appendTo(log)
+            }
             builder.redirectOutput(redirect)
             builder.redirectError(redirect)
             // cargo ndk сам подбирает тулчейн по этой переменной; без неё он
             // берёт NDK с PATH и молча кладёт в jniLibs stale-артефакт.
             builder.environment()["ANDROID_NDK_HOME"] = ndkDir.absolutePath
-            return try {
+            val code = try {
                 builder.start().waitFor()
             } catch (e: Exception) {
+                logger.error("cargo ${args.joinToString(" ")} не запустился: $e")
                 -1
             }
+            if (!quiet && code != 0 && log.exists()) {
+                logger.error("cargo ${args.joinToString(" ")} → $code, хвост лога:\n" +
+                    log.readText().takeLast(6000))
+            }
+            return code
         }
         if (cargo(listOf("ndk", "--version"), true) != 0) {
             error("Нужен cargo-ndk: cargo install cargo-ndk.")
