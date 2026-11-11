@@ -359,6 +359,16 @@ fn registry() -> &'static HandlerMap {
 }
 
 /// Найти обработчик по имени типа блока.
+/// Человекочитаемое имя типа блока («Переход») для текстов диагностики.
+pub fn display_name(block_type: &str) -> Option<&'static str> {
+    for (info, _) in registry() {
+        if info.name == block_type || info.aliases.contains(&block_type) {
+            return Some(info.display_name);
+        }
+    }
+    None
+}
+
 pub fn find_handler(block_type: &str) -> Option<&'static dyn BlockHandler> {
     for (info, handler) in registry() {
         if info.name == block_type || info.aliases.contains(&block_type) {

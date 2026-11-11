@@ -898,7 +898,27 @@ fn cmd_validate(args: QuestValidate, ctx: &Ctx) -> Result<i32> {
             } else {
                 "!"
             };
-            out.push(format!("  {mark} [{}] {}", d.kind.as_str(), d.message));
+            // Где именно: без этого автор ищет проблему по всему квесту.
+            let mut where_parts: Vec<String> = Vec::new();
+            if let Some(node) = d.node_id.as_deref().filter(|n| !n.is_empty()) {
+                where_parts.push(format!("нода {node}"));
+            }
+            if let Some(item) = d.item_id.as_deref().filter(|i| !i.is_empty()) {
+                where_parts.push(format!("элемент {item}"));
+            }
+            if let Some(path) = d.script_path.as_deref().filter(|p| !p.is_empty()) {
+                where_parts.push(format!("скрипт {path}"));
+            }
+            let location = if where_parts.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", where_parts.join(", "))
+            };
+            out.push(format!(
+                "  {mark} [{}]{location} {}",
+                d.kind.as_str(),
+                d.message
+            ));
             if let Some(hint) = &d.fix_hint {
                 out.push(format!("      → {hint}"));
             }
