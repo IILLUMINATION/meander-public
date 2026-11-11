@@ -125,9 +125,7 @@ jobs:
           version="$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
           for FLAVOR in $FLAVORS; do
             flutter build apk --release --flavor "$FLAVOR" \
-              --target-platform android-arm64 \
-              --android-project-arg=debugSignRelease=true \
-              --android-project-arg=ffiAbis=arm64-v8a
+              --target-platform android-arm64
             cp "build/app/outputs/flutter-apk/app-$FLAVOR-release.apk" \
               "$GITHUB_WORKSPACE/dist/meander-$version-$FLAVOR-arm64.apk"
           done
