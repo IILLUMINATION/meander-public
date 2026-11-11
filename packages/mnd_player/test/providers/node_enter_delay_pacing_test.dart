@@ -236,9 +236,13 @@ void main() {
         reason: 'значение до `wait` не должно протечь на экран',
       );
 
-      await Future<void>.delayed(
-        const Duration(milliseconds: _waitMs + 200),
-      );
+      // Ждём появления значения опросом: тест не должен зависеть от того,
+      // насколько пунктуален таймер под нагрузкой.
+      final sw = Stopwatch()..start();
+      while (pacedValue(container) == null &&
+          sw.elapsed < const Duration(seconds: 3)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
       expect(
         pacedValue(container),
         isNotNull,
