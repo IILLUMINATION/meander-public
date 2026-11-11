@@ -21,6 +21,7 @@ import 'package:mnd_player/providers/game_state_provider.dart';
 import 'package:mnd_player/providers/game_session_scope.dart';
 import 'package:mnd_player/providers/quest_provider.dart';
 import 'package:mnd_player/utils/quest_shot.dart';
+import 'package:mnd_player/widgets/quest_shot_preview.dart';
 import 'package:mnd_player/providers/text_reveal_preference.dart';
 import 'package:mnd_player/widgets/game_timer_widget.dart';
 import 'package:mnd_player/widgets/plugin_slot_layer.dart';
@@ -1193,35 +1194,53 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     );
   }
 
-  /// Снимок сцены для маркета: карточка с подписью, без интерфейса игры.
+  /// Снимок сцены для маркета: кадр без интерфейса игры, превью с выбором
+  /// рамки и только потом решение — в скриншоты квеста или наружу.
   Future<void> _captureShot() async {
     final save = _hooks.onScreenshot;
     if (save == null) return;
+    final export = _hooks.onExportScreenshot;
+    ui.Image? frame;
     try {
-      final frame =
-          await QuestShot.testScene?.call() ?? await _sceneImage();
+      frame = await (QuestShot.testScene?.call() ?? _sceneImage());
       if (frame == null) return;
-      final png = await QuestShot.compose(frame);
-      await save(widget.questId, png);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Снимок добавлен в скриншоты квеста'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(milliseconds: 1600),
-        ),
+      final scene = frame;
+      final result = await showQuestShotPreview(
+        context,
+        initialFrame: QuestShot.lastFrame,
+        canExport: export != null,
+        // Каждая сборка владеет своей копией: `compose` освобождает кадр.
+        compose: (shotFrame) =>
+            QuestShot.testCompose?.call(scene, shotFrame) ??
+            QuestShot.compose(scene.clone(), frame: shotFrame),
       );
+      if (result == null || !mounted) return;
+      if (result.action == QuestShotAction.save) {
+        await save(widget.questId, result.png);
+        if (!mounted) return;
+        _showShotSnack('Снимок добавлен в скриншоты квеста');
+        return;
+      }
+      final saved = await export?.call(widget.questId, result.png) ?? false;
+      if (!mounted) return;
+      _showShotSnack(saved ? 'Снимок сохранён' : 'Экспорт отменён');
     } catch (e, stack) {
       _hooks.onError?.call(e, stack, 'captureShot');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Не удалось сделать снимок'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(milliseconds: 1600),
-        ),
-      );
+      _showShotSnack('Не удалось сделать снимок');
+    } finally {
+      frame?.dispose();
     }
+  }
+
+  void _showShotSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1600),
+      ),
+    );
   }
 
   /// Кадр игровой сцены без верхней панели: она живёт вне [RepaintBoundary].

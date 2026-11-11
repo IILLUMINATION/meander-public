@@ -44,8 +44,11 @@ Future<ui.Color> _pixel(ui.Image image, int x, int y) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('снимок — карточка с полями и подписью, а не голый кадр', () async {
-    final png = await QuestShot.compose(await _scene());
+  test('без рамки — карточка с полями и подписью, а не голый кадр', () async {
+    final png = await QuestShot.compose(
+      await _scene(),
+      frame: QuestShotFrame.none,
+    );
     final image = await _decode(png);
     addTearDown(image.dispose);
 
@@ -75,5 +78,49 @@ void main() {
       (QuestShot.padding + cardHeight / 2).toInt(),
     );
     expect(center.b, greaterThan(center.r));
+  });
+
+  test('рамка устройства добавляет корпус: кадр уже, а картинка выше', () async {
+    final flat = await _decode(
+      await QuestShot.compose(await _scene(), frame: QuestShotFrame.none),
+    );
+    addTearDown(flat.dispose);
+    final phone = await _decode(
+      await QuestShot.compose(await _scene(), frame: QuestShotFrame.phone),
+    );
+    addTearDown(phone.dispose);
+    final tablet = await _decode(
+      await QuestShot.compose(await _scene(), frame: QuestShotFrame.tablet),
+    );
+    addTearDown(tablet.dispose);
+
+    expect(phone.width, QuestShot.outputWidth.ceil());
+    expect(tablet.width, QuestShot.outputWidth.ceil());
+    // Телефон выше планшета: экран 9:19.5 против 3:4.
+    expect(phone.height, greaterThan(tablet.height));
+    expect(tablet.height, greaterThan(flat.height));
+
+    // В центре экрана — синий кадр сцены, а не корпус.
+    final center = await _pixel(phone, phone.width ~/ 2, phone.height ~/ 2);
+    expect(center.b, greaterThan(center.r));
+
+    // Красная полоса исходника на телефоне сдвинута внутрь: она не у самого
+    // края холста, потому что слева корпус и безель.
+    final nearLeft = await _pixel(phone, 4, phone.height ~/ 2);
+    expect(nearLeft.b, lessThan(0.35));
+    final insideLeft = await _pixel(
+      phone,
+      (QuestShot.padding + 40).toInt(),
+      (phone.height / 2).toInt(),
+    );
+    expect(insideLeft.b, lessThan(0.35));
+  });
+
+  test('основная карточка запоминает последнюю рамку', () async {
+    await QuestShot.compose(await _scene(), frame: QuestShotFrame.tablet);
+    expect(QuestShot.lastFrame, QuestShotFrame.tablet);
+    // Возвращаем значение по умолчанию, чтобы другие тесты не зависели
+    // от порядка выполнения.
+    await QuestShot.compose(await _scene(), frame: QuestShotFrame.phone);
   });
 }

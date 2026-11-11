@@ -1,5 +1,7 @@
 // Снимок из игры: пункт меню появляется только когда хост умеет его принять,
 // и по нажатию действительно запускается захват кадра.
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -26,17 +28,31 @@ Future<ui.Image> _scene() async {
   return image;
 }
 
+final Uint8List _tinyPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk'
+  'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+);
+
 void main() {
   testWidgets('пункт «Красивый скриншот» запускает захват кадра', (tester) async {
     // Сама растеризация карточки в тестовом биндинге не завершается
     // (см. QuestShot.testScene), поэтому проверяем проводку: меню доходит до
     // захвата кадра, а сборку PNG и сохранение покрывают отдельные тесты.
     var frameRequests = 0;
+    final composedFrames = <QuestShotFrame>[];
     QuestShot.testScene = () async {
       frameRequests++;
       return _scene();
     };
-    addTearDown(() => QuestShot.testScene = null);
+    // Растеризация PNG в фейковом времени не завершается — подменяем сборку.
+    QuestShot.testCompose = (_, frame) async {
+      composedFrames.add(frame);
+      return _tinyPng;
+    };
+    addTearDown(() {
+      QuestShot.testScene = null;
+      QuestShot.testCompose = null;
+    });
     var hostCalls = 0;
     final container = ProviderContainer(
       overrides: [
@@ -73,9 +89,21 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(frameRequests, 1);
-    // Хост вызывается только после готового PNG; в тестовом биндинге до этого
-    // не доходит — здесь достаточно того, что захват стартовал.
-    expect(hostCalls, lessThanOrEqualTo(1));
+    // Сначала превью: кадр собирается под выбранную рамку.
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Снимок сцены'), findsOneWidget);
+    expect(composedFrames, [QuestShot.lastFrame]);
+    expect(hostCalls, 0, reason: 'без подтверждения ничего не сохраняется');
+
+    // Смена рамки в превью пересобирает кадр.
+    await tester.tap(find.text('iPad'));
+    await tester.pump();
+    expect(composedFrames.last, QuestShotFrame.tablet);
+
+    await tester.tap(find.text('В скриншоты'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(hostCalls, 1);
   });
 
   testWidgets('без хоста пункта снимка нет', (tester) async {
