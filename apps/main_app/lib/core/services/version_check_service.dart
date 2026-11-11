@@ -35,7 +35,7 @@ class VersionCheckResult {
 
 class VersionCheckService {
   static const String _checkUrl =
-      'https://backend.meander.sbs/api/app/version/check';
+      'https://meander.illuminat.dev/api/app/version/check';
 
   static Future<VersionCheckResult> check() async {
     try {

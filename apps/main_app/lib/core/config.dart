@@ -11,7 +11,7 @@ enum BackendType { local, vps }
 class AppConfig {
   static const BackendType currentBackend = BackendType.vps;
 
-  static const String vpsApiBaseUrl = 'https://backend.meander.sbs';
+  static const String vpsApiBaseUrl = 'https://meander.illuminat.dev';
   static const String localApiBaseUrl = 'http://192.168.0.101:3000';
 
   /// Зеркала в порядке приоритета: основное первое, далее reverse-proxy
