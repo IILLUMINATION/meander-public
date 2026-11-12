@@ -4,6 +4,7 @@ dist/
 
 # Runtime uploads and generated storage
 public/uploads/*
+public/assets_files/*
 public/quests_files/*
 public/quests/*
 storage/
@@ -12,6 +13,7 @@ migration_data/
 
 # Keep folder structure in the repository
 !public/uploads/.gitkeep
+!public/assets_files/.gitkeep
 !public/quests_files/.gitkeep
 !public/quests/.gitkeep
 

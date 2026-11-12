@@ -141,3 +141,21 @@ test('Флаг правил важнее: спорный текст уходит
 // Убирать фикстуры надо после прогонов: top-level rmSync отработал бы раньше
 // асинхронных тестов и оставил бы им пустую директорию.
 process.on('exit', () => fs.rmSync(tempDir, { recursive: true, force: true }));
+test('Слишком много узлов — скан помечен как неудачный, а не «чисто»', async () => {
+    const nodes = { nodes: Array.from({ length: 5001 }, (_, i) => ({ title: `N${i}`, content: { items: [] } })) };
+    const r = await analyzeQuestZip(writeQuest([{ name: 'nodes.json', data: JSON.stringify(nodes) }]), tempDir);
+    assert.strictEqual(r.textScanFailed, true);
+    assert.strictEqual(r.nodeCount, 5001);
+});
+
+test('Слишком много элементов контента — скан помечен как неудачный', async () => {
+    // 400 узлов по 200 элементов = 80 000 > 50 000.
+    const nodes = {
+        nodes: Array.from({ length: 400 }, () => ({
+            title: 'n',
+            content: { items: Array.from({ length: 200 }, () => ({ type: 'text', text: 'x' })) },
+        })),
+    };
+    const r = await analyzeQuestZip(writeQuest([{ name: 'nodes.json', data: JSON.stringify(nodes) }]), tempDir);
+    assert.strictEqual(r.textScanFailed, true);
+});

@@ -79,6 +79,12 @@ const BODY_SCAN_CHAR_BUDGET = 200_000;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;   // 10 MB на одно изображение
 const MAX_TOTAL_EXTRACTED = 100 * 1024 * 1024; // 100 MB общий лимит на всё извлечённое
 const MAX_ENTRIES = 20000;                 // макс. количество файлов в ZIP (защита от zip bomb)
+// Узлы и элементы контента тоже ограничены: один nodes.json до 10 МБ может
+// содержать сотни тысяч узлов, и обход строил строки/массивы пропорционально
+// их числу даже при обрезанном тексте. Такой квест помечается как «не
+// просканирован», а не проходит молча.
+const MAX_SCAN_NODES = 5000;
+const MAX_SCAN_ITEMS = 50_000;
 
 /**
  * Проверяет магические байты буфера — является ли он допустимым изображением.
@@ -174,18 +180,27 @@ export async function analyzeQuestZip(filePath: string, tempDir: string): Promis
                             }
                             if (Array.isArray(data.nodes)) {
                                 result.nodeCount = data.nodes.length;
-                                result.estimatedPlaytime = calcPlaytime(data.nodes);
-                                
-                                data.nodes.forEach((node: any) => {
-                                    if (result.fullText.length < BODY_SCAN_CHAR_BUDGET) {
-                                        result.fullText += `[${node.title || ''}]\n`;
-                                        if (node.content && Array.isArray(node.content.items)) {
-                                            node.content.items.forEach((item: any) => {
-                                                if (item.text) result.fullText += item.text + "\n";
-                                            });
+                                if (result.nodeCount > MAX_SCAN_NODES) {
+                                    result.textScanFailed = true;
+                                } else {
+                                    result.estimatedPlaytime = calcPlaytime(data.nodes);
+                                    let itemsSeen = 0;
+                                    for (const node of data.nodes) {
+                                        if (itemsSeen > MAX_SCAN_ITEMS) {
+                                            result.textScanFailed = true;
+                                            break;
+                                        }
+                                        if (result.fullText.length < BODY_SCAN_CHAR_BUDGET) {
+                                            result.fullText += `[${node.title || ''}]\n`;
+                                            if (node.content && Array.isArray(node.content.items)) {
+                                                itemsSeen += node.content.items.length;
+                                                for (const item of node.content.items) {
+                                                    if (item.text) result.fullText += item.text + "\n";
+                                                }
+                                            }
                                         }
                                     }
-                                });
+                                }
                             }
                         } catch (e) {
                             console.error("Error parsing nodes.json inside zip", e);

@@ -3,6 +3,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { validate as uuidValidate } from 'uuid';
 
 import pool from '../config/database';
+import type { PoolClient } from 'pg';
 import authMiddleware, { AuthRequest } from '../middleware/auth';
 import {
     TIERS,
@@ -12,10 +13,14 @@ import {
     buildUpgradeHints,
 } from '../services/cloud_sync_tier';
 import {
-    writeQuestFile,
-    readQuestStream,
-    deleteQuestFile,
-    sha256Hex,
+    QUEST_ID_PATTERN,
+    PayloadTooLargeError,
+    blobFileName,
+    deleteBlob,
+    legacyStoragePath,
+    promoteBlob,
+    readBlob,
+    receiveQuestStream,
 } from '../services/cloud_sync_storage';
 import { runCloudSyncCleanup } from '../services/cloud_sync_cleanup';
 import { clientIp } from '../services/client_ip';
@@ -116,6 +121,69 @@ async function loadCounts(userId: string): Promise<{ user: number; ref: number }
     };
 }
 
+/** Ошибка квоты: превращается в 4xx без «внутренней» 500. */
+class QuotaError extends Error {
+    readonly status: number;
+    readonly code: string;
+    constructor(code: string, status = 413) {
+        super(code);
+        this.name = 'QuotaError';
+        this.code = code;
+        this.status = status;
+    }
+}
+
+/**
+ * Транзакция с блокировкой строки квоты пользователя.
+ *
+ * Раньше проверка остатка и запись шли без транзакции: два параллельных PUT
+ * читали один `used_bytes` и оба решали, что места хватает. `FOR UPDATE` на
+ * `cloud_sync_quotas` сериализует загрузки одного пользователя.
+ */
+async function withQuotaLock<T>(
+    userId: string,
+    fn: (client: PoolClient, quota: QuotaRow) => Promise<T>,
+): Promise<T> {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const q = await client.query(
+            `SELECT tier, used_bytes, used_quests,
+                    max_bytes, max_quests, max_quest_bytes, max_refs,
+                    granted_reason, expires_at
+               FROM cloud_sync_quotas WHERE user_id = $1 FOR UPDATE`,
+            [userId],
+        );
+        if ((q.rowCount ?? 0) === 0) {
+            throw new Error('quota row missing');
+        }
+        const result = await fn(client, q.rows[0] as QuotaRow);
+        await client.query('COMMIT');
+        return result;
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw e;
+    } finally {
+        client.release();
+    }
+}
+
+/** Счётчики слотов внутри транзакции (для проверки квоты). */
+async function loadCountsTx(client: PoolClient, userId: string): Promise<{ user: number; ref: number }> {
+    const r = await client.query(
+        `SELECT
+            COALESCE(SUM(CASE WHEN source = 'user'       THEN 1 ELSE 0 END), 0)::int AS user_cnt,
+            COALESCE(SUM(CASE WHEN source = 'market_ref' THEN 1 ELSE 0 END), 0)::int AS ref_cnt
+         FROM cloud_sync_quests
+         WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId],
+    );
+    return {
+        user: Number(r.rows[0]?.user_cnt) || 0,
+        ref: Number(r.rows[0]?.ref_cnt) || 0,
+    };
+}
+
 async function audit(
     userId: string,
     questId: string | null,
@@ -143,7 +211,11 @@ router.use(authMiddleware);
 // Парсеры тела — только после проверки токена. Пока они висели на mount'е в
 // app.ts, любой аноним мог прислать application/octet-stream до 200 МБ, и Node
 // буферизовал это целиком: один curl без токена укладывал 200 МБ в память процесса.
-router.use(express.raw({ type: 'application/octet-stream', limit: '200mb' }));
+//
+// Бинарный `.mnd` больше не проходит через express.raw: PUT-обработчик сам
+// стримит тело в staging-файл с жёстким лимитом (см. receiveQuestStream), так
+// что даже авторизованный пользователь без квоты не заставляет процесс держать
+// тело в RAM. JSON (market_ref) остаётся буферизованным — он маленький.
 router.use(express.json({ limit: '5mb' }));
 
 // ----------------------------------------------------------------------------
@@ -362,19 +434,20 @@ router.put(
     '/quests/:questId',
     limitUpload,
     async (req: AuthRequest, res: Response) => {
-        try {
-            const userId = req.user?.id!;
-            const { questId } = req.params;
-            if (questId.length === 0 || questId.length > 128) {
-                return res.status(400).json({ error: 'invalid quest id' });
-            }
+        const userId = req.user?.id!;
+        const { questId } = req.params;
+        // Строгий allowlist вместо «заменим спецсимволы подчёркиванием»:
+        // `scene/one` и `scene_one` раньше становились одним файлом и
+        // перетирали друг друга.
+        if (!QUEST_ID_PATTERN.test(questId)) {
+            return res.status(400).json({ error: 'invalid quest id' });
+        }
 
-            const q = await ensureQuotaRow(userId);
-            const counts = await loadCounts(userId);
-            const contentType = (req.headers['content-type'] || '').toString();
+        const contentType = String(req.headers['content-type'] || '');
 
-            // ----- Режим B: market_ref -----
-            if (contentType.includes('application/json')) {
+        // ----- Режим B: market_ref (маленький JSON) -----
+        if (contentType.includes('application/json')) {
+            try {
                 const { title, marketQuestId, marketVersion } = req.body || {};
                 if (typeof title !== 'string' || title.trim().length === 0) {
                     return res.status(400).json({ error: 'title required' });
@@ -382,9 +455,7 @@ router.put(
                 if (!marketQuestId || !uuidValidate(marketQuestId)) {
                     return res.status(400).json({ error: 'marketQuestId must be uuid' });
                 }
-                if (q.tier === 'none') {
-                    return res.status(403).json({ error: 'no_quota' });
-                }
+
                 const mq = await pool.query(
                     `SELECT id, status FROM quests WHERE id = $1`,
                     [marketQuestId],
@@ -393,51 +464,62 @@ router.put(
                     return res.status(404).json({ error: 'market quest not available' });
                 }
 
-                // Если уже была запись — апдейтим, иначе вставляем
-                const existing = await pool.query(
-                    `SELECT source FROM cloud_sync_quests
-                      WHERE user_id = $1 AND quest_id = $2 AND deleted_at IS NULL`,
-                    [userId, questId],
-                );
-                const exists = (existing.rowCount ?? 0) > 0;
-                const wasUser = exists && existing.rows[0].source === 'user';
-                // market_ref имеет отдельный лимит, user-слоты не трогаем
-                if (!exists) {
-                    if (counts.ref >= q.max_refs && q.tier !== 'admin') {
-                        return res.status(403).json({ error: 'ref_quota_exceeded' });
+                const q = await ensureQuotaRow(userId);
+                if (q.tier === 'none') {
+                    return res.status(403).json({ error: 'no_quota' });
+                }
+
+                // Файл прежней user-версии удаляем только после COMMIT: при
+                // сбое SQL запись всё ещё описывает её, и удалять blob нельзя.
+                let obsoleteStoragePath: string | null = null;
+                await withQuotaLock(userId, async (client, quota) => {
+                    const existing = await client.query(
+                        `SELECT source, storage_path FROM cloud_sync_quests
+                          WHERE user_id = $1 AND quest_id = $2 AND deleted_at IS NULL
+                          FOR UPDATE`,
+                        [userId, questId],
+                    );
+                    const exists = (existing.rowCount ?? 0) > 0;
+                    const counts = await loadCountsTx(client, userId);
+                    if (
+                        (!exists || existing.rows[0].source !== 'market_ref') &&
+                        counts.ref >= quota.max_refs &&
+                        quota.tier !== 'admin'
+                    ) {
+                        throw new QuotaError('ref_quota_exceeded', 403);
                     }
+                    if (exists && existing.rows[0].source === 'user') {
+                        obsoleteStoragePath = existing.rows[0].storage_path || null;
+                    }
+                    await client.query(
+                        `INSERT INTO cloud_sync_quests (
+                            user_id, quest_id, title, source, size_bytes, fingerprint,
+                            storage_path, market_quest_id, market_version,
+                            created_at, updated_at
+                         ) VALUES ($1,$2,$3,'market_ref',0,NULL,'',$4,$5, now(), now())
+                         ON CONFLICT (user_id, quest_id) DO UPDATE SET
+                            title           = EXCLUDED.title,
+                            source          = 'market_ref',
+                            size_bytes      = 0,
+                            fingerprint     = NULL,
+                            storage_path    = '',
+                            market_quest_id = EXCLUDED.market_quest_id,
+                            market_version  = EXCLUDED.market_version,
+                            deleted_at      = NULL,
+                            updated_at      = now()`,
+                        [
+                            userId,
+                            questId,
+                            title.trim().slice(0, 200),
+                            marketQuestId,
+                            typeof marketVersion === 'string' ? marketVersion : null,
+                        ],
+                    );
+                });
+
+                if (obsoleteStoragePath) {
+                    await deleteBlob(obsoleteStoragePath).catch(() => {});
                 }
-
-                // Если до этого был user-блоб — удалим файл
-                if (wasUser) {
-                    await deleteQuestFile(userId, questId);
-                }
-
-                await pool.query(
-                    `INSERT INTO cloud_sync_quests (
-                        user_id, quest_id, title, source, size_bytes, fingerprint,
-                        storage_path, market_quest_id, market_version,
-                        created_at, updated_at
-                     ) VALUES ($1,$2,$3,'market_ref',0,NULL,'',$4,$5, now(), now())
-                     ON CONFLICT (user_id, quest_id) DO UPDATE SET
-                        title           = EXCLUDED.title,
-                        source          = 'market_ref',
-                        size_bytes      = 0,
-                        fingerprint     = NULL,
-                        storage_path    = '',
-                        market_quest_id = EXCLUDED.market_quest_id,
-                        market_version  = EXCLUDED.market_version,
-                        deleted_at      = NULL,
-                        updated_at      = now()`,
-                    [
-                        userId,
-                        questId,
-                        title.trim().slice(0, 200),
-                        marketQuestId,
-                        typeof marketVersion === 'string' ? marketVersion : null,
-                    ],
-                );
-
                 await audit(userId, questId, 'ref_create', 0, {
                     marketQuestId,
                     marketVersion,
@@ -449,98 +531,146 @@ router.put(
                     marketQuestId,
                     marketVersion: marketVersion || null,
                 });
-            }
-
-            // ----- Режим A: upload .mnd -----
-            const buf: Buffer = req.body instanceof Buffer ? req.body : null!;
-            if (!buf || !Buffer.isBuffer(buf) || buf.byteLength === 0) {
-                return res
-                    .status(400)
-                    .json({ error: 'binary .mnd body required (application/octet-stream)' });
-            }
-            const size = buf.byteLength;
-            // Название квеста приходит в заголовке x-title. HTTP-заголовки не
-            // допускают не-ASCII, поэтому клиент percent-кодирует значение и
-            // ставит флаг x-title-encoding: percent. Декодируем обратно в UTF-8.
-            const rawTitle = String(req.headers['x-title'] || 'Без названия');
-            const titleEncoding = String(req.headers['x-title-encoding'] || '');
-            let title = rawTitle;
-            if (titleEncoding === 'percent') {
-                try {
-                    title = decodeURIComponent(rawTitle);
-                } catch {
-                    // Битая percent-последовательность — оставляем как пришло.
-                    title = rawTitle;
+            } catch (e) {
+                if (e instanceof QuotaError) {
+                    return res.status(e.status).json({ error: e.code });
                 }
+                console.error('[cloud-sync] PUT ref error:', e);
+                return res.status(500).json({ error: 'Internal server error' });
             }
-            title = title.slice(0, 200);
-            const clientFingerprint = (req.headers['x-fingerprint'] || '').toString();
+        }
 
-            if (q.tier === 'none' || q.max_bytes === 0) {
-                return res.status(403).json({ error: 'no_quota' });
-            }
-            if (size > Number(q.max_quest_bytes)) {
-                return res.status(413).json({ error: 'file_too_large' });
-            }
+        // ----- Режим A: upload .mnd, потоком в staging -----
+        const q = await ensureQuotaRow(userId);
+        if (q.tier === 'none' || Number(q.max_bytes) === 0) {
+            // Отказ ДО чтения тела: раньше 200 МБ уже лежали в памяти.
+            req.resume();
+            return res.status(403).json({ error: 'no_quota' });
+        }
+        const maxQuestBytes = Number(q.max_quest_bytes) || 0;
+        const declared = Number(req.headers['content-length'] || 0);
+        if (declared > 0 && declared > maxQuestBytes) {
+            req.resume();
+            return res.status(413).json({ error: 'file_too_large' });
+        }
 
-            const existing = await pool.query(
-                `SELECT source, size_bytes FROM cloud_sync_quests
-                  WHERE user_id = $1 AND quest_id = $2 AND deleted_at IS NULL`,
-                [userId, questId],
+        // Медленное тело не должно держать соединение бесконечно.
+        req.setTimeout(120_000, () => req.destroy());
+
+        const rawTitle = String(req.headers['x-title'] || 'Без названия');
+        const titleEncoding = String(req.headers['x-title-encoding'] || '');
+        let title = rawTitle;
+        if (titleEncoding === 'percent') {
+            try {
+                title = decodeURIComponent(rawTitle);
+            } catch {
+                // Битая percent-последовательность — оставляем как пришло.
+                title = rawTitle;
+            }
+        }
+        title = title.slice(0, 200);
+
+        let promoted: Awaited<ReturnType<typeof promoteBlob>> | null = null;
+        try {
+            const received = await receiveQuestStream(userId, req, maxQuestBytes);
+            const promo = await promoteBlob(
+                received.stagingPath,
+                userId,
+                questId,
+                received.fingerprint,
             );
-            const exists = (existing.rowCount ?? 0) > 0;
-            const oldSize =
-                exists && existing.rows[0].source === 'user'
-                    ? Number(existing.rows[0].size_bytes) || 0
-                    : 0;
+            promoted = promo;
+            const size = received.size;
 
-            // Проверка лимита квот по размеру
-            const projected = (Number(q.used_bytes) || 0) - oldSize + size;
-            if (projected > Number(q.max_bytes) && q.tier !== 'admin') {
-                return res.status(413).json({ error: 'bytes_quota_exceeded' });
+            let obsoleteStoragePath: string | null = null;
+            await withQuotaLock(userId, async (client, quota) => {
+                if (quota.tier === 'none' || Number(quota.max_bytes) === 0) {
+                    throw new QuotaError('no_quota', 403);
+                }
+                if (size > Number(quota.max_quest_bytes)) {
+                    throw new QuotaError('file_too_large', 413);
+                }
+                const existing = await client.query(
+                    `SELECT source, size_bytes, storage_path FROM cloud_sync_quests
+                      WHERE user_id = $1 AND quest_id = $2 AND deleted_at IS NULL
+                      FOR UPDATE`,
+                    [userId, questId],
+                );
+                const exists = (existing.rowCount ?? 0) > 0;
+                const previous = exists ? existing.rows[0] : null;
+                const oldSize =
+                    previous?.source === 'user' ? Number(previous.size_bytes) || 0 : 0;
+                const projected = (Number(quota.used_bytes) || 0) - oldSize + size;
+                if (projected > Number(quota.max_bytes) && quota.tier !== 'admin') {
+                    throw new QuotaError('bytes_quota_exceeded', 413);
+                }
+                const counts = await loadCountsTx(client, userId);
+                const hasUserSlot = previous?.source === 'user';
+                if (!hasUserSlot && counts.user >= quota.max_quests && quota.tier !== 'admin') {
+                    throw new QuotaError('quest_quota_exceeded', 403);
+                }
+                obsoleteStoragePath = previous?.storage_path || null;
+
+                await client.query(
+                    `INSERT INTO cloud_sync_quests (
+                        user_id, quest_id, title, source, size_bytes, fingerprint,
+                        storage_path, market_quest_id, market_version,
+                        created_at, updated_at
+                     ) VALUES ($1,$2,$3,'user',$4,$5,$6,NULL,NULL, now(), now())
+                     ON CONFLICT (user_id, quest_id) DO UPDATE SET
+                        title           = EXCLUDED.title,
+                        source          = 'user',
+                        size_bytes      = EXCLUDED.size_bytes,
+                        fingerprint     = EXCLUDED.fingerprint,
+                        storage_path    = EXCLUDED.storage_path,
+                        market_quest_id = NULL,
+                        market_version  = NULL,
+                        deleted_at      = NULL,
+                        updated_at      = now()`,
+                    [userId, questId, title, size, received.fingerprint, promo.storagePath],
+                );
+            });
+
+            if (obsoleteStoragePath && obsoleteStoragePath !== promo.storagePath) {
+                await deleteBlob(obsoleteStoragePath).catch(() => {});
             }
-            // user-слот считается ТОЛЬКО по user-квестам, market_ref не блокирует
-            if (!exists && counts.user >= q.max_quests && q.tier !== 'admin') {
-                return res.status(403).json({ error: 'quest_quota_exceeded' });
-            }
-
-            const computedFp = sha256Hex(buf);
-            if (clientFingerprint && clientFingerprint !== computedFp) {
-                // Не критично, просто залогируем
-                // console.warn('Fingerprint mismatch', { clientFingerprint, computedFp });
-            }
-
-            const written = await writeQuestFile(userId, questId, buf);
-
-            await pool.query(
-                `INSERT INTO cloud_sync_quests (
-                    user_id, quest_id, title, source, size_bytes, fingerprint,
-                    storage_path, market_quest_id, market_version,
-                    created_at, updated_at
-                 ) VALUES ($1,$2,$3,'user',$4,$5,$6,NULL,NULL, now(), now())
-                 ON CONFLICT (user_id, quest_id) DO UPDATE SET
-                    title           = EXCLUDED.title,
-                    source          = 'user',
-                    size_bytes      = EXCLUDED.size_bytes,
-                    fingerprint     = EXCLUDED.fingerprint,
-                    storage_path    = EXCLUDED.storage_path,
-                    market_quest_id = NULL,
-                    market_version  = NULL,
-                    deleted_at      = NULL,
-                    updated_at      = now()`,
-                [userId, questId, title, size, written.fingerprint, written.path],
-            );
-
-            await audit(userId, questId, 'upload', size, { fingerprint: written.fingerprint });
+            await audit(userId, questId, 'upload', size, {
+                fingerprint: received.fingerprint,
+            });
             return res.json({
                 questId,
                 source: 'user',
                 size,
-                fingerprint: written.fingerprint,
+                fingerprint: received.fingerprint,
             });
-        } catch (e: any) {
+        } catch (e) {
+            // COMMIT не прошёл (или квота): новый blob никому не принадлежит.
+            // Удаляем только то, что создали мы и на что не ссылается строка.
+            if (promoted?.created) {
+                const refs = await pool
+                    .query(
+                        `SELECT 1 FROM cloud_sync_quests
+                          WHERE storage_path = $1 AND deleted_at IS NULL LIMIT 1`,
+                        [promoted.storagePath],
+                    )
+                    .catch(() => null);
+                if (refs && (refs.rowCount ?? 0) === 0) {
+                    await deleteBlob(promoted.storagePath).catch(() => {});
+                }
+            }
+            if (e instanceof PayloadTooLargeError) {
+                return res.status(413).json({ error: 'file_too_large' });
+            }
+            if (e instanceof QuotaError) {
+                return res.status(e.status).json({ error: e.code });
+            }
+            if (e instanceof Error && e.message === 'empty body') {
+                return res.status(400).json({
+                    error: 'binary .mnd body required (application/octet-stream)',
+                });
+            }
             console.error('[cloud-sync] PUT error:', e);
-            res.status(500).json({ error: 'Internal server error' });
+            return res.status(500).json({ error: 'Internal server error' });
         }
     },
 );
@@ -557,7 +687,8 @@ router.get(
             const { questId } = req.params;
 
             const r = await pool.query(
-                `SELECT q.source, q.size_bytes, q.fingerprint, q.market_quest_id,
+                `SELECT q.source, q.size_bytes, q.fingerprint, q.storage_path,
+                        q.market_quest_id,
                         mq.download_url, mq.status AS market_status
                    FROM cloud_sync_quests q
               LEFT JOIN quests mq ON mq.id = q.market_quest_id
@@ -579,7 +710,9 @@ router.get(
                 return res.redirect(302, row.download_url);
             }
 
-            const { stream, size } = await readQuestStream(userId, questId);
+            const storagePath =
+                row.storage_path || legacyStoragePath(userId, questId);
+            const { stream, size } = await readBlob(storagePath);
             res.setHeader('Content-Type', 'application/octet-stream');
             res.setHeader('Content-Length', String(size));
             res.setHeader('x-fingerprint', row.fingerprint || '');
@@ -601,7 +734,7 @@ router.delete('/quests/:questId', async (req: AuthRequest, res: Response) => {
         const { questId } = req.params;
 
         const r = await pool.query(
-            `SELECT source, size_bytes FROM cloud_sync_quests
+            `SELECT source, size_bytes, storage_path FROM cloud_sync_quests
               WHERE user_id = $1 AND quest_id = $2 AND deleted_at IS NULL`,
             [userId, questId],
         );
@@ -617,7 +750,7 @@ router.delete('/quests/:questId', async (req: AuthRequest, res: Response) => {
         );
         if (row.source === 'user') {
             try {
-                await deleteQuestFile(userId, questId);
+                await deleteBlob(row.storage_path || legacyStoragePath(userId, questId));
             } catch (_) {
                 // best-effort
             }

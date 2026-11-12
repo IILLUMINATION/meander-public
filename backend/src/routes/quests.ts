@@ -492,10 +492,50 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
             }
         }
 
-        await client.query('COMMIT');
+        // Файл занимает постоянное место ДО COMMIT, но с откатом:
+        //   - старый файл уводится в backup;
+        //   - новый встаёт на постоянный путь;
+        //   - COMMIT фиксирует запись;
+        //   - на успехе backup удаляется, на сбое — восстанавливается.
+        // Раньше порядок был COMMIT → rename: если rename падал, в каталоге
+        // оставалась опубликованная запись без файла (и staging удалялся в
+        // finally). Обратный порядок без backup терял старую версию при сбое
+        // COMMIT.
+        let backupPath: string | null = null;
+        try {
+            const previous = await fsPromises
+                .stat(permFilePath)
+                .then(() => true)
+                .catch(() => false);
+            if (previous) {
+                backupPath = `${permFilePath}.bak-${crypto.randomUUID()}`;
+                await fsPromises.rename(permFilePath, backupPath);
+            }
+            await fsPromises.rename(stagingPath, permFilePath);
+        } catch (e) {
+            if (backupPath) {
+                await fsPromises.rename(backupPath, permFilePath).catch(() => {});
+                backupPath = null;
+            }
+            throw e;
+        }
+        // staging больше не существует — finally не должен его удалять.
+        const stagingIndex = cleanupPaths.indexOf(stagingPath);
+        if (stagingIndex >= 0) cleanupPaths.splice(stagingIndex, 1);
 
-        // Файл занимает постоянное место только у закоммиченной публикации.
-        await fsPromises.rename(stagingPath, permFilePath);
+        try {
+            await client.query('COMMIT');
+        } catch (e) {
+            await fsPromises.unlink(permFilePath).catch(() => {});
+            if (backupPath) {
+                await fsPromises.rename(backupPath, permFilePath).catch(() => {});
+                backupPath = null;
+            }
+            throw e;
+        }
+        if (backupPath) {
+            await fsPromises.unlink(backupPath).catch(() => {});
+        }
 
         const publishedQuest = resDb.rows[0];
         if (status === 'published') {

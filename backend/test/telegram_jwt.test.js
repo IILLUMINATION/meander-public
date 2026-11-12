@@ -21,7 +21,12 @@ function sign(payload, { key = BOT, alg = 'HS256' } = {}) {
     return `${header}.${body}.${sig}`;
 }
 
-const freshPayload = () => ({ sub: '42', auth_date: Math.floor(Date.now() / 1000) });
+// exp обязателен: токен без exp раньше считался вечным.
+const freshPayload = () => ({
+    sub: '42',
+    auth_date: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 900,
+});
 
 test('Подписанный ботом токен проходит', () => {
     const payload = verifyTelegramIdToken(sign(freshPayload()), BOT);
@@ -74,4 +79,25 @@ test('Мусор вместо JWT — 401, а не 500', () => {
 
 test('Без ключа бота вход закрыт', () => {
     assert.throws(() => verifyTelegramIdToken(sign(freshPayload()), ''), { status: 401 });
+});
+
+test('Токен без exp — 401 (было: принимался как вечный)', () => {
+    const token = sign({ sub: '42', auth_date: Math.floor(Date.now() / 1000) });
+    assert.throws(() => verifyTelegramIdToken(token, BOT), { status: 401 });
+});
+
+test('exp не число — 401', () => {
+    for (const bad of [String(Math.floor(Date.now() / 1000) + 900), true, null]) {
+        assert.throws(() => verifyTelegramIdToken(sign({ sub: '42', exp: bad }), BOT), { status: 401 }, String(bad));
+    }
+});
+
+test('exp намного в будущем — 401 (украденный токен не «вечный»)', () => {
+    const token = sign({ sub: '42', exp: Math.floor(Date.now() / 1000) + 86400 * 365 });
+    assert.throws(() => verifyTelegramIdToken(token, BOT), { status: 401 });
+});
+
+test('Расхождение часов в пределах skew принимается', () => {
+    const token = sign({ sub: '42', exp: Math.floor(Date.now() / 1000) + 120 });
+    assert.equal(verifyTelegramIdToken(token, BOT).sub, '42');
 });

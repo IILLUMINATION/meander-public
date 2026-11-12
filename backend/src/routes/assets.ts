@@ -1,4 +1,5 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import pool from '../config/database';
 import { publicUrl } from '../config/public_host';
 import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middleware/auth';
@@ -8,13 +9,14 @@ import fsPromises from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
-import crypto from 'crypto';
 import { pipeline } from 'stream/promises';
 import { uploadImage } from '../services/image_host';
 import { canSeeUnpublished, isStaff } from '../services/visibility';
 import { moderateReview } from '../services/moderation';
 import { awardAchievement } from '../services/achievements';
 import { createNotification } from '../services/notifications';
+import { checkUploadAllowed, hashFile } from '../services/upload_guard';
+import { clientIp } from '../services/client_ip';
 
 function sanitizeText(str: string, maxLength = 5000): string {
   if (typeof str !== 'string') return '';
@@ -65,16 +67,35 @@ const upload = multer({
   }
 });
 
-function calcHash(p: string): string {
-  const buf = fs.readFileSync(p);
-  return crypto.createHash('sha256').update(buf).digest('hex');
+// Лимит попыток — до multer: отказ не должен принимать 100 МБ файл.
+const uploadAttempts = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req: Request) =>
+    (req as AuthRequest).user?.id || ipKeyGenerator(clientIp(req)),
+  standardHeaders: true,
+});
+
+async function guardUpload(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const denial = await checkUploadAllowed(req.user?.id as string, 'market_assets');
+    if (denial) return res.status(denial.status).json({ error: denial.error });
+    next();
+  } catch (e) {
+    console.error('[assets] upload guard failed', e);
+    res.status(503).json({ error: 'Upload temporarily unavailable' });
+  }
 }
 
 // POST /assets - upload
-router.post('/', authMiddleware, upload.fields([{ name: 'assetFile', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, uploadAttempts, guardUpload, upload.fields([{ name: 'assetFile', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), async (req: AuthRequest, res: Response) => {
   const files = req.files as { [k: string]: Express.Multer.File[] } | undefined;
   const assetFile = files?.['assetFile']?.[0];
   const coverFile = files?.['cover']?.[0];
+  // Постоянный файл удаляем, если строка БД так и не появилась: иначе при
+  // сбое после копирования оставался orphan, который не убирает обычный DELETE.
+  let destPath: string | null = null;
+  let persisted = false;
   try {
     const userId = (req as any).user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -87,13 +108,6 @@ router.post('/', authMiddleware, upload.fields([{ name: 'assetFile', maxCount: 1
     const description = sanitizeText((req.body.description as string) || '', 2000);
     if (!title) { deleteTempFile(assetFile.path); if (coverFile) deleteTempFile(coverFile.path); return res.status(400).json({ error: 'title required' }); }
 
-    // spam: blocked & 5/hour
-    try {
-      const blk = await pool.query('SELECT is_blocked FROM profiles WHERE id=$1', [userId]);
-      if (blk.rows[0]?.is_blocked) { deleteTempFile(assetFile.path); if (coverFile) deleteTempFile(coverFile.path); return res.status(403).json({ error: 'Blocked' }); }
-      const recent = await pool.query("SELECT COUNT(*) FROM market_assets WHERE author_id=$1 AND created_at > NOW() - INTERVAL '1 hour'", [userId]);
-      if (parseInt(recent.rows[0].count) >= 5) { deleteTempFile(assetFile.path); if (coverFile) deleteTempFile(coverFile.path); return res.status(429).json({ error: 'Too many uploads. Max 5 per hour.' }); }
-    } catch (e) { console.warn('[assets] spam check failed', e); }
 
     const ext = path.extname(assetFile.originalname).toLowerCase();
     const allowed = kindExtensions[kind] || [];
@@ -104,10 +118,10 @@ router.post('/', authMiddleware, upload.fields([{ name: 'assetFile', maxCount: 1
 
     const id = uuidv4();
     const destName = `${id}${ext}`;
-    const destPath = path.join(ASSETS_DIR, destName);
+    destPath = path.join(ASSETS_DIR, destName);
     await pipeline(fs.createReadStream(assetFile.path), fs.createWriteStream(destPath));
     deleteTempFile(assetFile.path);
-    const hash = calcHash(destPath);
+    const hash = await hashFile(destPath);
     const stat = await fsPromises.stat(destPath);
 
     // dedup
@@ -127,6 +141,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'assetFile', maxCount: 1
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'in_review',$12,$13,$13) RETURNING *`,
       [id, kind, title, description || null, genre || null, genres, fileUrl, coverUrl, license, hash, stat.size, userId, now]
     );
+    persisted = true;
     const row = ins.rows[0];
     const author = (await pool.query('SELECT full_name, is_verified FROM profiles WHERE id=$1', [userId])).rows[0];
     const out = { ...row, author_name: author?.full_name || null, author_is_verified: !!author?.is_verified, download_url: fileUrl };
@@ -135,6 +150,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'assetFile', maxCount: 1
     console.error('[assets] POST', e);
     if (assetFile) deleteTempFile(assetFile.path);
     const cf = (req.files as any)?.['cover']?.[0]; if (cf) deleteTempFile(cf.path);
+    if (!persisted && destPath) fsPromises.unlink(destPath).catch(() => {});
     return res.status(500).json({ error: e.message || 'Internal error' });
   }
 });

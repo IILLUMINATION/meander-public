@@ -1,4 +1,5 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import pool from '../config/database';
 import { publicUrl } from '../config/public_host';
 import authMiddleware, { AuthRequest, optionalAuthMiddleware } from '../middleware/auth';
@@ -8,13 +9,14 @@ import fsPromises from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
-import crypto from 'crypto';
 import { pipeline } from 'stream/promises';
 
 import { uploadImage } from '../services/image_host';
 import { canSeeUnpublished, isStaff } from '../services/visibility';
 import { moderateReview } from '../services/moderation';
 import { awardAchievement } from '../services/achievements';
+import { checkUploadAllowed, hashFile } from '../services/upload_guard';
+import { clientIp } from '../services/client_ip';
 
 function stripHtml(str: string): string {
   if (typeof str !== 'string') return '';
@@ -76,34 +78,40 @@ const upload = multer({
   }
 });
 
-function calcFileHash(filePath: string): string {
-  const buf = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(buf).digest('hex');
+// Лимит попыток стоит ДО multer: отказ не должен стоить записи 100 МБ в temp.
+const uploadAttempts = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req: Request) =>
+    (req as AuthRequest).user?.id || ipKeyGenerator(clientIp(req)),
+  standardHeaders: true,
+});
+
+async function guardUpload(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const denial = await checkUploadAllowed(req.user?.id as string, 'music_tracks');
+    if (denial) return res.status(denial.status).json({ error: denial.error });
+    next();
+  } catch (e) {
+    console.error('[music] upload guard failed', e);
+    res.status(503).json({ error: 'Upload temporarily unavailable' });
+  }
 }
 
 // POST /music - upload track (spam protection: block check + 5/hour limit + hash dedup)
-router.post('/', authMiddleware, upload.fields([{ name: 'musicFile', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, uploadAttempts, guardUpload, upload.fields([{ name: 'musicFile', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), async (req: AuthRequest, res: Response) => {
   const files = req.files as { [k: string]: Express.Multer.File[] } | undefined;
   const musicFile = files?.['musicFile']?.[0];
   const coverFile = files?.['cover']?.[0];
+  // Постоянный файл удаляем, только если строка БД так и не появилась:
+  // иначе при сбое после копирования оставался orphan на диске.
+  let destPath: string | null = null;
+  let persisted = false;
   try {
     const userId = (req as any).user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
     if (!musicFile) return res.status(400).json({ error: 'musicFile is required' });
 
-    // spam protection: blocked users & rate limit 5/hour
-    try {
-      const blk = await pool.query('SELECT is_blocked FROM profiles WHERE id=$1', [userId]);
-      if (blk.rows[0]?.is_blocked) {
-        deleteTempFile(musicFile.path); if (coverFile) deleteTempFile(coverFile.path);
-        return res.status(403).json({ error: 'You are blocked' });
-      }
-      const recent = await pool.query("SELECT COUNT(*) FROM music_tracks WHERE author_id=$1 AND created_at > NOW() - INTERVAL '1 hour'", [userId]);
-      if (parseInt(recent.rows[0].count) >= 5) {
-        deleteTempFile(musicFile.path); if (coverFile) deleteTempFile(coverFile.path);
-        return res.status(429).json({ error: 'Too many uploads. Max 5 per hour.' });
-      }
-    } catch (e) { console.warn('[music] spam check failed', e); }
 
     const title = sanitizeText((req.body.title as string) || '', 200);
     const performer = sanitizeText((req.body.performer as string) || '', 200);
@@ -122,12 +130,12 @@ router.post('/', authMiddleware, upload.fields([{ name: 'musicFile', maxCount: 1
     const id = uuidv4();
     const ext = path.extname(musicFile.originalname).toLowerCase() || '.mp3';
     const destName = `${id}${ext}`;
-    const destPath = path.join(MUSIC_STORAGE_DIR, destName);
+    destPath = path.join(MUSIC_STORAGE_DIR, destName);
     // copy temp -> storage
     await pipeline(fs.createReadStream(musicFile.path), fs.createWriteStream(destPath));
     deleteTempFile(musicFile.path);
 
-    const fileHash = calcFileHash(destPath);
+    const fileHash = await hashFile(destPath);
     const stat = await fsPromises.stat(destPath);
     const fileSize = stat.size;
 
@@ -156,6 +164,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'musicFile', maxCount: 1
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'in_review',$12,$13,$13) RETURNING *`,
       [id, title, performer, description || null, genre || (genres[0] || null), genres, fileUrl, coverUrl, license, fileHash, fileSize, userId, now]
     );
+    persisted = true;
     const row = inserted.rows[0];
     // join author name
     const authorRes = await pool.query(`SELECT full_name, is_verified, cosmetics->>'name_style' AS name_style, cosmetics AS cosmetics FROM profiles WHERE id=$1`, [userId]);
@@ -166,6 +175,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'musicFile', maxCount: 1
     console.error('[music] POST /', e);
     if (musicFile) deleteTempFile(musicFile.path);
     if (coverFile) deleteTempFile(coverFile.path);
+    if (!persisted && destPath) fsPromises.unlink(destPath).catch(() => {});
     return res.status(500).json({ error: e.message || 'Internal error' });
   }
 });
