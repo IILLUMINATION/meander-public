@@ -178,7 +178,7 @@ jobs:
 
       - name: Build iOS app (${{ matrix.slice.name }})
         if: steps.gate.outputs.run == 'true'
-        run: flutter build ios --release ${{ matrix.slice.flutter_flag }}
+        run: flutter build ios --release ${{ matrix.slice.flutter_flag }} --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
 
       - name: Лог xcodebuild при неудаче
         if: failure()

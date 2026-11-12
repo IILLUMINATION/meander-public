@@ -11,6 +11,7 @@ import compression from 'compression';
 import hpp from 'hpp';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import pool from './config/database';
+import { publicBaseUrl } from './config/public_host';
 
 import authRoutes from './routes/auth';
 import authYandexRoutes from './routes/auth_yandex';
@@ -248,7 +249,7 @@ app.get('/.well-known/security.txt', (_req: Request, res: Response) => {
     'Contact: https://github.com/IILLUMINATION/meander-public/security/advisories/new\n' +
     'Expires: 2027-11-07T00:00:00.000Z\n' +
     'Preferred-Languages: ru, en\n' +
-    'Canonical: https://meander.illuminat.dev/.well-known/security.txt\n'
+    `Canonical: ${publicBaseUrl()}/.well-known/security.txt\n`
   );
 });
 app.get('/robots.txt', (_req: Request, res: Response) => {

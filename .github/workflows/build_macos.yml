@@ -148,7 +148,7 @@ jobs:
 
       - name: Build macOS release
         working-directory: apps/main_app
-        run: flutter build macos --release
+        run: flutter build macos --release --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
 
       - name: Проверка собранного приложения
         working-directory: apps/main_app

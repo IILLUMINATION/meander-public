@@ -91,6 +91,23 @@ Melos берётся из корневого `pubspec.yaml` (6.3.3): верси�
 `melos.yaml`. После пересборки Rust-ядра `flutter run` нужно перезапускать:
 hot reload не подхватывает новую `.so`.
 
+### Домен бэкенда
+
+Адрес живёт в одном месте — `AppConfig.vpsApiBaseUrl` (`apps/main_app/lib/core/config.dart`).
+Меняется без правки кода: переменная репозитория `MEANDER_API_BASE` в CI либо
+флаг на сборке.
+
+```bash
+flutter build apk --release --dart-define=MEANDER_API_BASE=https://новый.домен
+```
+
+Для Android-манифеста (https-диплинки `/share/...`) хост задаётся отдельно —
+`MEANDER_PUBLIC_HOST` (gradle property или переменная окружения), по умолчанию
+совпадает с текущим доменом. На сервере те же значения берутся из `BASE_URL`
+(бэкенд, см. `backend/src/config/public_host.ts`) и `SITE_ORIGIN`/`API_ORIGIN`
+(сайт). Тест `apps/main_app/test/core/config_domain_test.dart` не даёт завести
+новую копию домена в коде.
+
 ### OAuth
 
 Обычной сборке ничего настраивать не нужно. Публичные client id для Google,

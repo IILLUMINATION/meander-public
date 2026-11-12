@@ -120,7 +120,7 @@ final Map<String, String> ptBrStrings = {
   'Разработчик и дизайнер': 'Desenvolvedor e designer',
   'С чего начнём?': 'Por onde começar?',
   'Скачать': 'Baixar',
-  'Ссылка на загрузку не задана — зайдите на meander.illuminat.dev': 'O link de download não foi definido — acesse meander.illuminat.dev',
+  'Ссылка на загрузку не задана — зайдите на {p0}': 'O link de download não foi definido — acesse {p0}',
   'Текущая версия': 'Versão atual',
   'Этот выбор решает только первый экран: квесты открываются со входа, редактор — из «Мои». Табы никуда не деваются — передумаешь в один тап.': 'Essa escolha define só a primeira tela: as quests abrem pela entrada, o editor por "Meus". As abas continuam todas aqui — você muda de ideia em um toque.',
   'Будьте первым, кто оставит мнение': 'Seja o primeiro a deixar sua opinião',

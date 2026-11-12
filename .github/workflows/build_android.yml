@@ -26,6 +26,13 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Домен задаётся переменными репозитория, код править не нужно:
+      #   vars.MEANDER_API_BASE = https://новый.домен
+      #   vars.MEANDER_HOST     = новый.домен
+      # Gradle видит хост через переменную окружения (см. build.gradle.kts).
+      MEANDER_API_BASE: ${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}
+      MEANDER_PUBLIC_HOST: ${{ vars.MEANDER_HOST || 'meander.illuminat.dev' }}
     timeout-minutes: 75
     steps:
       - name: Free disk space
@@ -125,7 +132,8 @@ jobs:
           version="$(grep -E '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
           for FLAVOR in $FLAVORS; do
             flutter build apk --release --flavor "$FLAVOR" \
-              --target-platform android-arm64
+              --target-platform android-arm64 \
+              --dart-define=MEANDER_API_BASE="$MEANDER_API_BASE"
             cp "build/app/outputs/flutter-apk/app-$FLAVOR-release.apk" \
               "$GITHUB_WORKSPACE/dist/meander-$version-$FLAVOR-arm64.apk"
           done

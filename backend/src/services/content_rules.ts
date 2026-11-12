@@ -1,3 +1,4 @@
+import { publicBaseUrl } from '../config/public_host';
 // Правила модерации вместо LLM: только перечислимые критерии, детерминированно,
 // без сети. Упавший «ИИ» раньше автоматически одобрял весь контент — правила не падают.
 
@@ -28,7 +29,25 @@ export interface Verdict {
     codes: string[];
 }
 
-const MEANDER_HOSTS = ['meander.illuminat.dev', 'meander.app'];
+/**
+ * Свои домены: ссылки на них — не «чужая ссылка». Действующий хост берём
+ * из BASE_URL, старые/альтернативные — из MEANDER_HOST_ALIASES (через
+ * запятую), чтобы при переезде не править код.
+ */
+const MEANDER_HOSTS: string[] = (() => {
+    const hosts = new Set<string>(['meander.app']);
+    try {
+        const own = new URL(publicBaseUrl()).hostname.toLowerCase();
+        if (own && own !== 'localhost') hosts.add(own);
+    } catch {
+        // BASE_URL не задан/битый — останутся только алиасы.
+    }
+    for (const alias of (process.env.MEANDER_HOST_ALIASES || '').split(',')) {
+        const trimmed = alias.trim().toLowerCase();
+        if (trimmed) hosts.add(trimmed);
+    }
+    return [...hosts];
+})();
 
 const ZERO_WIDTH = /[​-‏­﻿]/g;
 // Точки и дефисы не трогаем: они держат границу слова для проверки мата.

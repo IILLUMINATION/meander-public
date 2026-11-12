@@ -49,15 +49,27 @@ final RegExp _uuid = RegExp(
   caseSensitive: false,
 );
 
-const String _prodHosts = r'(?:backend\.)?meander\.(?:sbs|illuminat\.dev)';
+/// Домены, с которых начинали и переезжали. Ссылки из старых постов и
+/// сообщений должны оставаться карточками, поэтому история хостов живёт
+/// здесь, а действующий адрес приходит из конфига: при очередном переезде
+/// достаточно пополнить этот список, а не искать регулярки по коду.
+const List<String> legacyMeanderHosts = [
+  'meander.sbs',
+  'backend.meander.sbs',
+  'meander.illuminat.dev',
+];
 
 /// Хосты, которые принадлежат приложению. Без этого чужой
 /// `example.com/share/quest/<uuid>` тоже превратился бы в карточку.
-/// Прод прописан явно, а текущий бэкенд разработки — из конфига, чтобы
-/// ссылки из `AppConfig.apiUrl` распознавались без правок здесь.
-final String _hosts =
-    '$_prodHosts|'
-    '${RegExp.escape(AppConfig.apiUrl.replaceFirst(RegExp(r'^https?://'), ''))}';
+final String _hosts = [
+  ...legacyMeanderHosts,
+  AppConfig.vpsApiBaseUrl,
+  AppConfig.apiUrl,
+]
+    .map((u) => u.replaceFirst(RegExp(r'^https?://'), ''))
+    .map(RegExp.escape)
+    .toSet()
+    .join('|');
 
 /// Общий кусок адреса: `хост/share/<тип>/<uuid>`. `before`/`after` — рамки
 /// конкретного вида ссылки (скобки markdown-ссылки или ничего).

@@ -11,7 +11,21 @@ enum BackendType { local, vps }
 class AppConfig {
   static const BackendType currentBackend = BackendType.vps;
 
-  static const String vpsApiBaseUrl = 'https://meander.illuminat.dev';
+  /// Публичный адрес бэкенда (он же адрес сайта). Единственное место, где
+  /// домен вписан в код: при переезде меняется здесь либо, без правки
+  /// исходников, на сборке —
+  /// `flutter build apk --dart-define=MEANDER_API_BASE=https://new.host`.
+  static const String vpsApiBaseUrl = String.fromEnvironment(
+    'MEANDER_API_BASE',
+    defaultValue: 'https://meander.illuminat.dev',
+  );
+
+  /// Хост без схемы — для подписей, PDF и текстов («Meander · host»).
+  static String get siteHost => Uri.parse(vpsApiBaseUrl).host;
+
+  /// Ссылка на публичную страницу: `shareUrl('quest', id)`.
+  static String shareUrl(String kind, String id) =>
+      '$vpsApiBaseUrl/share/$kind/$id';
   static const String localApiBaseUrl = 'http://192.168.0.101:3000';
 
   /// Зеркала в порядке приоритета. Сейчас встроенное одно — основной

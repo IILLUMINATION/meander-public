@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'package:canvas_app/core/config.dart';
+
 class VersionCheckResult {
   final bool hasUpdate;
   final bool isCritical;
@@ -34,8 +36,10 @@ class VersionCheckResult {
 }
 
 class VersionCheckService {
-  static const String _checkUrl =
-      'https://meander.illuminat.dev/api/app/version/check';
+  /// Проверка версии идёт на основной домен, а не на текущее зеркало:
+  /// она нужна как раз тогда, когда обычный API не отвечает.
+  static String get _checkUrl =>
+      '${AppConfig.vpsApiBaseUrl}/api/app/version/check';
 
   static Future<VersionCheckResult> check() async {
     try {

@@ -19,8 +19,8 @@ final Map<String, String> enB2App = {
   'Разработчик и дизайнер': 'Developer and designer',
   'С чего начнём?': 'Where do we start?',
   'Скачать': 'Download',
-  'Ссылка на загрузку не задана — зайдите на meander.illuminat.dev':
-      'The download link is not set — go to meander.illuminat.dev',
+  'Ссылка на загрузку не задана — зайдите на {p0}':
+      'The download link is not set — go to {p0}',
   'Текущая версия': 'Current version',
   'Этот выбор решает только первый экран: квесты открываются со входа, редактор — из «Мои». Табы никуда не деваются — передумаешь в один тап.':
       'This choice only sets the first screen: quests open from the entry, the editor — from "Mine". The tabs are not going anywhere — you can change your mind in a single tap.',

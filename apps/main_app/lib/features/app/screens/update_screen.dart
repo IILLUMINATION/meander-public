@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 
 const String _playListingUrl =
@@ -41,7 +42,10 @@ class UpdateScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              tr('Ссылка на загрузку не задана — зайдите на meander.illuminat.dev'),
+              trf(
+                'Ссылка на загрузку не задана — зайдите на {p0}',
+                {'p0': AppConfig.siteHost},
+              ),
             ),
             behavior: SnackBarBehavior.floating,
           ),

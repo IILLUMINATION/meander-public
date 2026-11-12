@@ -47,7 +47,7 @@ jobs:
 
       - name: Build Windows release
         working-directory: apps/main_app
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
 
       - name: Copy mnd_ffi.dll next to executable
         shell: bash

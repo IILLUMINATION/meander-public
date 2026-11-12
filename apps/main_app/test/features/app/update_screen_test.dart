@@ -1,3 +1,4 @@
+import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/features/app/screens/update_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,7 +31,9 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Ссылка на загрузку не задана — зайдите на meander.illuminat.dev'),
+      find.text(
+        'Ссылка на загрузку не задана — зайдите на ${AppConfig.siteHost}',
+      ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

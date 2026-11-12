@@ -120,7 +120,7 @@ final Map<String, String> esStrings = {
   'Разработчик и дизайнер': 'Desarrollador y diseñador',
   'С чего начнём?': '¿Por dónde empezamos?',
   'Скачать': 'Descargar',
-  'Ссылка на загрузку не задана — зайдите на meander.illuminat.dev': 'No se ha definido el enlace de descarga: entra en meander.illuminat.dev',
+  'Ссылка на загрузку не задана — зайдите на {p0}': 'No se ha definido el enlace de descarga: entra en {p0}',
   'Текущая версия': 'Versión actual',
   'Этот выбор решает только первый экран: квесты открываются со входа, редактор — из «Мои». Табы никуда не деваются — передумаешь в один тап.': 'Esta elección solo afecta a la primera pantalla: las aventuras se abren desde la entrada, el editor desde «Míos». Las pestañas no desaparecen: cambiar de opinión cuesta un toque.',
   'Будьте первым, кто оставит мнение': 'Sé el primero en dejar tu opinión',

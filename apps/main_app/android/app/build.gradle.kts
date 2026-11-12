@@ -199,6 +199,13 @@ android {
         manifestPlaceholders["TELEGRAM_CLIENT_ID"] =
             (project.findProperty("TELEGRAM_CLIENT_ID") as String?) ?: ""
         manifestPlaceholders["YANDEX_OAUTH_HOST"] = "oauth.yandex.ru"
+        // Хост для https-диплинков (`/share/...`). Меняется без правки
+        // манифеста: -PMEANDER_PUBLIC_HOST=новый.домен. Адрес API задаётся
+        // отдельно на сборке: --dart-define=MEANDER_API_BASE=... (config.dart).
+        manifestPlaceholders["MEANDER_PUBLIC_HOST"] =
+            (project.findProperty("MEANDER_PUBLIC_HOST") as String?)
+                ?: System.getenv("MEANDER_PUBLIC_HOST")
+                ?: "meander.illuminat.dev"
     }
 
     // --- Flavors ---
