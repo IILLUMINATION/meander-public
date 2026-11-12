@@ -154,6 +154,23 @@ class QuestStore {
     return FileStorage.listFiles(relDir, extension: extension);
   }
 
+  /// Массовый снимок каталога одним вызовом ядра: JSON-массив
+  /// `[{file,size,mtimeMs,name,blocks}]` или `null`, если моста нет
+  /// (тогда вызывающий идёт пофайлово через [FileStorage]).
+  Future<String?> scanFiles(
+    String relDir, {
+    String? extension,
+    bool parseJson = false,
+  }) async {
+    if (!rustBackend) return null;
+    return gen.questStoreScanFiles(
+      root: root,
+      relDir: relDir,
+      extension_: extension,
+      parseJson: parseJson,
+    );
+  }
+
   // ── Запись ─────────────────────────────────────────────────────────────
 
   Future<void> writeJson(String relPath, Map<String, dynamic> data) async {

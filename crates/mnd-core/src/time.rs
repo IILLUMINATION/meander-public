@@ -27,3 +27,17 @@ pub fn unix_now_nanos() -> u128 {
 pub fn unix_now_secs() -> u64 {
     (unix_now_nanos() / 1_000_000_000) as u64
 }
+
+/// Время из `Metadata::modified()` в миллисекундах UNIX-эпохи.
+///
+/// Часы std не должны встречаться вне этого файла (см.
+/// `tests/wasm_clock.rs`): на wasm `SystemTime::now()` паникует. Здесь же
+/// только арифметика над уже полученным временем файла, поэтому функция
+/// безопасна в обоих мирах; если часы вернули ошибку — 0.
+pub fn mtime_millis(modified: std::io::Result<std::time::SystemTime>) -> Option<u64> {
+    modified
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as u64)
+}

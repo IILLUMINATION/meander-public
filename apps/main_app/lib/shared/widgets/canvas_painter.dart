@@ -119,7 +119,10 @@ class InfiniteCanvasPainter extends CustomPainter {
       return g.bounds.overlaps(expandedRect);
     }).toList();
 
-    // Батчинг: 1 drawPath на вид связи вместо 2* N
+    // Батчинг: 1 drawPath на вид связи. Виртуальные рёбра (timer/script)
+    // рисуются пунктиром — иначе они неотличимы от content-рёбер и сливаются
+    // с ними в одну сплошную линию. На мелком зуме пунктир нечитаем, там
+    // остаётся тонкая сплошная.
     if (visibleConnections.isNotEmpty) {
       final solidContent = Path();
       final solidTimer = Path();
@@ -137,12 +140,14 @@ class InfiniteCanvasPainter extends CustomPainter {
           target = solidContent;
         }
         if (c.isVirtual) {
-          // Служебные связи (таймер/скрипт) без стрелок: их рисовал и раньше.
-          target.moveTo(g.start.dx, g.start.dy);
-          target.lineTo(g.end.dx, g.end.dy);
+          // Служебные связи (таймер/скрипт) — пунктиром и без стрелок: иначе
+          // они неотличимы от обычных переходов и сливаются с ними в линию.
+          target.addPath(_dashedPathFor(g), Offset.zero);
         } else {
-          target.moveTo(g.start.dx, g.start.dy);
-          target.cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+          final curve = Path()
+            ..moveTo(g.start.dx, g.start.dy)
+            ..cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+          target.addPath(curve, Offset.zero);
           _addArrowToPath(arrowPath, g.cp2, g.end, size: arrowSize);
         }
       }
@@ -418,6 +423,38 @@ class InfiniteCanvasPainter extends CustomPainter {
       ..close();
     canvas.drawPath(path, paint);
   }
+
+  /// Пунктирная копия кривой связи.
+  ///
+  /// Нарезка на сегменты — самая дорогая часть отрисовки виртуальных рёбер
+  /// (у большого квеста их сотни), а геометрия между кадрами панорамы/зума не
+  /// меняется. Ключ — сам объект геометрии (пересоздаётся при движении нод),
+  /// поэтому кэш живёт по identity и не требует сравнений путей.
+  static final Map<ConnectionGeometry, Path> _dashedPaths =
+      <ConnectionGeometry, Path>{};
+
+  Path _dashedPathFor(ConnectionGeometry g) {
+    final cached = _dashedPaths[g];
+    if (cached != null) return cached;
+    final curve = Path()
+      ..moveTo(g.start.dx, g.start.dy)
+      ..cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+    final dashed = Path();
+    for (final metric in curve.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final end = math.min(distance + _dash, metric.length);
+        dashed.addPath(metric.extractPath(distance, end), Offset.zero);
+        distance = end + _dashGap;
+      }
+    }
+    if (_dashedPaths.length > 4096) _dashedPaths.clear();
+    _dashedPaths[g] = dashed;
+    return dashed;
+  }
+
+  static const double _dash = 8;
+  static const double _dashGap = 6;
 
   void _addArrowToPath(
     Path arrowPath,

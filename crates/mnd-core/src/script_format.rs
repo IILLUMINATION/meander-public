@@ -545,6 +545,80 @@ fn walk_validate(
     }
 }
 
+/// Число блоков-действий в скрипте (паритет с Dart
+/// `ResourceService.countActionBlocks`, который подписывает карточку в
+/// библиотеке): event-обёртки не считаются, вложенные в них блоки — да;
+/// контейнеры считаются за 1 плюс вложенные.
+///
+/// Живёт здесь, рядом со знанием о формате скрипта; библиотека ресурсов
+/// считает блоки одним проходом в ядре, не вычитывая сотни файлов в Dart.
+pub fn count_action_blocks(blocks: &[Value]) -> usize {
+    let mut count = 0;
+    for block in blocks {
+        let Some(map) = block.as_object() else {
+            continue;
+        };
+        let ty = map
+            .get("type")
+            .and_then(Value::as_str)
+            .or_else(|| map.get("действие").and_then(Value::as_str));
+        let is_event_wrapper = ty == Some(types::EVENT) || (ty.is_none() && map.contains_key("title"));
+        if !is_event_wrapper {
+            count += 1;
+        }
+        for key in ["children", "then_blocks", "else_blocks", "если_да", "если_нет"] {
+            if let Some(Value::Array(nested)) = map.get(key) {
+                count += count_action_blocks(nested);
+            }
+        }
+    }
+    count
+}
+
+#[cfg(test)]
+mod block_count_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn event_wrapper_is_not_a_block_but_children_are() {
+        let blocks = json!([
+            {"type": "event", "title": "При запуске", "children": [
+                {"type": "wait"},
+                {"type": "comment"}
+            ]},
+            {"type": "go_to_node"},
+        ]);
+        assert_eq!(count_action_blocks(blocks.as_array().unwrap()), 3);
+    }
+
+    #[test]
+    fn legacy_wrapper_without_type_is_ignored() {
+        let blocks = json!([
+            {"title": "При запуске ноды", "children": [{"type": "wait"}]}
+        ]);
+        assert_eq!(count_action_blocks(blocks.as_array().unwrap()), 1);
+    }
+
+    #[test]
+    fn containers_count_as_one_plus_nested() {
+        let blocks = json!([
+            {"type": "condition", "then_blocks": [{"type": "wait"}], "else_blocks": []},
+            {"type": "crossfade", "children": [{"type": "wait"}, {"type": "wait"}]}
+        ]);
+        assert_eq!(count_action_blocks(blocks.as_array().unwrap()), 5);
+    }
+
+    #[test]
+    fn legacy_then_keys_are_counted_and_non_objects_are_skipped() {
+        let blocks = json!([
+            {"type": "condition", "если_да": [{"type": "wait"}], "если_нет": [{"type": "wait"}]},
+            "мусор"
+        ]);
+        assert_eq!(count_action_blocks(blocks.as_array().unwrap()), 3);
+    }
+}
+
 #[cfg(test)]
 mod golden_tests {
     use super::*;

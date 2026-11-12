@@ -35,6 +35,23 @@ Future<String> questStoreDelete({required String root, required String relPath})
 Future<List<String>> questStoreListFiles({required String root, required String relDir, String? extension_}) =>
     RustLib.instance.api.crateApiQuestStoreQuestStoreListFiles(root: root, relDir: relDir, extension_: extension_);
 
+/// Массовый снимок каталога для библиотеки ресурсов: имена, размеры, mtime,
+/// а для JSON — имя из содержимого и число блоков-действий. Один переход
+/// через мост и один обход каталога вместо N чтений из Dart.
+///
+/// Возвращает JSON-массив `[{file,size,mtimeMs,name,blocks}]`.
+Future<String> questStoreScanFiles({
+  required String root,
+  required String relDir,
+  String? extension_,
+  required bool parseJson,
+}) => RustLib.instance.api.crateApiQuestStoreQuestStoreScanFiles(
+  root: root,
+  relDir: relDir,
+  extension_: extension_,
+  parseJson: parseJson,
+);
+
 /// Многофайловая транзакция. ops_json:
 /// [{"op":"write_json","path":"…","value":…} |
 ///  {"op":"write_text","path":"…","text":"…"} |

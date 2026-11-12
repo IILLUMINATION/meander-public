@@ -39,7 +39,7 @@ class ResourcesScreen extends ConsumerStatefulWidget {
 
 class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
+  late final ScrollController _scrollController;
 
   String _searchQuery = '';
   String _selectedType = 'all';
@@ -70,6 +70,15 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
   @override
   void initState() {
     super.initState();
+    // Папка переживает пересоздание экрана: воркспейс может заменить вкладку
+    // библиотеки скриптом (авто-вкладки выключены) и открыть её заново при
+    // возврате.
+    _currentFolder = ref.read(resourcesFolderProvider(widget.questId));
+    _scrollController = ScrollController(
+      initialScrollOffset: ref.read(
+        resourcesScrollOffsetProvider(widget.questId),
+      ),
+    )..addListener(_rememberScrollPosition);
     try {
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
@@ -87,6 +96,14 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _rememberScrollPosition() {
+    if (!_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    if (offset < 0) return;
+    ref.read(resourcesScrollOffsetProvider(widget.questId).notifier).state =
+        offset;
   }
 
   // --- PREFERENCES ---
@@ -112,33 +129,46 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
   // --- ЗАГРУЗКА ---
 
   Future<void> _loadResources({bool refreshOnly = false}) async {
+    final svc = ref.read(resourceServiceProvider(widget.questId));
     if (!refreshOnly) {
-      setState(() => _isLoading = true);
+      final cached = svc.lastLoaded;
+      if (cached != null) {
+        // Снимок прошлого открытия рисуем сразу, без спиннера: возврат из
+        // скрипта пересоздаёт экран, а данные уже в памяти. Диск читается
+        // фоном — если что-то поменялось, список обновится.
+        _applyData(cached);
+      } else {
+        setState(() => _isLoading = true);
+      }
     }
 
     try {
-      final svc = ref.read(resourceServiceProvider(widget.questId));
       final data = await svc.loadResources();
-
-      if (mounted) {
-        setState(() {
-          _explicitFolders = data.explicitFolders;
-          _resources = data.resources;
-          _isLoading = false;
-          _selectedItems.removeWhere((id) {
-            final isFile = data.resources.any((r) => r.id == id);
-            if (isFile) return false;
-            if (id.startsWith('/')) {
-              return !_allFolders.contains(id);
-            }
-            return true;
-          });
-          if (_selectedItems.isEmpty) _isSelectionMode = false;
-        });
-      }
+      if (mounted) setState(() => _applyData(data));
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _applyData(ResourcesData data) {
+    _explicitFolders = data.explicitFolders;
+    _resources = data.resources;
+    _isLoading = false;
+    // Папку могли удалить/переименовать, пока экран был закрыт.
+    if (_currentFolder != '/' &&
+        !_allFolders.contains(_normalizeFolderPath(_currentFolder))) {
+      _currentFolder = '/';
+      ref.read(resourcesFolderProvider(widget.questId).notifier).state = '/';
+    }
+    _selectedItems.removeWhere((id) {
+      final isFile = data.resources.any((r) => r.id == id);
+      if (isFile) return false;
+      if (id.startsWith('/')) {
+        return !_allFolders.contains(id);
+      }
+      return true;
+    });
+    if (_selectedItems.isEmpty) _isSelectionMode = false;
   }
 
   // --- ЛОГИКА ПАПОК ---
@@ -154,6 +184,8 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
 
   void _changeFolder(String newPath) {
     setState(() => _currentFolder = newPath);
+    ref.read(resourcesFolderProvider(widget.questId).notifier).state =
+        _currentFolder;
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
