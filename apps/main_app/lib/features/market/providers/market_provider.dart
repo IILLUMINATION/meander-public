@@ -82,18 +82,31 @@ List<MarketQuest> orderCatalogForPlayer(
 
 // === DATA PROVIDERS ===
 
+/// Сырой каталог: один запрос на всех потребителей вкладки.
+///
+/// Раньше «Свежие» и «В тренде» делали `GET /quests` независимо друг от
+/// друга, причём параллельно: два одинаковых ответа (весь каталог) и два
+/// разбора. Полки отличаются только сортировкой, поэтому качаем и парсим один
+/// раз, а сортируем копии — общий список мутировать нельзя.
+final marketCatalogProvider = FutureProvider.autoDispose<List<MarketQuest>>((
+  ref,
+) async {
+  final apiService = ref.watch(apiServiceProvider);
+  final responseData = await apiService.get('quests');
+  return [
+    for (final json in (responseData as List)) MarketQuest.fromJson(json),
+  ];
+});
+
 /// 1. Свежие релизы (Все квесты, сортировка по ДАТЕ ОБНОВЛЕНИЯ)
 /// ИСПРАВЛЕНО: Теперь сортируем по updatedAt, чтобы поднятые квесты были сверху
 final marketQuestsProviderNew = FutureProvider.autoDispose<List<MarketQuest>>((
   ref,
 ) async {
-  final apiService = ref.watch(apiServiceProvider);
   final playerLanguage = ref.watch(appLanguageProvider).code;
   try {
-    final responseData = await apiService.get('quests');
-    final list = (responseData as List)
-        .map((json) => MarketQuest.fromJson(json))
-        .toList();
+    final base = await ref.watch(marketCatalogProvider.future);
+    final list = List<MarketQuest>.of(base);
 
     // Сортируем: сначала самые свежие (по созданию ИЛИ обновлению)
     list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -107,12 +120,9 @@ final marketQuestsProviderNew = FutureProvider.autoDispose<List<MarketQuest>>((
 /// 2. В тренде (Популярные)
 final marketQuestsProviderPopular =
     FutureProvider.autoDispose<List<MarketQuest>>((ref) async {
-      final apiService = ref.watch(apiServiceProvider);
       try {
-        final responseData = await apiService.get('quests');
-        final list = (responseData as List)
-            .map((json) => MarketQuest.fromJson(json))
-            .toList();
+        final base = await ref.watch(marketCatalogProvider.future);
+        final list = List<MarketQuest>.of(base);
 
         // Сортировка по скачиваниям + рейтингу, затем уровень: популярное
         // демо не должно стоять выше отобранного квеста.
@@ -141,7 +151,11 @@ final meanderRecommendsProvider = FutureProvider.autoDispose<List<MarketQuest>>(
       if (featured.isNotEmpty) return orderByMarketTier(featured);
 
       // ФОЛЛБЭК: Если список пуст, берем топ-5 самых рейтинговых
-      final all = await ref.read(marketQuestsProviderNew.future);
+      // Копия: `all` — закэшированное значение провайдера, сортировать его
+      // на месте нельзя (это ломало порядок у всех остальных полок).
+      final all = List<MarketQuest>.of(
+        await ref.read(marketQuestsProviderNew.future),
+      );
       all.sort((a, b) => b.averageRating.compareTo(a.averageRating));
       return orderByMarketTier(all.where((q) => !q.isDemo).toList());
     } catch (e) {

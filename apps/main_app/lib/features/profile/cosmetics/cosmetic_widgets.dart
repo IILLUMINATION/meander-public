@@ -78,10 +78,15 @@ class _CosmeticTickerState extends State<_CosmeticTicker>
         _visible = info.visibleFraction > 0.01;
         _sync();
       },
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) =>
-            widget.builder(context, _controller.value * _cycle.inSeconds),
+      // Своя граница перерисовки: иначе каждый кадр частиц/шейдера помечает
+      // dirty всё дерево до корневой границы приложения и перерисовывает
+      // целую шапку (а на мобиле — весь экран).
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) =>
+              widget.builder(context, _controller.value * _cycle.inSeconds),
+        ),
       ),
     );
   }

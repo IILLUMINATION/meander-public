@@ -1,10 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+
+import 'package:canvas_app/shared/widgets/image_sizing.dart';
+import 'package:canvas_app/shared/widgets/local_file_image.dart';
 import 'package:flutter/services.dart';
 
 import 'package:mnd_player/services/font_service.dart';
-import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/resources/models/resource_file.dart';
 import 'package:canvas_app/features/resources/widgets/audio_preview_button.dart';
 import 'package:canvas_app/features/resources/widgets/resource_type_visuals.dart';
@@ -324,18 +324,14 @@ class _Preview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (resource.type == 'image') {
-      return FutureBuilder<String>(
-        future: FileStorage.getFilePath(resource.path),
-        builder: (ctx, snap) {
-          if (snap.hasData) {
-            return Image.file(
-              File(snap.data!),
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _IconFill(resource: resource),
-            );
-          }
-          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-        },
+      return LocalFileImage(
+        relativePath: resource.path,
+        // Сетка ресурсов — тайлы ~210 px: исходник декодируется под них.
+        cacheWidth: imageDecodeWidth(context, divisor: 3, min: 160, max: 480),
+        placeholder: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        errorBuilder: (_, __, ___) => _IconFill(resource: resource),
       );
     }
 
@@ -505,21 +501,14 @@ class ResourceListTile extends StatelessWidget {
         child: SizedBox(
           width: 48,
           height: 48,
-          child: FutureBuilder<String>(
-            future: FileStorage.getFilePath(resource.path),
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                return Image.file(
-                  File(snapshot.data!),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      ResourceTypeAvatar(resource: resource, size: 48),
-                );
-              }
-              return const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              );
-            },
+          child: LocalFileImage(
+            relativePath: resource.path,
+            cacheWidth: 96,
+            errorBuilder: (_, __, ___) =>
+                ResourceTypeAvatar(resource: resource, size: 48),
+            placeholder: const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ),
         ),
       );
@@ -1042,20 +1031,13 @@ class _FolderPreviewTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (resource.type == 'image') {
-      return FutureBuilder<String>(
-        future: FileStorage.getFilePath(resource.path),
-        builder: (ctx, snap) {
-          if (snap.hasData) {
-            return Image.file(
-              File(snap.data!),
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _typeTile(),
-            );
-          }
-          return ColoredBox(
-            color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
-          );
-        },
+      return LocalFileImage(
+        relativePath: resource.path,
+        cacheWidth: imageDecodeWidth(context, divisor: 3, min: 160, max: 480),
+        placeholder: ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        errorBuilder: (_, __, ___) => _typeTile(),
       );
     }
     return _typeTile();

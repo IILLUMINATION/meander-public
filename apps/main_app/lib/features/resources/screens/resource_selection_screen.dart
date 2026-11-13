@@ -104,10 +104,6 @@ class _ResourceSelectionScreenState
   @override
   void initState() {
     super.initState();
-    try {
-      PaintingBinding.instance.imageCache.clear();
-      PaintingBinding.instance.imageCache.clearLiveImages();
-    } catch (_) {}
     _loadViewPreference();
     _loadResources();
   }

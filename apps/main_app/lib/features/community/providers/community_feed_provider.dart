@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/core/services/socket_service.dart';
 import 'package:canvas_app/models/wall_post_model.dart';
@@ -44,6 +46,17 @@ class CommunityFeedNotifier extends StateNotifier<CommunityFeedState> {
   final String filter;
   static const int _limit = 20;
 
+  /// Потолок ленты в памяти: `new_wall_post` приходит на каждый новый пост
+  /// платформы и раньше добавлял его без предела — за долгую сессию список
+  /// рос бесконечно.
+  static const int _maxPostsInMemory = 200;
+
+  /// Счётчики лайков/комментариев копятся порциями: сервер шлёт
+  /// `post_stats_updated` всем клиентам на каждый лайк где угодно, и раньше
+  /// каждое такое событие копировало весь список и перестраивало ленту.
+  final Map<String, ({int? likes, int? comments})> _pendingStats = {};
+  Timer? _statsFlush;
+
   CommunityFeedNotifier(this._api, this.filter) : super(const CommunityFeedState()) {
     _loadInitial();
     SocketService().addFeedGlobalListeners(
@@ -54,6 +67,8 @@ class CommunityFeedNotifier extends StateNotifier<CommunityFeedState> {
 
   @override
   void dispose() {
+    _statsFlush?.cancel();
+    _pendingStats.clear();
     SocketService().removeFeedGlobalListeners(
       onStats: _onStatsUpdated,
       onNewPost: _onNewPostArrived,
@@ -62,25 +77,34 @@ class CommunityFeedNotifier extends StateNotifier<CommunityFeedState> {
   }
 
   void _onStatsUpdated(Map<String, dynamic> data) {
-    // Update stats directly in memory
     final postId = data['postId'] as String?;
-    final likesCount = data['likes_count'] as int?;
-    final commentsCount = data['comments_count'] as int?;
+    if (postId == null) return;
+    _pendingStats[postId] = (
+      likes: data['likes_count'] as int?,
+      comments: data['comments_count'] as int?,
+    );
+    _statsFlush ??= Timer(const Duration(milliseconds: 250), _flushStats);
+  }
 
-    if (postId != null) {
-      final index = state.posts.indexWhere((p) => p.id == postId);
-      if (index != -1) {
-        final post = state.posts[index];
-        final updated = post.copyWith(
-          likesCount: likesCount ?? post.likesCount,
-          commentsCount: commentsCount ?? post.commentsCount,
-        );
+  /// Применить накопленные счётчики одним изменением состояния.
+  void _flushStats() {
+    _statsFlush = null;
+    if (!mounted || _pendingStats.isEmpty) return;
 
-        final newPosts = List<WallPost>.from(state.posts);
-        newPosts[index] = updated;
-        state = state.copyWith(posts: newPosts);
-      }
+    var changed = false;
+    final newPosts = List<WallPost>.from(state.posts);
+    for (var i = 0; i < newPosts.length; i++) {
+      final pending = _pendingStats[newPosts[i].id];
+      if (pending == null) continue;
+      final post = newPosts[i];
+      final likes = pending.likes ?? post.likesCount;
+      final comments = pending.comments ?? post.commentsCount;
+      if (likes == post.likesCount && comments == post.commentsCount) continue;
+      newPosts[i] = post.copyWith(likesCount: likes, commentsCount: comments);
+      changed = true;
     }
+    _pendingStats.clear();
+    if (changed) state = state.copyWith(posts: newPosts);
   }
 
   void _onNewPostArrived(dynamic data) {
@@ -94,6 +118,9 @@ class CommunityFeedNotifier extends StateNotifier<CommunityFeedState> {
         // Prevent duplicates
         if (!state.posts.any((p) => p.id == newPost.id)) {
           final newPosts = [newPost, ...state.posts];
+          if (newPosts.length > _maxPostsInMemory) {
+            newPosts.removeRange(_maxPostsInMemory, newPosts.length);
+          }
           state = state.copyWith(posts: newPosts, offset: state.offset + 1);
         }
       }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/core/services/socket_service.dart';
@@ -53,6 +55,12 @@ class WallPaginatedNotifier extends StateNotifier<WallPaginatedState> {
   final String authorId;
   static const int _limit = 20;
 
+  /// Накопитель статистики: глобальные `post_stats_updated` приходят на каждый
+  /// лайк платформы, а не только в эту стену. Применяем пачкой, одним
+  /// изменением состояния, вместо копии списка на каждое событие.
+  final Map<String, ({int? likes, int? comments})> _pendingStats = {};
+  Timer? _statsFlush;
+
   WallPaginatedNotifier(this.ref, this.authorId)
     : super(WallPaginatedState()) {
       SocketService().addFeedGlobalListeners(
@@ -63,6 +71,8 @@ class WallPaginatedNotifier extends StateNotifier<WallPaginatedState> {
 
   @override
   void dispose() {
+    _statsFlush?.cancel();
+    _pendingStats.clear();
     SocketService().removeFeedGlobalListeners(
       onStats: _onStatsUpdated,
       onNewPost: _onNewPostArrived,
@@ -71,25 +81,33 @@ class WallPaginatedNotifier extends StateNotifier<WallPaginatedState> {
   }
 
   void _onStatsUpdated(Map<String, dynamic> data) {
-    // Update stats directly in memory
     final postId = data['postId'] as String?;
-    final likesCount = data['likes_count'] as int?;
-    final commentsCount = data['comments_count'] as int?;
+    if (postId == null) return;
+    _pendingStats[postId] = (
+      likes: data['likes_count'] as int?,
+      comments: data['comments_count'] as int?,
+    );
+    _statsFlush ??= Timer(const Duration(milliseconds: 250), _flushStats);
+  }
 
-    if (postId != null) {
-      final index = state.posts.indexWhere((p) => p.id == postId);
-      if (index != -1) {
-        final post = state.posts[index];
-        final updated = post.copyWith(
-          likesCount: likesCount ?? post.likesCount,
-          commentsCount: commentsCount ?? post.commentsCount,
-        );
+  void _flushStats() {
+    _statsFlush = null;
+    if (!mounted || _pendingStats.isEmpty) return;
 
-        final newPosts = List<WallPost>.from(state.posts);
-        newPosts[index] = updated;
-        state = state.copyWith(posts: newPosts);
-      }
+    var changed = false;
+    final newPosts = List<WallPost>.from(state.posts);
+    for (var i = 0; i < newPosts.length; i++) {
+      final pending = _pendingStats[newPosts[i].id];
+      if (pending == null) continue;
+      final post = newPosts[i];
+      final likes = pending.likes ?? post.likesCount;
+      final comments = pending.comments ?? post.commentsCount;
+      if (likes == post.likesCount && comments == post.commentsCount) continue;
+      newPosts[i] = post.copyWith(likesCount: likes, commentsCount: comments);
+      changed = true;
     }
+    _pendingStats.clear();
+    if (changed) state = state.copyWith(posts: newPosts);
   }
 
   void _onNewPostArrived(dynamic data) {

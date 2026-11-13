@@ -36,7 +36,7 @@ class DisplayRefreshRate {
       return DisplayRefreshInfo(
         current: (raw['current'] as num?)?.toDouble() ?? 60,
         max: (raw['max'] as num?)?.toDouble() ?? 60,
-        enabled: raw['enabled'] as bool? ?? true,
+        enabled: raw['enabled'] as bool? ?? false,
       );
     } on MissingPluginException {
       return null;

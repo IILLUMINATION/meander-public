@@ -1133,8 +1133,17 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
 
   Future<Map<String, SavedNode>> _persistedNodesById() async {
     try {
-      final latest = await _ref.read(allQuestNodesProvider(_questId).future);
-      return {for (final node in latest) node.id: node};
+      // Только ноды главы: автосейв перезаписывает именно их, а полное
+      // чтение квеста (`allQuestNodesProvider`) на каждые 1,5 секунды после
+      // перетаскивания — сотни файловых операций и декодов на большом квесте.
+      final bodies = await QuestNodesStore.readNodesByIds(
+        _questId,
+        state.nodes.map((node) => node.id),
+      );
+      return {
+        for (final entry in bodies.entries)
+          entry.key: SavedNode.fromJson(entry.value),
+      };
     } catch (_) {
       return const {};
     }

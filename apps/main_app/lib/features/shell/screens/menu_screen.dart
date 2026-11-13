@@ -69,6 +69,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   String? _currentUserId;
   bool _isLoadingAuth = true;
 
+  /// Вкладки, которые пользователь уже открывал. Остальные не монтируются:
+  /// `IndexedStack` строит всех детей сразу, а каждый ребёнок в `initState`/
+  /// `build` тянет свои данные (каталог, ленту, чаты, профиль, настройки с
+  /// зондами зеркал). На старте это шесть деревьев и десяток запросов до
+  /// первого кадра — при том что пользователь смотрит одну вкладку.
+  final Set<int> _mountedTabs = <int>{};
+
   @override
   void initState() {
     super.initState();
@@ -99,6 +106,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     if (!mounted) return;
 
     setState(() {
+      // Набор экранов между гостем и залогиненным разный — привязанные к
+      // индексам вкладки пересобираем с нуля.
+      _mountedTabs.clear();
       if (token != null && userId != null) {
         _currentUserId = userId;
         _currentIndex = 0; // Маркет для залогиненных
@@ -192,9 +202,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final List<NavBarItem> items;
 
     if (isLoggedIn) {
-      // Бейдж «Чатов» смотрим здесь, а не внутри вкладки: лента переписок
-      // должна жить, даже когда человек сидит в другом табе.
-      final unreadChats = ref.watch(dmUnreadCountProvider);
+      // Бейдж «Чатов» живёт в самой нижней панели (_ShellNavBar) и не
+      // перестраивает отсюда все шесть вкладок: любое входящее сообщение
+      // меняло счётчик и пересобирало весь shell целиком.
       screens = [
         MarketScreen(isRoot: true),
         CommunityScreen(),
@@ -218,7 +228,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           icon: Icons.forum_outlined,
           selectedIcon: Icons.forum_rounded,
           label: tr('Чаты'),
-          badge: unreadChats > 0 ? unreadChats : null,
         ),
         NavBarItem(
           icon: Icons.auto_stories_outlined,
@@ -295,7 +304,27 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         ),
     ];
 
-    final pages = IndexedStack(index: safeIndex, children: screens);
+    // Индекс плитки «Чаты» в barItems: у гостя её нет вовсе.
+    final chatsTileIndex = isLoggedIn && barItems.length > 2 ? 2 : null;
+
+    // Открытая вкладка монтируется всегда; остальные — только после первого
+    // визита (и дальше живут, чтобы не терять состояние и позицию скролла).
+    _mountedTabs.add(safeIndex);
+
+    final pages = IndexedStack(
+      index: safeIndex,
+      children: [
+        for (var i = 0; i < screens.length; i++)
+          // TickerMode гасит анимации скрытых вкладок: `IndexedStack` их не
+          // останавливает, и шиммеры/спиннеры продолжают жечь кадры.
+          TickerMode(
+            enabled: i == safeIndex,
+            child: _mountedTabs.contains(i)
+                ? screens[i]
+                : const SizedBox.shrink(),
+          ),
+      ],
+    );
     final wide = isDesktopWidth(context);
 
     return CallbackShortcuts(
@@ -313,8 +342,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         body: wide
             ? Row(
                 children: [
-                  DesktopNavRail(
+                  _ShellNavRail(
                     items: items,
+                    unreadIndex: chatsTileIndex,
                     currentIndex: safeIndex,
                     onTap: _onTabTapped,
                   ),
@@ -328,8 +358,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
             : pages,
         bottomNavigationBar: wide
             ? null
-            : AnimatedNavBar(
+            : _ShellNavBar(
                 items: barItems,
+                unreadIndex: chatsTileIndex,
                 currentIndex: hiddenHere ? fold.visible.length : safeIndex,
                 onTap: (i) {
                   if (i < fold.visible.length) {
@@ -345,6 +376,79 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       ),
     );
   }
+}
+
+/// Нижняя панель, которая единственная подписана на счётчик непрочитанных.
+///
+/// Раньше `dmUnreadCountProvider` читался в `MenuScreen.build` — и каждое
+/// входящее сообщение (сокет) пересобирало все шесть вкладок `IndexedStack`.
+class _ShellNavBar extends ConsumerWidget {
+  const _ShellNavBar({
+    required this.items,
+    required this.unreadIndex,
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  final List<NavBarItem> items;
+  final int? unreadIndex;
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return AnimatedNavBar(
+      items: withUnreadBadge(ref, items, unreadIndex),
+      currentIndex: currentIndex,
+      onTap: onTap,
+    );
+  }
+}
+
+/// Рельса десктопа: тот же бейдж, та же изоляция от `MenuScreen`.
+class _ShellNavRail extends ConsumerWidget {
+  const _ShellNavRail({
+    required this.items,
+    required this.unreadIndex,
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  final List<NavBarItem> items;
+  final int? unreadIndex;
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return DesktopNavRail(
+      items: withUnreadBadge(ref, items, unreadIndex),
+      currentIndex: currentIndex,
+      onTap: onTap,
+    );
+  }
+}
+
+/// Подставляет бейдж непрочитанных в плитку `index`.
+///
+/// `ref.watch` здесь — и только здесь: перестраивается панель, а не shell.
+List<NavBarItem> withUnreadBadge(
+  WidgetRef ref,
+  List<NavBarItem> items,
+  int? index,
+) {
+  if (index == null || index < 0 || index >= items.length) return items;
+  final unread = ref.watch(dmUnreadCountProvider);
+  if (unread <= 0) return items;
+  final out = List<NavBarItem>.of(items);
+  final item = out[index];
+  out[index] = NavBarItem(
+    icon: item.icon,
+    selectedIcon: item.selectedIcon,
+    label: item.label,
+    badge: unread,
+  );
+  return out;
 }
 
 class _SignInAgreement extends StatelessWidget {

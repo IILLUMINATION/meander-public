@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,6 +14,7 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
+import 'package:canvas_app/shared/widgets/image_sizing.dart';
 import 'package:canvas_app/features/community/providers/community_feed_provider.dart';
 import 'package:canvas_app/features/community/screens/post_comments_screen.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
@@ -489,6 +491,7 @@ class _PostMediaGrid extends StatelessWidget {
           fit: BoxFit.cover,
           width: double.infinity,
           height: 200,
+          memCacheWidth: imageDecodeWidth(context),
           placeholder: (_, __) => Container(color: scheme.surfaceContainerHighest),
         ),
       );
@@ -509,6 +512,7 @@ class _PostMediaGrid extends StatelessWidget {
                   imageUrl: mediaUrls[0],
                   fit: BoxFit.cover,
                   height: double.infinity,
+                  memCacheWidth: imageDecodeWidth(context, divisor: 2),
                   placeholder: (_, __) => Container(color: scheme.surfaceContainerHighest),
                 ),
               ),
@@ -524,6 +528,7 @@ class _PostMediaGrid extends StatelessWidget {
                   imageUrl: mediaUrls[1],
                   fit: BoxFit.cover,
                   height: double.infinity,
+                  memCacheWidth: imageDecodeWidth(context, divisor: 2),
                   placeholder: (_, __) => Container(color: scheme.surfaceContainerHighest),
                 ),
               ),
@@ -557,6 +562,7 @@ class _PostMediaGrid extends StatelessWidget {
               CachedNetworkImage(
                 imageUrl: mediaUrls[index],
                 fit: BoxFit.cover,
+                memCacheWidth: imageDecodeWidth(context, divisor: 2),
                 placeholder: (_, __) => Container(color: scheme.surfaceContainerHighest),
               ),
               if (isLast)

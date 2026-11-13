@@ -30,8 +30,25 @@ class AppTheme {
     'Noto Sans Devanagari',
   ];
 
+  /// Собранные темы: `AppTheme.fromPreset` вызывается дважды на каждый
+  /// `build` корневого `App` (светлая и тёмная), а внутри — `ColorScheme
+  /// .fromSeed` (HCT-палитра) и `ThemeData` целиком. Тема за время жизни
+  /// экрана не меняется, поэтому результат кэшируется по пресету и яркости.
+  static final Map<(ThemePreset, Brightness), ThemeData> _cache =
+      <(ThemePreset, Brightness), ThemeData>{};
+
   /// Главная фабрика — собирает M3-тему из пресета и яркости.
   static ThemeData fromPreset(ThemePreset preset, Brightness brightness) {
+    final key = (preset, brightness);
+    final cached = _cache[key];
+    if (cached != null) return cached;
+    final built = _build(preset, brightness);
+    if (_cache.length >= 8) _cache.clear();
+    _cache[key] = built;
+    return built;
+  }
+
+  static ThemeData _build(ThemePreset preset, Brightness brightness) {
     final base = brightness == Brightness.dark
         ? ThemeData.dark(useMaterial3: true)
         : ThemeData.light(useMaterial3: true);

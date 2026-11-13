@@ -606,7 +606,7 @@ class MeanderEntityMarkdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final markdownConfig = config ?? AppMarkdown.getConfig(context);
     Widget renderText(String chunk) =>
-        MarkdownBlock(data: chunk, config: markdownConfig);
+        AppMarkdownBlock(data: chunk, config: markdownConfig);
 
     final segments = splitMeanderEntities(data);
     if (!segments.any((segment) => segment.isEntity)) {

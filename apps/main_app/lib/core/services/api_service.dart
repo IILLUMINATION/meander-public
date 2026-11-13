@@ -5,6 +5,7 @@ import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -19,6 +20,14 @@ class ApiService {
   /// вне `try`), и кнопка крутится бесконечно.
   static const Duration defaultRequestTimeout = Duration(seconds: 30);
 
+  /// Порог, с которого тело ответа разбирается в отдельном изоляте.
+  ///
+  /// `jsonDecode` по большому ответу (полный каталог, лента) блокирует
+  /// UI-изолят на сотни миллисекунд — это видимый фриз независимо от
+  /// мощности устройства. Ниже порога выгоднее остаться в своём изоляте:
+  /// копирование в изолят и обратно стоит дороже самого разбора.
+  static const int _isolateDecodeThreshold = 256 * 1024;
+
   final http.Client _client;
   final Duration _requestTimeout;
 
@@ -26,6 +35,15 @@ class ApiService {
   ApiService({http.Client? client, Duration? requestTimeout})
     : _client = client ?? http.Client(),
       _requestTimeout = requestTimeout ?? defaultRequestTimeout;
+
+  /// Разобрать тело ответа: большие — в фоновом изоляте.
+  static Future<dynamic> _decodeBody(http.Response response) {
+    final bytes = response.bodyBytes;
+    if (bytes.length >= _isolateDecodeThreshold) {
+      return compute(_decodeJsonBytes, bytes);
+    }
+    return Future<dynamic>.value(_decodeJsonBytes(bytes));
+  }
 
   /// Выполнить запрос с перебором зеркал бэкенда.
   ///
@@ -202,7 +220,7 @@ class ApiService {
         }
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
-          return jsonDecode(utf8.decode(response.bodyBytes));
+          return await _decodeBody(response);
         } else {
           throw _failure('Failed to load data', response);
         }
@@ -240,7 +258,7 @@ class ApiService {
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           if (response.body.isEmpty) return null;
-          return jsonDecode(utf8.decode(response.bodyBytes));
+          return await _decodeBody(response);
         } else {
           throw _failure('Failed to post data', response);
         }
@@ -278,7 +296,7 @@ class ApiService {
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           if (response.body.isEmpty) return null;
-          return jsonDecode(utf8.decode(response.bodyBytes));
+          return await _decodeBody(response);
         } else {
           throw _failure('Failed to put data', response);
         }
@@ -318,7 +336,7 @@ class ApiService {
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           if (response.body.isEmpty) return null;
-          return jsonDecode(utf8.decode(response.bodyBytes));
+          return await _decodeBody(response);
         } else {
           throw _failure('Failed to patch data', response);
         }
@@ -361,7 +379,7 @@ class ApiService {
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
           if (response.body.isEmpty) return null;
-          return jsonDecode(utf8.decode(response.bodyBytes));
+          return await _decodeBody(response);
         } else {
           throw _failure('Failed to delete', response);
         }
@@ -374,3 +392,6 @@ class ApiService {
 }
 
 final apiServiceProvider = Provider((ref) => ApiService());
+
+/// Разбор тела ответа в фоновом изоляте (`compute` требует top-level функцию).
+dynamic _decodeJsonBytes(List<int> bytes) => jsonDecode(utf8.decode(bytes));

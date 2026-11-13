@@ -1,8 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+
+import 'package:canvas_app/shared/widgets/image_sizing.dart';
+import 'package:canvas_app/shared/widgets/local_file_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mnd_player/utils/file_storage.dart';
 import 'package:canvas_app/features/hub/screens/hub_screen.dart';
 import 'package:canvas_app/features/guides/guide_catalog.dart';
 import 'package:canvas_app/features/guides/models/guide.dart';
@@ -577,6 +577,9 @@ class _LibraryAssetPreview extends StatelessWidget {
       return Image.network(
         preview,
         fit: BoxFit.cover,
+        // Тайл сетки — не больше 280 логических px: декодировать исходник
+        // кегля 2000×2000 (≈16 МБ) незачем.
+        cacheWidth: imageDecodeWidth(context, divisor: 3, min: 160, max: 640),
         errorBuilder: (_, __, ___) => Container(
           color: scheme.secondaryContainer,
           child: const Center(child: Icon(Icons.image_rounded, size: 28)),
@@ -586,18 +589,16 @@ class _LibraryAssetPreview extends StatelessWidget {
     // Try local file preview for images/backgrounds
     if (item.localPath != null &&
         (item.kind == 'background' || item.kind == 'image')) {
-      return FutureBuilder<String>(
-        future: FileStorage.getFilePath(item.localPath!),
-        builder: (ctx, snap) {
-          if (snap.hasData) {
-            final file = File(snap.data!);
-            if (file.existsSync()) return Image.file(file, fit: BoxFit.cover);
-          }
-          return Container(
-            color: scheme.secondaryContainer,
-            child: const Center(child: Icon(Icons.image_rounded, size: 28)),
-          );
-        },
+      return LocalFileImage(
+        relativePath: item.localPath!,
+        checkExists: true,
+        // Тайл сетки — не больше 280 логических px: декодировать исходник
+        // кегля 2000×2000 (≈16 МБ) незачем.
+        cacheWidth: imageDecodeWidth(context, divisor: 3, min: 160, max: 640),
+        placeholder: Container(
+          color: scheme.secondaryContainer,
+          child: const Center(child: Icon(Icons.image_rounded, size: 28)),
+        ),
       );
     }
     IconData icon;

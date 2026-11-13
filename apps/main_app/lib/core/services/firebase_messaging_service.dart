@@ -56,26 +56,32 @@ class FirebaseMessagingService {
 
   bool _initialized = false;
 
-  /// Future that completes when initialization is done (or already completed)
-  Completer<void>? _initCompleter;
+  /// Единый future инициализации: сколько бы раз его ни спросили (в том числе
+  /// из `fcmTokenProvider`), работа выполняется один раз.
+  Future<void>? _initFuture;
 
-  Future<void> get initializationFuture =>
-      _initCompleter?.future ?? Future.value();
+  /// Дождаться инициализации. Если она ещё не начата — начать.
+  ///
+  /// Раньше геттер отвечал «готово», когда инициализация ещё не стартовала:
+  /// `bootstrap` вызывал FCM после первого кадра, а `fcmTokenProvider` успевал
+  /// спросить токен раньше и получал `null` без единой попытки.
+  Future<void> get initializationFuture => initialize();
 
   /// Initialize Firebase Messaging and local notifications
-  Future<void> initialize() async {
-    if (_initialized) return;
-    if (_initCompleter != null) return _initCompleter!.future;
+  Future<void> initialize() {
+    if (_initialized) return Future<void>.value();
 
     // iOS временно отключён (free-аккаунт): не запрашиваем разрешение и не
     // отправляем токен, чтобы не трогать APNs без нужных entitlements.
     if (Platform.isIOS) {
       debugPrint('⚠️ [FCM] iOS notifications disabled for free-account testing');
-      return;
+      return Future<void>.value();
     }
 
-    _initCompleter = Completer<void>();
+    return _initFuture ??= _initialize();
+  }
 
+  Future<void> _initialize() async {
     try {
       // Initialize Firebase
       debugPrint('📱 [FCM] Initializing Firebase...');
@@ -103,11 +109,11 @@ class FirebaseMessagingService {
       _checkInitialMessage();
 
       _initialized = true;
-      _initCompleter!.complete();
       debugPrint('✅ [FCM] Firebase Messaging initialized successfully');
     } catch (e) {
-      _initCompleter!.completeError(e);
-      _initCompleter = null;
+      // Повторная попытка разрешена: следующий вызов `initialize()` начнёт
+      // заново, а не вернёт закэшированный отказ.
+      _initFuture = null;
       debugPrint('❌ [FCM] Initialization error: $e');
     }
   }

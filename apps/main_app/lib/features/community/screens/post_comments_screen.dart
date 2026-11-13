@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shimmer/shimmer.dart';
 
 import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
+import 'package:canvas_app/shared/widgets/image_sizing.dart';
 import 'package:canvas_app/features/community/providers/community_feed_provider.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
@@ -512,6 +514,7 @@ class _PostCommentsMediaGrid extends StatelessWidget {
           imageUrl: mediaUrls[0],
           fit: BoxFit.cover,
           width: double.infinity,
+          memCacheWidth: imageDecodeWidth(context),
           placeholder: (_, __) => Container(height: 200, color: scheme.surfaceContainerHighest),
         ),
       );
@@ -533,6 +536,7 @@ class _PostCommentsMediaGrid extends StatelessWidget {
           child: CachedNetworkImage(
             imageUrl: mediaUrls[index],
             fit: BoxFit.cover,
+            memCacheWidth: imageDecodeWidth(context, divisor: 2),
             placeholder: (_, __) => Container(color: scheme.surfaceContainerHighest),
           ),
         );

@@ -79,10 +79,6 @@ class _ResourcesScreenState extends ConsumerState<ResourcesScreen> {
         resourcesScrollOffsetProvider(widget.questId),
       ),
     )..addListener(_rememberScrollPosition);
-    try {
-      PaintingBinding.instance.imageCache.clear();
-      PaintingBinding.instance.imageCache.clearLiveImages();
-    } catch (_) {}
     if (widget.initialSearch.isNotEmpty) {
       _searchController.text = widget.initialSearch;
       _searchQuery = widget.initialSearch;

@@ -74,7 +74,11 @@ class PlaytimeService with WidgetsBindingObserver {
 
   void _startTracking() {
     _lastTickTime = DateTime.now();
-    _trackingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    // Раз в 30 секунд, а не раз в 10: каждый тик — это 3-4 записи в
+    // SharedPreferences (то есть в файл) на eMMC, и на слабом устройстве этот
+    // ровный фоновый I/O мешает кадрам. Точность не страдает: при уходе в фон
+    // остаток дописывается тем же `_tickPlaytime` из lifecycle-хука.
+    _trackingTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       // Allow max 5 minutes of AFK tracking
       final isAfk = _lastInteractionTime != null && 
                     DateTime.now().difference(_lastInteractionTime!).inMinutes >= 5;

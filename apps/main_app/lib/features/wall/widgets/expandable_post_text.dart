@@ -20,27 +20,71 @@ class ExpandablePostText extends StatefulWidget {
 class _ExpandablePostTextState extends State<ExpandablePostText> {
   bool _isExpanded = false;
 
+  // Результат замера «помещается ли текст» переиспользуется между
+  // перестройками: `TextPainter.layout` по всему тексту на каждый `build`
+  // (а лента перестраивается на каждое событие сокета и каждый скролл) — это
+  // десятки лишних раскладок в секунду.
+  String? _measuredText;
+  double? _measuredWidth;
+  int? _measuredMaxLines;
+  Object? _measuredStyle;
+  TextScaler? _measuredScaler;
+  double _measuredHeight = 0;
+  bool _measuredOverflow = false;
+
+  double _measureOverflow(
+    BuildContext context,
+    String text,
+    double maxWidth,
+    TextStyle? baseStyle,
+  ) {
+    final scaler = MediaQuery.textScalerOf(context);
+    // Ключ — базовый стиль темы (стабильный объект на ThemeData), а не
+    // результат `copyWith`: тот создаётся заново на каждый build.
+    if (_measuredText == text &&
+        _measuredWidth == maxWidth &&
+        _measuredMaxLines == widget.maxLines &&
+        identical(_measuredStyle, baseStyle) &&
+        _measuredScaler == scaler) {
+      return _measuredHeight;
+    }
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: baseStyle?.copyWith(height: 1.45, fontSize: 14),
+      ),
+      maxLines: widget.maxLines,
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+    )..layout(maxWidth: maxWidth);
+
+    _measuredText = text;
+    _measuredWidth = maxWidth;
+    _measuredMaxLines = widget.maxLines;
+    _measuredStyle = baseStyle;
+    _measuredScaler = scaler;
+    _measuredOverflow = textPainter.didExceedMaxLines;
+    _measuredHeight = textPainter.height;
+    return _measuredHeight;
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final textSpan = TextSpan(
-          text: widget.text,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                height: 1.45,
-                fontSize: 14,
-              ),
+        final baseStyle = Theme.of(context).textTheme.bodyMedium;
+
+        final textHeight = _measureOverflow(
+          context,
+          widget.text,
+          constraints.maxWidth,
+          baseStyle,
         );
 
-        final textPainter = TextPainter(
-          text: textSpan,
-          maxLines: widget.maxLines,
-          textDirection: TextDirection.ltr,
-        )..layout(maxWidth: constraints.maxWidth);
-
-        final isOverflowing = textPainter.didExceedMaxLines;
+        final isOverflowing = _measuredOverflow;
 
         final markdownConfig = AppMarkdown.getConfig(context);
 
@@ -74,7 +118,7 @@ class _ExpandablePostTextState extends State<ExpandablePostText> {
             Stack(
               children: [
                 SizedBox(
-                  height: textPainter.size.height,
+                  height: textHeight,
                   child: ClipRect(
                     child: SingleChildScrollView(
                       physics: const NeverScrollableScrollPhysics(),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:canvas_app/app/app.dart';
@@ -15,6 +16,7 @@ import 'package:canvas_app/features/game/providers/game_screen_provider.dart'
     show appGameScreenHooksProvider;
 import 'package:mnd_player/providers/game_screen_provider.dart'
     show gameScreenHooksProvider;
+import 'package:mnd_player/utils/device_memory.dart' show physicalMemoryBytes;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -170,19 +172,12 @@ Future<void> bootstrap() async {
   MeanderCoreBootstrap.initialize(debugLogs: kDebugMode);
   HangWatchdog.mark('bootstrap: deepLink');
   DeepLinkService().init();
-  HangWatchdog.mark('bootstrap: verifyIntegrity');
-  await _verifyAppIntegrity();
-  HangWatchdog.mark('bootstrap: fcm');
 
-  if (!kIsWeb && Platform.isAndroid) {
-    try {
-      await FirebaseMessagingService().initialize().timeout(
-        const Duration(seconds: 10),
-      );
-    } catch (e) {
-      debugPrint('⚠️ FCM init skipped (timeout/error): $e');
-    }
-  }
+  // Кэш декодированных картинок ограничиваем по памяти устройства. Дефолт
+  // Flutter — 100 МиБ и 1000 картинок: на 2 ГБ это заметная доля бюджета, а
+  // на телефоне с 8 ГБ всё равно не нужно больше. Ограничение ставим до
+  // первого кадра, чтобы первый же экран не набил кэш под завязку.
+  _configureImageCache();
 
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     await SystemChrome.setPreferredOrientations([
@@ -235,9 +230,51 @@ Future<void> bootstrap() async {
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     HangWatchdog.mark('app: first frame');
+    // Всё, что не нужно для первого кадра, уходит за него: Firebase умеет
+    // висеть до 10 секунд (см. таймаут), а проверка пакета — платформенный
+    // вызов. Раньше пользователь всё это время видел только фон сплэша.
+    unawaited(_initAfterFirstFrame());
   });
 
   if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
     _initMainWindowLifecycle();
   }
+}
+
+/// Инициализация, которая не должна задерживать первый кадр.
+Future<void> _initAfterFirstFrame() async {
+  await _verifyAppIntegrity();
+
+  if (kIsWeb || !Platform.isAndroid) return;
+  try {
+    await FirebaseMessagingService().initialize().timeout(
+      const Duration(seconds: 10),
+    );
+  } catch (e) {
+    debugPrint('⚠️ FCM init skipped (timeout/error): $e');
+  }
+}
+
+/// Верхняя граница кэша декодированных картинок по объёму памяти устройства.
+///
+/// Дефолт Flutter — 100 МиБ и 1000 картинок, независимо от телефона. На 2 ГБ
+/// это четверть доступной кучи: полноразмерные фото из ленты выбивают процесс
+/// раньше, чем кэш успевает принести пользу. Берём ~4% памяти, но не меньше
+/// 32 МиБ (иначе кэш бесполезен) и не больше 128 МиБ.
+void _configureImageCache() {
+  var memoryBytes = 0;
+  try {
+    memoryBytes = physicalMemoryBytes();
+  } catch (_) {
+    memoryBytes = 0;
+  }
+  final cache = PaintingBinding.instance.imageCache;
+  if (memoryBytes > 0) {
+    final target = (memoryBytes * 0.04).round().clamp(
+      32 * 1024 * 1024,
+      128 * 1024 * 1024,
+    );
+    cache.maximumSizeBytes = target;
+  }
+  if (cache.maximumSize > 300) cache.maximumSize = 300;
 }
