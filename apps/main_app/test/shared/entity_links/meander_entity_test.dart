@@ -60,6 +60,17 @@ void main() {
       );
     });
 
+    test('ссылки с зеркал остаются карточками', () {
+      for (final mirror in AppConfig.defaultMirrorUrls) {
+        final host = mirror.replaceFirst(RegExp(r'^https?://'), '');
+        expect(
+          firstEntity('квест $mirror/share/quest/$questId'),
+          const MeanderEntity(kind: MeanderEntityKind.quest, id: questId),
+          reason: 'ссылка с зеркала $host — та же карточка квеста',
+        );
+      }
+    });
+
     test('регистр id и хоста не важен, id нормализуется', () {
       final upper = questId.toUpperCase();
       expect(

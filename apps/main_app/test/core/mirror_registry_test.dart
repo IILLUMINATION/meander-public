@@ -133,15 +133,24 @@ void main() {
     expect(text, contains('обслуживании'));
   });
 
-  group('мёртвое зеркало', () {
-    test('встроенный список не содержит снятого Cloudflare-зеркала', () {
-      // Оно отвечало 530, а зонд считал его живым и переключал весь API
-      // (включая socket.io) на нерабочий хост.
+  group('встроенные зеркала', () {
+    test('основной домен первым, публичные зеркала после него', () {
+      // Зеркала нужны, когда основной домен заблокирован в сети игрока;
+      // порядок — приоритет перебора, поэтому первым идёт свой домен.
+      expect(AppConfig.defaultMirrorUrls.first, AppConfig.vpsApiBaseUrl);
       expect(
         AppConfig.defaultMirrorUrls,
-        isNot(contains('https://meander.elitrycraft.workers.dev')),
+        containsAll(<String>[
+          'http://78.154.103.40:14175',
+          'https://meander.elitrycraft.workers.dev',
+          'https://meander.hashai.cc.cd',
+        ]),
       );
-      expect(AppConfig.defaultMirrorUrls.first, AppConfig.vpsApiBaseUrl);
+      expect(
+        AppConfig.defaultMirrorUrls.toSet().length,
+        AppConfig.defaultMirrorUrls.length,
+        reason: 'одно зеркало не должно попасть в список дважды',
+      );
     });
 
     test('зонд отвергает зеркало с 5xx, живое — принимает', () async {
@@ -179,10 +188,10 @@ void main() {
       );
     });
 
-    test('сохранённое активное мёртвое зеркало сбрасывается на основной домен',
-        () async {
+    test('сохранённое активное зеркало, которого нет в списке, сбрасывается '
+        'на основной домен', () async {
       SharedPreferences.setMockInitialValues({
-        'mirror_active_url': 'https://meander.elitrycraft.workers.dev',
+        'mirror_active_url': 'https://gone.example',
       });
       MirrorRegistry.instance.resetForTests();
       await MirrorRegistry.instance.ensureLoaded();
@@ -190,19 +199,20 @@ void main() {
     });
   });
 
-    test('мёртвое зеркало вычищается и из сохранённых пользовательских',
-        () async {
+    test('встроенное зеркало не дублируется в пользовательских', () async {
       SharedPreferences.setMockInitialValues({
-        'mirror_custom_urls': '["https://meander.elitrycraft.workers.dev",'
-            '"https://a.server"]',
-        'mirror_active_url': 'https://meander.elitrycraft.workers.dev',
+        'mirror_custom_urls': '["https://meander.hashai.cc.cd"]',
+        'mirror_active_url': 'https://meander.hashai.cc.cd',
       });
       MirrorRegistry.instance.resetForTests();
       await MirrorRegistry.instance.ensureLoaded();
-      expect(MirrorRegistry.instance.customUrls, ['https://a.server']);
-      expect(MirrorRegistry.instance.activeUrl, AppConfig.vpsApiBaseUrl);
-      expect(MirrorRegistry.instance.allUrls, isNot(
-        contains('https://meander.elitrycraft.workers.dev'),
-      ));
+      expect(
+        MirrorRegistry.instance.allUrls
+            .where((u) => u == 'https://meander.hashai.cc.cd')
+            .length,
+        1,
+        reason: 'зеркало из сборки перебирается один раз',
+      );
+      expect(MirrorRegistry.instance.activeUrl, 'https://meander.hashai.cc.cd');
     });
 }

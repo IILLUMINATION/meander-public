@@ -64,6 +64,7 @@ const List<String> legacyMeanderHosts = [
 final String _hosts = [
   ...legacyMeanderHosts,
   AppConfig.vpsApiBaseUrl,
+  ...AppConfig.defaultMirrorUrls,
   AppConfig.apiUrl,
 ]
     .map((u) => u.replaceFirst(RegExp(r'^https?://'), ''))
