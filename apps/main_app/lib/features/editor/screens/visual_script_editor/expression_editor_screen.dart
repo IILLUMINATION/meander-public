@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:canvas_app/features/editor/providers/formula_clipboard_provider.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_pad_state.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/formula_syntax.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/variable_selection_screen.dart';
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
@@ -122,6 +126,9 @@ class _ExpressionEditorScreenState extends State<ExpressionEditorScreen>
     );
     _focusNode.requestFocus();
     _scrollEditorToBottom();
+    // «Часто используемые» в палитре функций: считаем любые короткие
+    // вставки из клавиатуры (символы, `{переменная}`, `round(x)`).
+    unawaited(ExpressionPadStore.recordInsert(textToInsert));
   }
 
   void _backspace() {
@@ -280,6 +287,20 @@ class _ExpressionEditorScreenState extends State<ExpressionEditorScreen>
     }
   }
 
+  /// Шпаргалка по синтаксису: квадратные скобки адресации и правило
+  /// «внутри кавычек фигурные скобки — просто текст» — источник половины
+  /// ошибок вида `["{Оружие}"]`, где строка ищется буквально по `{Оружие}`.
+  Future<void> _showFormulaHelp() async {
+    await showAdaptiveSheet<void>(
+      context: context,
+      title: tr('Как писать формулы'),
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => _FormulaHelpSheet(),
+    );
+  }
+
   void _saveAndExit() {
     Navigator.pop(context, _controller.text.trim());
   }
@@ -368,6 +389,38 @@ class _ExpressionEditorScreenState extends State<ExpressionEditorScreen>
                       ),
                     ),
                   ),
+                ),
+                // Живая подсказка о незакрытых скобках: движок на такой
+                // формуле вернёт null молча, а автор ищет причину в данных.
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _controller,
+                  builder: (context, value, _) {
+                    final error = formulaSyntaxError(value.text);
+                    if (error == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            size: 16,
+                            color: scheme.error,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              error,
+                              style: TextStyle(
+                                color: scheme.error,
+                                fontSize: 12,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 SingleChildScrollView(
@@ -460,6 +513,14 @@ class _ExpressionEditorScreenState extends State<ExpressionEditorScreen>
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             actions: [
+              IconButton(
+                onPressed: _showFormulaHelp,
+                icon: Icon(
+                  Icons.help_outline_rounded,
+                  color: scheme.onSurfaceVariant,
+                ),
+                tooltip: tr('Как писать формулы'),
+              ),
               IconButton(
                 onPressed: () => _copyFormula(ref),
                 icon: Icon(
@@ -796,6 +857,16 @@ class _LogicPad extends StatelessWidget {
           child: Row(
             children: [
               _Key(
+                '{',
+                // Пара с курсором внутри: `{}` — плейсхолдер значения,
+                // набирать закрывающую вручную не нужно.
+                val: '{}',
+                cursorOffset: -1,
+                bg: softBg(bracketAccent),
+                fg: bracketAccent,
+                onInsert: onInsert,
+              ),
+              _Key(
                 '[',
                 bg: softBg(bracketAccent),
                 fg: bracketAccent,
@@ -803,6 +874,12 @@ class _LogicPad extends StatelessWidget {
               ),
               _Key(
                 ']',
+                bg: softBg(bracketAccent),
+                fg: bracketAccent,
+                onInsert: onInsert,
+              ),
+              _Key(
+                '}',
                 bg: softBg(bracketAccent),
                 fg: bracketAccent,
                 onInsert: onInsert,
@@ -851,9 +928,44 @@ class _LogicPad extends StatelessWidget {
 //  FUNCTIONS PAD
 // ============================================================================
 
-class _FunctionsPad extends StatelessWidget {
+class _FunctionsPad extends StatefulWidget {
   final void Function(String text, {int? cursorOffset}) onInsert;
   const _FunctionsPad({required this.onInsert});
+
+  @override
+  State<_FunctionsPad> createState() => _FunctionsPadState();
+}
+
+class _FunctionsPadState extends State<_FunctionsPad> {
+  /// Раскрытые разделы. `null` — настройки ещё не прочитаны.
+  Set<int>? _open;
+
+  /// Вставки по убыванию частоты — «Часто используемые» вверху палитры.
+  List<String> _frequent = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadState());
+  }
+
+  Future<void> _loadState() async {
+    final state = await ExpressionPadStore.load();
+    if (!mounted) return;
+    setState(() {
+      // Первый раздел раскрыт по умолчанию: пустая палитра выглядит как
+      // «функций нет», хотя это просто свёрнутые разделы.
+      _open = state.openGroups ?? {0};
+      _frequent = state.frequent;
+    });
+  }
+
+  void _toggleGroup(int index) {
+    final open = {...?_open};
+    if (!open.remove(index)) open.add(index);
+    setState(() => _open = open);
+    unawaited(ExpressionPadStore.saveOpenGroups(open));
+  }
 
   // Мини-справка при каждой функции: без подписи аргументов список превращается
   // в угадывание «а что там вторым аргументом и с какой единицы считается».
@@ -1163,45 +1275,119 @@ class _FunctionsPad extends StatelessWidget {
     ]),
   ];
 
+  Widget _groupHeader(int index, _FuncGroup group, bool isOpen) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _toggleGroup(index),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(6, 12, 6, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.title,
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    // Пояснение к разделу показываем только когда он раскрыт:
+                    // в свёрнутом виде это шум, а место нужно списку.
+                    if (isOpen && group.note != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          group.note!,
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 11,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${group.funcs.length}',
+                style: TextStyle(
+                  color: scheme.outline,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Icon(
+                isOpen
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                color: scheme.onSurfaceVariant,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _frequentSection() {
+    final scheme = Theme.of(context).colorScheme;
+    if (_frequent.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+          child: Text(
+            tr('Часто используемые'),
+            style: TextStyle(
+              color: scheme.secondary,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final text in _frequent)
+              ActionChip(
+                label: Text(
+                  text,
+                  style: GoogleFonts.sourceCodePro(fontSize: 13),
+                ),
+                onPressed: () => widget.onInsert(text),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final open = _open ?? {0};
     return ListView(
       padding: const EdgeInsets.all(8),
       children: [
-        for (final g in _groups) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 10, 4, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  g.title,
-                  style: TextStyle(
-                    color: scheme.primary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (g.note != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      g.note!,
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 11,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          for (final f in g.funcs) ...[
-            _FuncCard(entry: f, onInsert: onInsert),
-            const SizedBox(height: 6),
-          ],
+        _frequentSection(),
+        for (var index = 0; index < _groups.length; index++) ...[
+          _groupHeader(index, _groups[index], open.contains(index)),
+          if (open.contains(index))
+            for (final f in _groups[index].funcs) ...[
+              _FuncCard(entry: f, onInsert: widget.onInsert),
+              const SizedBox(height: 6),
+            ],
         ],
       ],
     );
@@ -1281,6 +1467,87 @@ class _FuncCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ============================================================================
+//  ШПАРГАЛКА ПО СИНТАКСИСУ
+// ============================================================================
+
+class _FormulaHelpSheet extends StatelessWidget {
+  const _FormulaHelpSheet();
+
+  static List<(String, String)> _items() => [
+    (
+      '{HP}',
+      tr('Значение переменной. Всё, что в фигурных скобках, движок подставляет.'),
+    ),
+    (
+      '{{лавка["цена"][1] + 5}}',
+      tr('Составную формулу оборачивай в двойные скобки: одиночные теряют часть выражения после скобки.'),
+    ),
+    (
+      'лавка["цена"]["меч"]',
+      tr('Ячейка таблицы. Строка — по имени или номером с 1: лавка["цена"][2].'),
+    ),
+    (
+      'лавка["цена"][выбор]',
+      tr('Строка, имя которой лежит в переменной. Без кавычек: кавычки делают ключ текстом.'),
+    ),
+    (
+      'лавка["цена"]["{выбор}"]',
+      tr('Так не работает: внутри кавычек {выбор} — обычный текст, движок ищет строку с таким именем.'),
+    ),
+    (
+      'table_cell(лавка, "цена", 2)',
+      tr('То же функцией. Имя таблицы не должно совпадать с именем переменной.'),
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListView(
+      shrinkWrap: true,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      children: [
+        for (final (code, text) in _items())
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    code,
+                    style: GoogleFonts.sourceCodePro(
+                      color: scheme.onSurface,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  text,
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12.5,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

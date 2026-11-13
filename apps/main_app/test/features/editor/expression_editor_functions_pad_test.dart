@@ -5,6 +5,7 @@ import 'package:canvas_app/features/editor/screens/visual_script_editor/expressi
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Список длиннее телефона, а ListView строит карточки лениво: чего не видно —
 // того нет в дереве. Экран делаем завысоким, чтобы проверить весь список,
@@ -14,6 +15,10 @@ Future<void> _openFunctionsTab(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
+
+  // Палитра читает сохранённые раскрытые разделы: без моков плагин
+  // настроек недоступен, и первый раздел открывается по умолчанию.
+  SharedPreferences.setMockInitialValues({});
 
   await tester.pumpWidget(
     const ProviderScope(
@@ -25,6 +30,19 @@ Future<void> _openFunctionsTab(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.widgetWithText(Tab, 'Функции'));
   await tester.pumpAndSettle();
+}
+
+/// Разделы палитры сворачиваются (так помещается весь список), поэтому
+/// перед проверкой содержимого раскрываем все, кроме открытого по умолчанию.
+Future<void> _expandAllGroups(WidgetTester tester) async {
+  Finder header(String title) =>
+      find.descendant(of: find.byType(ListView), matching: find.text(title));
+  for (final title in ['Текст', 'Логика', 'Таблицы', 'Переменные']) {
+    final finder = header(title);
+    if (finder.evaluate().isEmpty) continue;
+    await tester.tap(finder.first);
+    await tester.pumpAndSettle();
+  }
 }
 
 void main() {
@@ -41,6 +59,7 @@ void main() {
 
   testWidgets('все группы и их подписи на месте', (tester) async {
     await _openFunctionsTab(tester);
+    await _expandAllGroups(tester);
 
     // «Логика» и «Текст» живут не только в заголовках секций, поэтому ищем
     // именно внутри списка функций.
@@ -68,8 +87,26 @@ void main() {
     );
   });
 
+  testWidgets('свёрнутые разделы не занимают место в списке', (tester) async {
+    await _openFunctionsTab(tester);
+
+    // По умолчанию раскрыт только первый раздел: иначе список из сотен
+    // строк не помещается и искать функцию приходится прокруткой.
+    expect(find.textContaining('upper(текст)'), findsNothing);
+
+    final header = find.descendant(
+      of: find.byType(ListView),
+      matching: find.text('Текст'),
+    );
+    await tester.tap(header.first);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('upper(текст)'), findsOneWidget);
+  });
+
   testWidgets('доступ к таблице документирован', (tester) async {
     await _openFunctionsTab(tester);
+    await _expandAllGroups(tester);
 
     expect(find.text('Ячейка таблицы'), findsOneWidget);
     expect(
@@ -88,6 +125,7 @@ void main() {
     tester,
   ) async {
     await _openFunctionsTab(tester);
+    await _expandAllGroups(tester);
 
     // Ключи хранилища скриптов — вторая половина таблицы, без неё блок
     // «Данные» выглядит магическим.

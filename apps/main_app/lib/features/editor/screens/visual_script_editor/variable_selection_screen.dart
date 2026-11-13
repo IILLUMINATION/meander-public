@@ -15,6 +15,7 @@ import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
+import 'name_conflicts.dart';
 
 enum SortOption { nameAsc, nameDesc, usage, folder }
 
@@ -446,6 +447,23 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     await FileStorage.writeJsonFile(configPath, config);
   }
 
+  /// Все занятые имена формул: переменные (пользовательские и системные)
+  /// и таблицы — движок резолвит их в одном пространстве имён.
+  List<String> _takenNames() => [
+    ..._customVariables.map((v) => v.name),
+    ..._systemVariables.map((v) => v.name),
+    ..._tables.map((t) => t.name),
+  ];
+
+  void _showNameTaken(String name) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(trf('Имя «{newName}» уже занято', {'newName': name})),
+      ),
+    );
+  }
+
   Future<void> _addVariable() async {
     final nameController = TextEditingController();
     final valueController = TextEditingController();
@@ -486,6 +504,13 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
 
     final name = nameController.text.trim();
     if (name.isEmpty) return;
+    if (!mounted) return;
+    final taken = _takenNames();
+    final conflict = conflictingName(name, taken);
+    if (conflict != null) {
+      _showNameTaken(name);
+      return;
+    }
 
     dynamic val = valueController.text.trim();
     if (val.isEmpty) {
@@ -774,17 +799,11 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
     final config = await _readConfig();
     final tables = (config['tables'] as List<dynamic>? ?? []).toList();
 
-    final duplicate = tables.any(
-      (t) => t is Map && t['name']?.toString() == name,
-    );
-    if (duplicate) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(trf('Таблица «{p0}» уже существует', {'p0': name})),
-          ),
-        );
-      }
+    // Имя таблицы не должно совпадать ни с другой таблицей, ни с
+    // переменной: коллизия ломает адресацию `table_cell(имя, …)`.
+    if (!mounted) return;
+    if (conflictingName(name, _takenNames()) != null) {
+      _showNameTaken(name);
       return;
     }
 
@@ -840,19 +859,11 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
 
     // Переезд на занятое имя слил бы две переменные: рефакторинг
     // переписал бы ссылки на старую, а в config остались бы две записи.
-    final taken = <String>{
-      ..._customVariables.map((v) => v.name),
-      ..._systemVariables.map((v) => v.name),
-      ..._tables.map((t) => t.name),
-    }..remove(oldName);
-    if (taken.contains(newName)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            trf('Имя «{newName}» уже занято', {'newName': newName}),
-          ),
-        ),
-      );
+    // Переезд на занятое имя слил бы два объявления: рефакторинг переписал
+    // бы ссылки на старое, а в config остались бы две записи. Сравнение без
+    // учёта регистра — `Оружие` и `оружие` в формулах неразличимы на глаз.
+    if (conflictingName(newName, _takenNames(), ignore: oldName) != null) {
+      _showNameTaken(newName);
       return;
     }
 
@@ -974,7 +985,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
         files.single.path!,
       );
 
-      final existing = _tables.where((t) => t.name == imported.name).toList();
+      final importName = imported.name.trim().toLowerCase();
+      final existing = _tables
+          .where((t) => t.name.trim().toLowerCase() == importName)
+          .toList();
       if (existing.isNotEmpty) {
         if (!mounted) return;
         final confirm = await showAppDialog<bool>(
@@ -1028,6 +1042,10 @@ class _VariableSelectionScreenState extends State<VariableSelectionScreen>
         ),
       );
       if (finalName == null || finalName.isEmpty || !mounted) return;
+      if (conflictingName(finalName, _takenNames()) != null) {
+        _showNameTaken(finalName);
+        return;
+      }
 
       final renamed = QuestTable(
         name: finalName,

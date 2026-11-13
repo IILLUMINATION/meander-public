@@ -16,6 +16,8 @@ import 'package:canvas_app/features/editor/screens/visual_script_editor/block_in
 import 'package:canvas_app/features/editor/screens/visual_script_editor/script_block_shell.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/action_picker_screen.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/parser.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/script_signature.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/script_validator.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/event_block_widget.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/script_contracts.dart';
@@ -134,9 +136,10 @@ class _VisualScriptEditorScreenState
     WidgetsBinding.instance.removeObserver(this);
     _autoSaveTimer?.cancel();
     // Закрытие как маршрута (Navigator.pop) не проходит ни onBeforeClose
-    // вкладки, ни деактивацию: флешим буфер здесь, иначе правка, сделанная
-    // в последнюю секунду перед выходом, не доживает до записи.
-    if (_scriptSignature != _lastSavedSignature) {
+    // вкладки, ни деактивацию: флешим буфер здесь безусловно. Сравнивать
+    // сигнатуру нельзя — она эвристика, а любой её промах (правка поля,
+    // вложенного блока) означает тихую потерю правки при выходе.
+    if (_loadCompleted) {
       unawaited(_saveScript());
     }
     _autoScrollTicker?.dispose();
@@ -359,34 +362,10 @@ class _VisualScriptEditorScreenState
     _checkAutoScroll(globalPosition, screenHeight);
   }
 
-  /// Лёгкая сигнатура для сравнения «грязный/чистый»: имя + id блоков в
-  /// порядке обхода дерева (вложенность учитывается). Полный `jsonEncode`
-  /// всех блоков каждую секунду автосейва стоил пропорционально размеру
-  /// скрипта и аллоцировал строку в сотни КБ на большом сценарии.
-  static String _signatureOf({
-    required String name,
-    required List<VisualScriptBlock> blocks,
-  }) {
-    final buf = StringBuffer(name);
-    void walk(List<VisualScriptBlock> list) {
-      for (final b in list) {
-        buf
-          ..write('|')
-          ..write(b.id);
-        for (final nested in b.nestedBlockLists) {
-          walk(nested);
-        }
-      }
-    }
-
-    walk(blocks);
-    return buf.toString();
-  }
-
-  String get _scriptSignature => _signatureOf(
-        name: _scriptName,
-        blocks: _blocks,
-      );
+  String get _scriptSignature => scriptSignatureOf(
+    name: _scriptName,
+    blocks: _blocks,
+  );
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -568,7 +547,10 @@ class _VisualScriptEditorScreenState
         'blocks': savedBlocks.map((block) => block.toJson()).toList(),
       };
       await store.writeJson(finalPath, scriptData);
-      _lastSavedSignature = _signatureOf(name: savedName, blocks: savedBlocks);
+      _lastSavedSignature = scriptSignatureOf(
+          name: savedName,
+          blocks: savedBlocks,
+        );
       _docHandle?.markDirty(false);
 
       if (finalPath.contains('/scripts/')) {
@@ -631,7 +613,66 @@ class _VisualScriptEditorScreenState
     );
   }
 
+  /// Имена таблиц квеста — для проверки коллизий имён при выходе.
+  /// Ошибка чтения не должна мешать выйти: пустой набор отключает проверку.
+  Future<Set<String>> _questTableNames() async {
+    try {
+      final store = await _store();
+      final config = await store.readJson(QuestPaths.config(widget.questId));
+      final tables = config?['tables'] as List<dynamic>? ?? const [];
+      return {
+        for (final table in tables)
+          if (table is Map && table['name'] != null) table['name'].toString(),
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Спросить перед выходом, если в скрипте остались незаполненные места.
+  /// `true` — можно выходить (проблем нет или автор выбрал «выйти как есть»).
+  Future<bool> _confirmLeaveWithIssues() async {
+    final issues = validateScriptBlocks(_blocks, tables: await _questTableNames());
+    if (issues.isEmpty || !mounted) return true;
+
+    const shown = 6;
+    final leave = await showAppDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('В скрипте есть проблемы')),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final issue in issues.take(shown))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('• ${issue.message}'),
+                ),
+              if (issues.length > shown)
+                Text(trf('…и ещё {p0}', {'p0': issues.length - shown})),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(tr('Исправить')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(tr('Выйти как есть')),
+          ),
+        ],
+      ),
+    );
+    return leave == true;
+  }
+
   Future<void> _closeDocument() async {
+    if (!await _confirmLeaveWithIssues()) return;
     await _saveScript();
     if (!mounted) return;
     final document = EditorDocumentContext.maybeOf(context);
