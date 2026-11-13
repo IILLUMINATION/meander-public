@@ -12,17 +12,8 @@ class VideoCacheService {
   /// до нуля: `dispose()` у attached-плеера гасит картинку у того, кто её
   /// прямо сейчас смотрит, — видео становится чёрным кадром до ревизита ноды.
   static final Map<String, int> _attached = {};
-  /// Сколько живых mpv держим.
-  ///
-  /// Каждый `Player` — это нативные буферы и декодер; три штуки на телефоне с
-  /// 2 ГБ памяти это самый вероятный OOM при переходах между нодами. Двух
-  /// хватает для «вернулся на предыдущую ноду»; третий всё равно не помещается.
-  static const int _maxSize = 2;
-
-  /// Сколько плеер живёт после того, как его перестали показывать: две минуты
-  /// покрывают возврат назад по сюжету и не держат память под ролик, который
-  /// уже не появится.
-  static const Duration _expire = Duration(minutes: 2);
+  static const int _maxSize = 3;
+  static const Duration _expire = Duration(minutes: 5);
 
   static Player? get(String key) {
     final p = _players[key];

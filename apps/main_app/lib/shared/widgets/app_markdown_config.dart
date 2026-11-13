@@ -32,11 +32,15 @@ class AppMarkdown {
   static MarkdownConfig getConfig(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final key = _ConfigKey(scheme, textTheme);
+    // Ширина декодирования картинок — часть конфига, поэтому она входит в
+    // ключ: после поворота экрана или ресайза окна кэш не отдаёт конфиг со
+    // старой шириной (иначе картинки декодировались бы под прежний экран).
+    final imagePixels = _imagePixelWidth(context);
+    final key = _ConfigKey(scheme, textTheme, imagePixels);
     final cached = _configCache[key];
     if (cached != null) return cached;
-    final config = _buildConfig(scheme, textTheme, _imagePixelWidth(context));
-    if (_configCache.length >= 8) _configCache.clear();
+    final config = _buildConfig(scheme, textTheme, imagePixels);
+    if (_configCache.length >= 8) _configCache.remove(_configCache.keys.first);
     _configCache[key] = config;
     return config;
   }
@@ -168,20 +172,27 @@ class AppMarkdown {
 
 /// Ключ кэша конфигурации: тема меняется редко, а identity сравнивается дёшево.
 class _ConfigKey {
-  const _ConfigKey(this.scheme, this.textTheme);
+  const _ConfigKey(this.scheme, this.textTheme, this.imagePixels);
 
   final ColorScheme scheme;
   final TextTheme textTheme;
+
+  /// Ширина декодирования картинок: зависит от размера экрана, не от темы.
+  final int imagePixels;
 
   @override
   bool operator ==(Object other) =>
       other is _ConfigKey &&
       identical(other.scheme, scheme) &&
-      identical(other.textTheme, textTheme);
+      identical(other.textTheme, textTheme) &&
+      other.imagePixels == imagePixels;
 
   @override
-  int get hashCode =>
-      Object.hash(identityHashCode(scheme), identityHashCode(textTheme));
+  int get hashCode => Object.hash(
+    identityHashCode(scheme),
+    identityHashCode(textTheme),
+    imagePixels,
+  );
 }
 
 /// Markdown-блок, который не переразбирается на каждом `build`.

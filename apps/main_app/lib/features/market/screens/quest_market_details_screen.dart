@@ -2501,16 +2501,6 @@ class _ScrollBlur extends StatelessWidget {
     required this.child,
   });
 
-  /// Размытие заголовка при прокрутке — только для десктопа.
-  ///
-  /// `ImageFiltered` создаёт offscreen-слой и пересчитывает гаусс заново на
-  /// каждом кадре скролла (sigma до 8 по всей ширине заголовка). На телефоне
-  /// это самый дорогой эффект экрана и ровно тот случай, когда 60 fps
-  /// превращаются в рывки; выигрыш — косметический.
-  static bool get _blurSupported =>
-      defaultTargetPlatform != TargetPlatform.android &&
-      defaultTargetPlatform != TargetPlatform.iOS;
-
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.paddingOf(context).top;
@@ -2523,7 +2513,7 @@ class _ScrollBlur extends StatelessWidget {
         final progress = offset <= 0
             ? 0.0
             : (offset / blurEnd).clamp(0.0, 1.0);
-        if (progress <= 0 || !_blurSupported) return child;
+        if (progress <= 0) return child;
         final sigma = progress * 8;
         return ImageFiltered(
           imageFilter: ui.ImageFilter.blur(

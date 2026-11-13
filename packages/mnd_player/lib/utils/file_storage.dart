@@ -80,6 +80,9 @@ class FileStorage {
   static const int _jsonCacheLimit = 48;
 
   static void _rememberJson(String path, Map<String, dynamic> value) {
+    // Уже существующую запись переставляем в конец: карта ведёт себя как LRU
+    // по порядку вставки, а не как «первым пришёл — первым ушёл».
+    _jsonCache.remove(path);
     _jsonCache[path] = value;
     while (_jsonCache.length > _jsonCacheLimit) {
       _jsonCache.remove(_jsonCache.keys.first);
@@ -133,6 +136,11 @@ class FileStorage {
   static Future<Map<String, dynamic>> readJsonFile(String relativePath) async {
     final cached = _jsonCache[relativePath];
     if (cached != null) {
+      // Перенос в конец: вытеснение при переполнении пойдёт по порядку
+      // вставки, и часто читаемый файл (`config.json` открытого квеста) не
+      // выпадет раньше давно не нужного.
+      _jsonCache.remove(relativePath);
+      _jsonCache[relativePath] = cached;
       return _cloneJsonMap(cached);
     }
 

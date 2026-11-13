@@ -1435,8 +1435,11 @@ class TextItemWidget extends ConsumerWidget {
 /// виджета, а текст в игре перестраивается на каждое изменение переменной, на
 /// каждый шаг «печатания» и на невидимый слой `reserved`. Результат зависит
 /// только от текста и шрифтовых параметров, поэтому его можно переиспользовать.
-/// Ключ ограничен по числу записей: при переполнении кэш сбрасывается целиком.
-const int _fillMarkdownCacheLimit = 24;
+/// Ключ ограничен по числу записей: при переполнении вытесняется только самая
+/// старая запись. Сброс кэша целиком здесь не годится — «печатная машинка»
+/// добавляет по записи на каждый кадр, и полный сброс заставлял бы
+/// переразбирать markdown всех остальных текстов сцены на следующем кадре.
+const int _fillMarkdownCacheLimit = 64;
 final Map<String, List<Widget>> _fillMarkdownCache = <String, List<Widget>>{};
 
 List<Widget> cachedFillMarkdown({
@@ -1450,8 +1453,8 @@ List<Widget> cachedFillMarkdown({
   final cached = _fillMarkdownCache[key];
   if (cached != null) return cached;
   final built = build();
-  if (_fillMarkdownCache.length >= _fillMarkdownCacheLimit) {
-    _fillMarkdownCache.clear();
+  while (_fillMarkdownCache.length >= _fillMarkdownCacheLimit) {
+    _fillMarkdownCache.remove(_fillMarkdownCache.keys.first);
   }
   _fillMarkdownCache[key] = built;
   return built;

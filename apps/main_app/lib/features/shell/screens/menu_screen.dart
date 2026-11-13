@@ -200,6 +200,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
     final List<Widget> screens;
     final List<NavBarItem> items;
+    // Плитка «Чаты» нужна бейджу непрочитанных: индекс ищется по той же
+    // ссылке, а не по числу, иначе при смене порядка вкладок бейдж уедет на
+    // соседнюю кнопку.
+    NavBarItem? chatsItem;
 
     if (isLoggedIn) {
       // Бейдж «Чатов» живёт в самой нижней панели (_ShellNavBar) и не
@@ -224,7 +228,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           selectedIcon: Icons.public_rounded,
           label: tr('Сообщество'),
         ),
-        NavBarItem(
+        chatsItem = NavBarItem(
           icon: Icons.forum_outlined,
           selectedIcon: Icons.forum_rounded,
           label: tr('Чаты'),
@@ -304,8 +308,16 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         ),
     ];
 
-    // Индекс плитки «Чаты» в barItems: у гостя её нет вовсе.
-    final chatsTileIndex = isLoggedIn && barItems.length > 2 ? 2 : null;
+    // Индекс «Чатов» в узкой панели: у гостя плитки нет, а при сворачивании
+    // она может уехать под «Ещё» — тогда бейджу там не место.
+    final chats = chatsItem;
+    final chatsRailIndex = chats == null ? null : items.indexOf(chats);
+    final int? chatsTileIndex = chats == null
+        ? null
+        : () {
+            final i = fold.visible.indexOf(chats);
+            return i >= 0 ? i : null;
+          }();
 
     // Открытая вкладка монтируется всегда; остальные — только после первого
     // визита (и дальше живут, чтобы не терять состояние и позицию скролла).
@@ -344,7 +356,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 children: [
                   _ShellNavRail(
                     items: items,
-                    unreadIndex: chatsTileIndex,
+                    unreadIndex: chatsRailIndex,
                     currentIndex: safeIndex,
                     onTap: _onTabTapped,
                   ),

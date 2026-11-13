@@ -74,9 +74,15 @@ void main() {
   }
 
   String paintedFile(WidgetTester tester) {
-    final image = tester.widget<Image>(find.byType(Image).first).image;
-    expect(image, isA<FileImage>());
-    return (image as FileImage).file.path;
+    // Картинка узла декодируется под экран, поэтому файл лежит под
+    // `ResizeImage` — тест проверяет именно выбранный файл, а обёртка для
+    // декода здесь не предмет проверки.
+    ImageProvider provider = tester.widget<Image>(find.byType(Image).first).image;
+    while (provider is ResizeImage) {
+      provider = provider.imageProvider;
+    }
+    expect(provider, isA<FileImage>());
+    return (provider as FileImage).file.path;
   }
 
   ContentItem image({String? path, String? expr}) => ContentItem(
