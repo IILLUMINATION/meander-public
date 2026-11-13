@@ -25,14 +25,22 @@ void main() {
     expect(aboutDeveloperName, isNotEmpty);
   });
 
+  test('у разделов есть заголовки, и первый — свежая дата', () {
+    final entries = aboutChangelog();
+    final sections = entries.where((e) => e.isSection).toList();
+    expect(sections.length, greaterThan(2), reason: 'сплошной список не читается');
+    expect(sections.first.text, contains('2026'));
+    expect(entries.first.isSection, isTrue);
+  });
+
   test('в списке изменений нет смайлов', () {
-    for (final line in aboutChangelog()) {
+    for (final line in aboutChangelog().map((e) => e.text)) {
       expect(emoji.hasMatch(line), isFalse, reason: 'эмодзи в строке: $line');
     }
   });
 
   test('строки — обычные предложения, а не капслок-объявления', () {
-    for (final line in aboutChangelog()) {
+    for (final line in aboutChangelog().map((e) => e.text)) {
       expect(line.length, lessThan(400), reason: 'простыня: $line');
       final letters = line.replaceAll(RegExp('[^А-Яа-яA-Za-z]'), '');
       final upper = line.replaceAll(RegExp('[^А-ЯA-Z]'), '');
@@ -53,7 +61,7 @@ void main() {
       caseSensitive: false,
       unicode: true,
     );
-    for (final line in aboutChangelog()) {
+    for (final line in aboutChangelog().map((e) => e.text)) {
       expect(
         internals.hasMatch(line),
         isFalse,

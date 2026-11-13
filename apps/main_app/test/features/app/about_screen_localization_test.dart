@@ -49,6 +49,19 @@ void main() {
     expect(find.text(_sourceProjectText), findsNothing);
   });
 
+  testWidgets('свежий выпуск: разделы и заголовки доходят до экрана', (
+    tester,
+  ) async {
+    L10n.setCurrent(L10n.byCode('en'));
+    await _pumpAbout(tester);
+
+    // Разделы — часть текста, а не только вёрстка: на английском они тоже
+    // переведены, и первый раздел относится к новому выпуску.
+    expect(find.text('Update as of November 13, 2026.'), findsOneWidget);
+    expect(find.text('Quest editor'), findsOneWidget);
+    expect(find.text('Keeping your quests safe'), findsOneWidget);
+  });
+
   testWidgets('русский: текст-источник на месте', (tester) async {
     await _pumpAbout(tester);
 

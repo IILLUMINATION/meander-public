@@ -117,7 +117,10 @@ class _AboutScreenState extends State<AboutScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
-              (_, i) => _ChangelogItem(text: changelog[i]),
+              (_, i) => _ChangelogItem(
+                text: changelog[i].text,
+                isSection: changelog[i].isSection,
+              ),
               childCount: changelog.length,
             ),
           ),
@@ -310,12 +313,32 @@ class _Header extends StatelessWidget {
 class _ChangelogItem extends StatelessWidget {
   final String text;
   final Color? accent;
-  const _ChangelogItem({required this.text, this.accent});
+  final bool isSection;
+  const _ChangelogItem({
+    required this.text,
+    this.accent,
+    this.isSection = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final dot = accent ?? scheme.primary;
+    if (isSection) {
+      // Заголовок раздела без точки: список из десятков одинаковых строк
+      // не читается, а сворачивать историю никто не станет.
+      return Padding(
+        padding: const EdgeInsets.only(top: 14, bottom: 8),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: scheme.primary,
+            fontWeight: FontWeight.w700,
+            height: 1.3,
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
