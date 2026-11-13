@@ -216,6 +216,47 @@ class QuestNodesStore {
     return _findNode(await _readMonolith(questId), nodeId);
   }
 
+  /// Тела перечисленных нод — точечное чтение вместо [readAll].
+  ///
+  /// Канвасу на автосейве нужны только ноды своей главы, а `readAll` ради них
+  /// вычитывает каждую ноду квеста (на большом квесте — сотни файлов и
+  /// `jsonDecode` на каждую). В per-node формате читаем ровно запрошенные
+  /// файлы; в legacy/частично миграцированном квесте — один раз монолит.
+  static Future<Map<String, Map<String, dynamic>>> readNodesByIds(
+    String questId,
+    Iterable<String> ids,
+  ) async {
+    final wanted = ids.toSet();
+    if (wanted.isEmpty) return const {};
+
+    final qs = await QuestStore.defaultInstance();
+    final out = <String, Map<String, dynamic>>{};
+
+    if (await qs.exists(QuestPaths.nodesIndex(questId))) {
+      for (final id in wanted) {
+        final bodyPath = QuestPaths.nodeBody(questId, id);
+        if (!await qs.exists(bodyPath)) continue;
+        try {
+          final body = await qs.readJson(bodyPath);
+          if (body != null) out[id] = body;
+        } catch (_) {}
+      }
+      if (out.length == wanted.length) return out;
+    }
+
+    // Legacy-монолит или частичная миграция: не хватает тел — ищем их там.
+    final monolith = await _readMonolith(questId);
+    for (final raw in (monolith['nodes'] as List<dynamic>? ?? [])) {
+      if (raw is! Map) continue;
+      final node = Map<String, dynamic>.from(raw);
+      final id = node['id']?.toString();
+      if (id != null && wanted.contains(id) && !out.containsKey(id)) {
+        out[id] = node;
+      }
+    }
+    return out;
+  }
+
   /// Собрать полный документ из индекса и тел нод.
   ///
   /// Нужен старым потребителям (игра, экспорт, поиск). Редактору канваса

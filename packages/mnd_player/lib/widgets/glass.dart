@@ -3,7 +3,12 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:mnd_player/utils/platform_performance.dart';
 
-class GlassSurface extends StatelessWidget {
+/// Стеклянная поверхность: тон + (опционально) `BackdropFilter`.
+///
+/// Гейт блюра спрашивается один раз на состояние, а не на каждый `build`:
+/// новый `Future` в `build` давал лишний кадр в промежуточном состоянии и
+/// мигание «блюр → без блюра» при каждой перестройке родителя.
+class GlassSurface extends StatefulWidget {
   final Widget child;
   final double radius;
   final EdgeInsets padding;
@@ -26,28 +31,41 @@ class GlassSurface extends StatelessWidget {
   });
 
   @override
+  State<GlassSurface> createState() => _GlassSurfaceState();
+}
+
+class _GlassSurfaceState extends State<GlassSurface> {
+  late final Future<bool> _disableBlur = PlatformPerformance.instance
+      .shouldDisableBlur();
+
+  @override
   Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(radius);
+    final borderRadius = BorderRadius.circular(widget.radius);
 
     return RepaintBoundary(
       child: FutureBuilder<bool>(
-        future: PlatformPerformance.instance.shouldDisableBlur(),
-        initialData: false,
+        future: _disableBlur,
+        // Пока ответа нет — рисуем без блюра. Обратный дефолт (`false`) держал
+        // `BackdropFilter` на первом кадре, то есть включал самый дорогой
+        // эффект в тот момент, когда он точно не нужен.
+        initialData: true,
         builder: (context, snapshot) {
-          final shouldDisableBlur = snapshot.data ?? false;
-          final effectiveBlur = (enableBlur && !shouldDisableBlur)
-              ? blurSigma
+          final shouldDisableBlur = snapshot.data ?? true;
+          final effectiveBlur = (widget.enableBlur && !shouldDisableBlur)
+              ? widget.blurSigma
               : 0.0;
 
           // Если blur отключен, используем более непрозрачный фон
           final effectiveTint = effectiveBlur == 0.0
-              ? tintColor.withOpacity((tintColor.opacity * 2).clamp(0.0, 1.0))
-              : tintColor;
+              ? widget.tintColor.withValues(
+                  alpha: (widget.tintColor.a * 2).clamp(0.0, 1.0),
+                )
+              : widget.tintColor;
 
           return Container(
             decoration: BoxDecoration(
               borderRadius: borderRadius,
-              boxShadow: effectiveBlur > 0 ? shadows : [],
+              boxShadow: effectiveBlur > 0 ? widget.shadows : [],
             ),
             child: ClipRRect(
               borderRadius: borderRadius,
@@ -69,13 +87,13 @@ class GlassSurface extends StatelessWidget {
 
   Widget _buildContent(Color tint, BorderRadius borderRadius) {
     return Container(
-      padding: padding,
+      padding: widget.padding,
       decoration: BoxDecoration(
         color: tint,
         borderRadius: borderRadius,
-        border: Border.all(color: borderColor),
+        border: Border.all(color: widget.borderColor),
       ),
-      child: child,
+      child: widget.child,
     );
   }
 }

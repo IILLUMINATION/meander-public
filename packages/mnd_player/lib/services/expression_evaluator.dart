@@ -2,6 +2,31 @@ import 'dart:math' as math;
 import 'package:expressions/expressions.dart';
 
 class ExpressionEvaluatorService {
+  /// Подстановка `{имя}` в текст выражения.
+  static final RegExp _placeholder = RegExp(r'\{([^}]+)\}');
+
+  /// Признаки «это выражение, а не строка» — компилируются один раз.
+  static final RegExp _binaryOperator = RegExp(r'[+\-*/%()=<>]');
+  static final RegExp _startsWithDigit = RegExp(r'^\d');
+
+  /// Кэш разобранных выражений: `processedExpression` → AST.
+  ///
+  /// Без него `Expression.parse` выполнялся на каждый текст на каждый кадр
+  /// (у «печатной машинки» — десятки раз в секунду) и на каждое изменение
+  /// переменной. Ключ ограничен сверху: при переполнении кэш очищается целиком,
+  /// поэтому память не растёт вместе с числом разных значений переменных.
+  static const int _parsedCacheLimit = 512;
+  static final Map<String, Expression> _parsed = <String, Expression>{};
+
+  static Expression _parsedExpression(String source) {
+    final cached = _parsed[source];
+    if (cached != null) return cached;
+    final parsed = Expression.parse(source);
+    if (_parsed.length >= _parsedCacheLimit) _parsed.clear();
+    _parsed[source] = parsed;
+    return parsed;
+  }
+
   static final Map<String, dynamic> _availableFunctions = {
     'abs': (num v) => v.abs(),
     'round': (num v, [num digits = 0]) {
@@ -67,7 +92,7 @@ class ExpressionEvaluatorService {
     }
 
     String processedExpression = expressionString.replaceAllMapped(
-      RegExp(r'\{([^}]+)\}'),
+      _placeholder,
       (match) {
         final varName = match.group(1)?.trim();
         if (varName == null) return match.group(0)!;
@@ -83,17 +108,21 @@ class ExpressionEvaluatorService {
     );
 
     try {
-      final expression = Expression.parse(processedExpression);
+      // Разбор — самая дорогая часть: на каждый текст в каждом кадре
+      // «печатной машинки» и на каждое изменение переменной он выполнялся
+      // заново. Кэш по разобранному тексту снимает это полностью для
+      // повторяющихся значений.
+      final expression = _parsedExpression(processedExpression);
       const evaluator = ExpressionEvaluator();
       final context = <String, dynamic>{..._availableFunctions, ...variables};
 
       final result = evaluator.eval(expression, context);
       return _cleanNumericResult(result);
     } catch (e) {
-      if (!RegExp(r'[+\-*/%()=<>]').hasMatch(processedExpression)) {
+      if (!_binaryOperator.hasMatch(processedExpression)) {
         if (!processedExpression.startsWith("'") &&
             !processedExpression.startsWith('"') &&
-            !RegExp(r'^\d').hasMatch(processedExpression)) {
+            !_startsWithDigit.hasMatch(processedExpression)) {
           return null;
         }
         if ((processedExpression.startsWith("'") &&

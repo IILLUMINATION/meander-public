@@ -440,6 +440,16 @@ class _ConditionalContentWrapperState
   Future<(bool, String?)>? _processingFuture;
   bool _isTransitionScheduled = false;
 
+  // Кэш результата `evaluateVisibility` для одного состояния движка.
+  // `gameStateProvider` эмитит новый объект на каждое изменение переменных,
+  // поэтому identity-сравнение отвечает на вопрос «пересчитывать ли» без
+  // повторного `toJson()` и синхронного перехода через FFI на каждую
+  // перестройку (скролл, смена темы, ребилд родителя).
+  Object? _evalState;
+  Object? _evalItem;
+  Object? _evalEngine;
+  bool? _evalVisible;
+
   /// Ребёнок собирался хоть раз — значит свой onComplete он уже отдал (или
   /// отдаст сам), и пропускающим шагом очереди его не надо трогать.
   bool _childBuilt = false;
@@ -589,11 +599,19 @@ class _ConditionalContentWrapperState
         }
 
         // Реактивная переоценка при изменении переменных в движке.
-        ref.watch(gameStateProvider);
-        final currentShouldShow = widget.engine.evaluateVisibility(
-          widget.item.toJson(),
-          allowMutation: false,
-        );
+        final state = ref.watch(gameStateProvider);
+        if (!identical(_evalState, state) ||
+            !identical(_evalItem, widget.item) ||
+            !identical(_evalEngine, widget.engine)) {
+          _evalState = state;
+          _evalItem = widget.item;
+          _evalEngine = widget.engine;
+          _evalVisible = widget.engine.evaluateVisibility(
+            widget.item.toJson(),
+            allowMutation: false,
+          );
+        }
+        final currentShouldShow = _evalVisible ?? true;
 
         return currentShouldShow
             ? _showChild(keepPlace: keepPlace)
@@ -1308,6 +1326,25 @@ class TextItemWidget extends ConsumerWidget {
       bool outlineOnly = false,
     }) {
       final isStrokeLayer = stroke != null || outlineOnly;
+      // Слой заливки (и любой текст без обводки) зависит только от текста и
+      // шрифтовых параметров — его разбор кэшируется. Это снимает повторный
+      // `buildWidgets` при перестройках на смену переменной и для невидимого
+      // слоя `reserved`, который держит габарит во время «печатания».
+      final bool cacheable = stroke == null && !outlineOnly;
+      List<Widget> buildMarkdownWidgets() {
+        return createColorMarkdownGenerator(
+          linesMargin: const EdgeInsets.symmetric(vertical: 2),
+          questId: questId,
+          // Обводку рисует только штриховой слой: у заливки её нет, иначе
+          // контур задвоился бы. Цвет/толщина тега важнее обводки айтема.
+          outlineMode: isStrokeLayer
+              ? TextOutlineMode.stroke
+              : TextOutlineMode.none,
+        ).buildWidgets(
+          preserveMarkdownHardLineBreaks(shown),
+          config: markdownConfigFor(stroke, outlineOnly: outlineOnly),
+        );
+      }
       return Container(
         width: isInsideRow ? null : double.infinity,
         padding: backgroundColor != null
@@ -1333,19 +1370,15 @@ class TextItemWidget extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: crossAlign,
-            children:
-                createColorMarkdownGenerator(
-                  linesMargin: const EdgeInsets.symmetric(vertical: 2),
-                  questId: questId,
-                  // Обводку рисует только штриховой слой: у заливки её нет, иначе
-                  // контур задвоился бы. Цвет/толщина тега важнее обводки айтема.
-                  outlineMode: isStrokeLayer
-                      ? TextOutlineMode.stroke
-                      : TextOutlineMode.none,
-                ).buildWidgets(
-                  preserveMarkdownHardLineBreaks(shown),
-                  config: markdownConfigFor(stroke, outlineOnly: outlineOnly),
-                ),
+            children: cacheable
+                ? cachedFillMarkdown(
+                    text: shown,
+                    questId: questId,
+                    baseFontSize: baseFontSize,
+                    fontFamily: fontFamily,
+                    build: buildMarkdownWidgets,
+                  )
+                : buildMarkdownWidgets(),
           ),
         ),
       );
@@ -1394,6 +1427,34 @@ class TextItemWidget extends ConsumerWidget {
     }
     return textContent;
   }
+}
+
+/// Кэш разобранного markdown для слоя заливки.
+///
+/// `MarkdownBlock`/`buildWidgets` разбирают текст заново на каждую перестройку
+/// виджета, а текст в игре перестраивается на каждое изменение переменной, на
+/// каждый шаг «печатания» и на невидимый слой `reserved`. Результат зависит
+/// только от текста и шрифтовых параметров, поэтому его можно переиспользовать.
+/// Ключ ограничен по числу записей: при переполнении кэш сбрасывается целиком.
+const int _fillMarkdownCacheLimit = 24;
+final Map<String, List<Widget>> _fillMarkdownCache = <String, List<Widget>>{};
+
+List<Widget> cachedFillMarkdown({
+  required String text,
+  required String questId,
+  required double baseFontSize,
+  required String? fontFamily,
+  required List<Widget> Function() build,
+}) {
+  final key = '$questId\u0000$baseFontSize\u0000${fontFamily ?? ''}\u0000$text';
+  final cached = _fillMarkdownCache[key];
+  if (cached != null) return cached;
+  final built = build();
+  if (_fillMarkdownCache.length >= _fillMarkdownCacheLimit) {
+    _fillMarkdownCache.clear();
+  }
+  _fillMarkdownCache[key] = built;
+  return built;
 }
 
 /// Обёртка над текстовым элементом, которая крутит анимацию появления.
@@ -2447,6 +2508,19 @@ class _ImageItemWidgetState extends ConsumerState<ImageItemWidget> {
   String? _futureFor;
   Future<File?>? _fileFuture;
 
+  /// Ширина декодирования под текущий экран (в физических пикселях).
+  ///
+  /// Верхняя граница — то, что вообще может попасть на экран. Ограничение
+  /// снизу бережёт маленькие иконки от мыла, сверху — от полноразмерных
+  /// декодов на планшетах и десктопе.
+  int _targetDecodeWidth(BuildContext context, {int multiplier = 1}) {
+    final media = MediaQuery.maybeOf(context);
+    final width = media == null
+        ? 720.0
+        : media.size.width * media.devicePixelRatio;
+    return (width * multiplier).round().clamp(200, 2048);
+  }
+
   void _openFullScreen(BuildContext context, File imageFile) {
     Navigator.push(
       context,
@@ -2459,7 +2533,13 @@ class _ImageItemWidgetState extends ConsumerState<ImageItemWidget> {
             leading: const BackButton(color: Colors.white),
           ),
           body: PhotoView(
-            imageProvider: FileImage(imageFile),
+            // Зум до 2.5×: исходник 12 Мп в память целиком не нужен,
+            // достаточно двойной ширины экрана.
+            imageProvider: ResizeImage(
+              FileImage(imageFile),
+              width: _targetDecodeWidth(context, multiplier: 2),
+              allowUpscaling: false,
+            ),
             minScale: PhotoViewComputedScale.contained,
             maxScale: PhotoViewComputedScale.covered * 2.5,
             heroAttributes: PhotoViewHeroAttributes(tag: widget.item.id),
@@ -2486,9 +2566,24 @@ class _ImageItemWidgetState extends ConsumerState<ImageItemWidget> {
           // Углы по умолчанию скругляем; ряд отключает это через
           // `row.childImageRoundedCorners`.
           final bool rounded = widget.roundedCornersOverride ?? true;
+          // Декод под размер экрана: без `cacheWidth` картинка узла читается
+          // в исходном разрешении (12 Мп ≈ 48 МБ), а в кадре её всё равно
+          // видно не больше, чем ширину экрана.
+          final int decodeWidth = _targetDecodeWidth(context);
           final Widget rawImage = widget.boxFit != null
-              ? SizedBox.expand(child: Image.file(file, fit: widget.boxFit))
-              : Image.file(file, fit: BoxFit.cover, width: double.infinity);
+              ? SizedBox.expand(
+                  child: Image.file(
+                    file,
+                    fit: widget.boxFit,
+                    cacheWidth: decodeWidth,
+                  ),
+                )
+              : Image.file(
+                  file,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  cacheWidth: decodeWidth,
+                );
           final imageWidget = Hero(
             tag: item.id,
             child: rounded

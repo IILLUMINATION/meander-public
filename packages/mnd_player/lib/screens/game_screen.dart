@@ -1846,6 +1846,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final blurValue = resolveBackgroundBlur(
       scriptBlur: scriptBlur,
       nodeBlur: nodeBlur,
+      // Неявный дефолт на мобиле — 0: полноэкранный гаусс «по умолчанию»
+      // стоит дорого на каждом кадре (см. defaultBackgroundBlurFor).
+      fallback: defaultBackgroundBlurFor(defaultTargetPlatform.name),
     );
 
     // Prioritize video background over image

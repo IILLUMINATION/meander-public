@@ -70,6 +70,22 @@ class FileStorage {
   static final _uuid = const Uuid();
   static Future<Directory>? _appDirectoryFuture;
   static final Map<String, Map<String, dynamic>> _jsonCache = {};
+
+  /// Предел кэша распарсенных JSON.
+  ///
+  /// Кэш держит разобранные деревья всех прочитанных файлов (`config.json`
+  /// каждого квеста, `nodes.json`, сейвы, шаблоны) и раньше не имел верхней
+  /// границы: на телефоне с 2 ГБ это заметная доля кучи. При переполнении
+  /// вытесняется самая старая запись (порядок вставки — LinkedHashMap).
+  static const int _jsonCacheLimit = 48;
+
+  static void _rememberJson(String path, Map<String, dynamic> value) {
+    _jsonCache[path] = value;
+    while (_jsonCache.length > _jsonCacheLimit) {
+      _jsonCache.remove(_jsonCache.keys.first);
+    }
+  }
+
   static const Duration _slowIoThreshold = Duration(milliseconds: 120);
 
   static final Map<String, _Lock> _locks = {};
@@ -132,7 +148,7 @@ class FileStorage {
     final result = _tryDecodeJson(content, path: relativePath);
 
     if (result != null) {
-      _jsonCache[relativePath] = Map<String, dynamic>.from(result);
+      _rememberJson(relativePath, Map<String, dynamic>.from(result));
       ioStopwatch.stop();
       if (kDebugMode && ioStopwatch.elapsed > _slowIoThreshold) {
         print(
@@ -153,7 +169,7 @@ class FileStorage {
         if (backupResult != null) {
           print('[FileStorage] Восстановлено из бэкапа');
           await file.writeAsString(backupContent);
-          _jsonCache[relativePath] = Map<String, dynamic>.from(backupResult);
+          _rememberJson(relativePath, Map<String, dynamic>.from(backupResult));
           ioStopwatch.stop();
           if (kDebugMode && ioStopwatch.elapsed > _slowIoThreshold) {
             print(
@@ -241,7 +257,7 @@ class FileStorage {
               await file.writeAsString(jsonString, flush: true);
             }
           }
-          _jsonCache[relativePath] = _cloneJsonMap(data);
+          _rememberJson(relativePath, _cloneJsonMap(data));
 
           try {
             if (await backupFile.exists()) {

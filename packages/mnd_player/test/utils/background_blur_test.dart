@@ -182,6 +182,46 @@ void main() {
     });
   });
 
+  group('defaultBackgroundBlurFor', () {
+    // Регрессия «лаги на мощных телефонах»: гейт по памяти (<4 ГБ) выключал
+    // размытие только на слабых устройствах, а на 4+ ГБ полноэкранный гаусс
+    // включался по историческому дефолту 10 — даже там, где автор его не
+    // задавал. Теперь неявный дефолт на мобиле — ноль: явное значение автора
+    // (нода или `set_blur`) по-прежнему работает.
+    test('на мобиле неявного размытия нет', () {
+      expect(defaultBackgroundBlurFor('android'), 0.0);
+      expect(defaultBackgroundBlurFor('ios'), 0.0);
+    });
+
+    test('на десктопе исторический дефолт остаётся', () {
+      expect(defaultBackgroundBlurFor('linux'), defaultBackgroundBlur);
+      expect(defaultBackgroundBlurFor('windows'), defaultBackgroundBlur);
+      expect(defaultBackgroundBlurFor('macos'), defaultBackgroundBlur);
+    });
+
+    test('явные значения перекрывают платформенный дефолт и на мобиле', () {
+      expect(
+        resolveBackgroundBlur(
+          scriptBlur: 6,
+          nodeBlur: 18,
+          fallback: defaultBackgroundBlurFor('android'),
+        ),
+        6,
+      );
+      expect(
+        resolveBackgroundBlur(
+          nodeBlur: 18,
+          fallback: defaultBackgroundBlurFor('android'),
+        ),
+        18,
+      );
+      expect(
+        resolveBackgroundBlur(fallback: defaultBackgroundBlurFor('android')),
+        0.0,
+      );
+    });
+  });
+
   group('mobileBackdropBlurSigma', () {
     test('потолок: гаусс по всему экрану на каждый кадр дороже большой сигмы', () {
       expect(mobileBackdropBlurSigma(4), 4);
