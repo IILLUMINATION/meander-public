@@ -81,8 +81,8 @@ val mndAbis: List<String> =
     (project.findProperty("mndAbis") as String?)
         ?.split(',')
         ?.map { it.trim() }
-        ?.filter { it.isNotEmpty }
-        ?.takeIf { it.isNotEmpty }
+        ?.filter { it.isNotEmpty() }
+        ?.takeIf { it.isNotEmpty() }
         ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
 val androidNdkVersion = "28.2.13676358"
