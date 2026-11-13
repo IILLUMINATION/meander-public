@@ -55,6 +55,38 @@ void main() {
     expect(find.text('DOC:b'), findsOneWidget);
   });
 
+  testWidgets('закрытая вкладка не всплывает по «Назад» (не циклим)', (
+    tester,
+  ) async {
+    final h = await _Harness.mount(tester, questId: 'q_closed');
+
+    // Пользователь открыл второй экран и закрыл первый — так «Назад»
+    // возвращал его на закрытый экран, и кнопка цик лила между двумя окнами.
+    await h.openTab('b');
+    await h.closeTab('b');
+    expect(h.keys, ['a']);
+
+    await h.pressBack();
+
+    expect(h.keys, ['a'], reason: 'закрытая вкладка остаётся закрытой');
+    expect(find.text('DOC:b'), findsNothing);
+    expect(h.observer.pops, 1);
+  });
+
+  testWidgets('многократная «Назад» не возвращает закрытые экраны', (tester) async {
+    final h = await _Harness.mount(tester, questId: 'q_no_loop');
+    await h.openTab('b');
+    await h.closeTab('b');
+
+    final seen = <String>{};
+    for (var i = 0; i < 3; i++) {
+      await h.pressBack();
+      if (find.text('DOC:b').evaluate().isNotEmpty) seen.add('b');
+    }
+
+    expect(seen, isEmpty);
+  });
+
   testWidgets('документ без своего обработчика «Назад» закрывает вкладку шелл', (
     tester,
   ) async {
@@ -216,6 +248,17 @@ class _Harness {
           const JSONMethodCodec().encodeMethodCall(const MethodCall('popRoute')),
           (_) {},
         );
+    await settle();
+  }
+
+  /// Закрыть вкладку так, как это делает кнопка «Закрыть вкладку» на экране.
+  Future<void> closeTab(String key) async {
+    final scope = EditorWorkspaceScope.of(
+      tester.element(find.text('DOC:$key')),
+    );
+    await scope.closeDocument(
+      EditorDocumentDescriptor.node(questId, key).id,
+    );
     await settle();
   }
 

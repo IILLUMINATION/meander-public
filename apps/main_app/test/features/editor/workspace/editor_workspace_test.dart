@@ -756,7 +756,7 @@ void main() {
       expect(controller.activeId, chapters.id);
     });
 
-    test('goBack reopens a tab closed via close()', () async {
+    test('goBack не переоткрывает вкладку, закрытую явно', () async {
       final controller = EditorWorkspaceController('q1');
       final chapters = EditorDocumentDescriptor.chapters('q1');
       final canvas = EditorDocumentDescriptor.canvas('q1', 'tag1');
@@ -767,10 +767,12 @@ void main() {
       controller.open(node);
       await controller.close(canvas.id);
 
-      // Закрытый крестиком канвас «Назад» переоткрывает.
+      // Закрытая пользователем вкладка из истории посещений уходит: иначе
+      // «Назад» возвращал её на экран и кнопка начинала циклить между
+      // закрытым экраном и тем, что под ним.
       expect(controller.goBack(), isTrue);
-      expect(controller.activeId, canvas.id);
-      expect(controller.contains(canvas.id), isTrue);
+      expect(controller.activeId, chapters.id);
+      expect(controller.contains(canvas.id), isFalse);
     });
 
     test('goBack reopens documents through a replace chain', () {

@@ -317,8 +317,13 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
 
     final document = state.documents[index];
     _rememberClosed(document);
-    // Из стека посещений НЕ удаляем: «Назад» умеет переоткрывать
-    // закрытые вкладки (браузерное поведение).
+    // Явное закрытие убирает вкладку из стека посещений. Раньше запись
+    // оставалась («Назад» умеет переоткрывать закрытые вкладки), и после
+    // закрытия экрана ближайший «Назад» возвращал его обратно: пользователь
+    // попадал в цикл «Назад → закрытая вкладка → Назад → та же вкладка».
+    // Вернуть закрытую вкладку можно осознанно — Ctrl+Shift+T
+    // ([reopenLastClosed]), а не кнопкой «Назад».
+    _navStack.removeWhere((entry) => entry.id == id);
     final remaining = [...state.documents]..removeAt(index);
     final nextActive = remaining.isEmpty
         ? null
@@ -335,6 +340,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
     final index = state.documents.indexWhere((document) => document.id == id);
     if (index < 0) return;
     _rememberClosed(state.documents[index]);
+    _navStack.removeWhere((entry) => entry.id == id);
     final remaining = state.documents
         .where((document) => document.id != id)
         .toList();
