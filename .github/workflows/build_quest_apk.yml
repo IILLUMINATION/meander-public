@@ -59,7 +59,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FLUTTER_VERSION: "3.47.0"
+  # 3.47.9, а не 3.50.0: на 3.50.0 Linux-десктоп рисуется со сдвигом
+  # на пол-окна (flutter/flutter#195885, хотфикс ждём в 3.50.1).
+  FLUTTER_VERSION: "3.47.9"
   NDK_VERSION: "28.2.13676358"
 
 jobs:

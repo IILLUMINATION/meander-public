@@ -3,9 +3,9 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links_linux
   audioplayers_linux
   file_selector_linux
-  gtk
   local_notifier
   media_kit_libs_linux
   media_kit_video
