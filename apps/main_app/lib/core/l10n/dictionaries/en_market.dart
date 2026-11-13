@@ -30,6 +30,8 @@ final Map<String, String> enMarket = {
   'Найти историю, автора, жанр…': 'Find a story, author or genre…',
   'Не удалось загрузить подборку': 'Failed to load the collection',
   'Незаконченные квесты для тестов и отзывов': 'Unfinished quests for testing and reviews',
+  'Новинки': 'New arrivals',
+  'Только что опубликованные и обновлённые': 'Just published and updated',
   'Новости, идеи и обсуждения сообщества.': 'News, ideas and community discussions.',
   'Новости, релизы и анонсы квестов в Telegram.': 'Quest news, releases and announcements on Telegram.',
   'Об игре': 'About the game',
