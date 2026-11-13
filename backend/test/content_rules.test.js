@@ -26,17 +26,28 @@ test('PORN в названии и описании остаётся жёстки
 });
 
 test('Спам-форма в тексте игры не жёсткий отказ', () => {
-    // Цензура и разделители — обычное дело внутри квеста.
-    for (const text of ['███████', '───────', '!!!!!!!!!!!']) {
+    // Набор согласных и повтор слова остаются спам-признаком.
+    for (const text of ['бвгджзйклмн', 'повторение повторение']) {
         const v = verdict(scanText(text, 'body'));
         assert.equal(v.isHardReject, false, `${text}: тело снято автоматически`);
         assert.equal(v.needsReview, true);
     }
 });
 
+test('Повтор одного символа спамом не считается', () => {
+    // Разделители и цензура — обычная вёрстка квеста. Правило «один символ
+    // повторяется много раз» ложно снимало публикации, поэтому удалено.
+    for (const text of ['███████', '───────', '!!!!!!!!!!!', 'аааааааа']) {
+        for (const scope of ['title', 'description', 'body']) {
+            const hit = find(scanText(text, scope), 'SPAM_SHAPE');
+            assert.equal(hit, undefined, `${text} в ${scope}: SPAM_SHAPE всё ещё срабатывает`);
+        }
+    }
+});
+
 test('Спам-форма в витрине остаётся жёстким отказом', () => {
     for (const scope of ['title', 'description']) {
-        const hit = find(scanText('███████', scope), 'SPAM_SHAPE');
+        const hit = find(scanText('бвгджзйклмн', scope), 'SPAM_SHAPE');
         assert.ok(hit, `${scope}: срабатывание пропало`);
         assert.equal(hit.hard, true);
     }

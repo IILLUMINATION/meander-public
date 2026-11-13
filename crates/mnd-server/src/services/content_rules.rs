@@ -307,23 +307,6 @@ fn count_profanity(text: &str, squashed: &str) -> usize {
     total
 }
 
-/// `(.)\1{6,}`: one character repeated seven times or more.
-fn has_char_run(text: &str, min: usize) -> bool {
-    let mut chars = text.chars().peekable();
-    let mut run = 1;
-    while let Some(ch) = chars.next() {
-        if chars.peek() == Some(&ch) {
-            run += 1;
-            if run >= min {
-                return true;
-            }
-        } else {
-            run = 1;
-        }
-    }
-    false
-}
-
 /// `([а-яё]{7,})\s*\1`: the same long word twice in a row.
 fn has_repeated_word(text: &str) -> bool {
     let words: Vec<&str> = text.split_whitespace().collect();
@@ -343,9 +326,9 @@ fn looks_like_spam_shape(text: &str) -> Option<&'static str> {
     if TEST_WORD.is_match(trimmed) {
         return Some("текст — служебная пометка («тест», «проверка»)");
     }
-    if has_char_run(trimmed, 7) {
-        return Some("один символ повторяется много раз");
-    }
+    // Повтор одного символа спамом не считаем: «███████», «───────», «!!!!»
+    // — обычные разделители и цензура в текстах квестов. Правило ложно
+    // снимало публикации, поэтому удалено (паритет с Node-бэкендом).
     if has_repeated_word(trimmed) {
         return Some("одно слово повторяется подряд");
     }
@@ -610,7 +593,9 @@ mod tests {
 
     #[test]
     fn spam_shape_in_body_is_soft() {
-        for text in ["███████", "───────", "!!!!!!!!!!!"] {
+        // Форма текста, которая остаётся спам-признаком: набор согласных и
+        // повтор слова. Повтор одного символа спамом больше не считается.
+        for text in ["бвгджзйклмн", "повторение повторение"] {
             let v = verdict(&scan_text(text, Scope::Body, ScanOptions::default()));
             assert!(!v.is_hard_reject, "{text}: body rejected automatically");
             assert!(v.needs_review, "{text}: body not sent to review");
@@ -618,9 +603,24 @@ mod tests {
     }
 
     #[test]
+    fn repeated_character_is_not_spam() {
+        // «Разделители» и цензура — обычная вёрстка квеста, а не спам:
+        // правило «один символ повторяется много раз» снимало честные работы.
+        for text in ["███████", "───────", "!!!!!!!!!!!", "аааааааа"] {
+            for scope in [Scope::Title, Scope::Description, Scope::Body] {
+                let hits = scan_text(text, scope, ScanOptions::default());
+                assert!(
+                    find(&hits, "SPAM_SHAPE").is_none(),
+                    "{text} in {scope:?}: SPAM_SHAPE still fires"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn spam_shape_in_storefront_is_hard() {
         for scope in [Scope::Title, Scope::Description] {
-            let hits = scan_text("███████", scope, ScanOptions::default());
+            let hits = scan_text("бвгджзйклмн", scope, ScanOptions::default());
             let hit = find(&hits, "SPAM_SHAPE").expect("SPAM_SHAPE hit");
             assert!(hit.hard);
         }

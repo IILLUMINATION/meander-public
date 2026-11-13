@@ -170,7 +170,9 @@ const looksLikeSpamShape = (text: string): string | null => {
     const trimmed = text.trim();
     if (!trimmed) return 'текст пустой';
     if (TEST_WORD.test(trimmed)) return 'текст — служебная пометка («тест», «проверка»)';
-    if (/(.)\1{6,}/.test(trimmed)) return 'один символ повторяется много раз';
+    // Повтор одного символа не считаем спамом: разделители, цензура
+    // («███████», «───────», «!!!!») — обычная вёрстка в квестах. Правило
+    // снимало честные работы на публикации, поэтому убрано.
     if (/([а-яё]{7,})\s*\1/.test(trimmed)) return 'одно слово повторяется подряд';
     if (/[bcdfghjklmnpqrstvwxz]{7,}/.test(trimmed)) return 'набор согласных';
     if (/[бвгджзйклмнпрстфхцчшщ]{8,}/.test(trimmed)) return 'набор согласных';
