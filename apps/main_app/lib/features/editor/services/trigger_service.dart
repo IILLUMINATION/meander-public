@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:mnd_player/utils/trigger_reference.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_launcher.dart';
+import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/features/resources/services/resource_service.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/screens/folder_picker_screen.dart';
@@ -138,11 +139,23 @@ class ScriptService {
   /// (кнопка, модалка) обязаны просить [EditorOpenMode.routeOnly]:
   /// воркспейс-режим заменит вкладку ноды этим скриптом, а вместе с
   /// ней умрёт и редактор, который ждёт результат.
+  /// Открывает редактор скрипта по ссылке триггера.
+  ///
+  /// Способ открытия зависит от контекста: внутри воркспейса (у экрана есть
+  /// [EditorWorkspaceScope]) скрипт становится вкладкой, а из экрана-маршрута
+  /// (редактор стека, контейнер, модалки) — отдельным экраном поверх. Иначе
+  /// из стека поднимался ВТОРОЙ `QuestEditorShell`: «Назад» в нём уводил не
+  /// обратно в стек, а на восстановленную вкладку ноды, и правки скрипта и
+  /// стека расходились по двум разным состояниям воркспейса.
   Future<void> openEditor(
     BuildContext context,
     String rawRef, {
-    EditorOpenMode mode = EditorOpenMode.workspace,
+    EditorOpenMode? mode,
   }) async {
+    final resolvedMode = mode ??
+        (EditorWorkspaceScope.maybeOf(context) == null
+            ? EditorOpenMode.routeOnly
+            : EditorOpenMode.workspace);
     final ref = TriggerReference.parse(rawRef);
     final fileName = ref.scriptPath.split('/').last;
     switch (kindOfRef(rawRef)) {
@@ -155,7 +168,7 @@ class ScriptService {
           fileName,
           title: resource?.friendlyName ?? fileName,
           stableId: resource?.stableId,
-          mode: mode,
+          mode: resolvedMode,
         );
       case ScriptKind.json:
         final dot = fileName.lastIndexOf('.');
@@ -165,7 +178,7 @@ class ScriptService {
           resources.questId,
           scriptId,
           title: fileName,
-          mode: mode,
+          mode: resolvedMode,
         );
       case ScriptKind.unknown:
         return Future.value();
