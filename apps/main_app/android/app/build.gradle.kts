@@ -75,6 +75,16 @@ val patchGeneratedPluginRegistrant = tasks.register("patchGeneratedPluginRegistr
 
 // jniLibs/libmnd_ffi.so больше не лежит в репозитории: их порождает эта сборка.
 // Нужны cargo-ndk (`cargo install cargo-ndk`) и NDK указанной версии.
+/// ABI, под которые собирается Rust-ядро и которые попадают в APK.
+/// Переопределяется свойством Gradle: -PmndAbis=arm64-v8a,x86_64
+val mndAbis: List<String> =
+    (project.findProperty("mndAbis") as String?)
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty }
+        ?.takeIf { it.isNotEmpty }
+        ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+
 val androidNdkVersion = "28.2.13676358"
 val buildMndFfiAndroid = tasks.register("buildMndFfiAndroid") {
     group = "mnd"
@@ -136,8 +146,10 @@ val buildMndFfiAndroid = tasks.register("buildMndFfiAndroid") {
         if (cargo(listOf("ndk", "--version"), true) != 0) {
             error("Нужен cargo-ndk: cargo install cargo-ndk.")
         }
-        val abiArgs = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            .flatMap { listOf("-t", it) }
+        // 32-битный x86 (эмулятор без KVM) выкинут из дефолта: на телефонах
+        // его нет вовсе, а в APK это ещё ~6 МБ ядра. Нужен — задай явно:
+        // -PmndAbis=arm64-v8a,armeabi-v7a,x86_64,x86
+        val abiArgs = mndAbis.flatMap { listOf("-t", it) }
         val code = cargo(
             listOf("ndk", "--platform", "24") + abiArgs +
                 listOf(
@@ -166,7 +178,10 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = true
+            // false = библиотеки лежат в APK несжатыми и мапятся оттуда, без
+            // распаковки в каталог приложения. true (прежнее значение) давало
+            // медленную установку на eMMC и двойной размер на диске.
+            useLegacyPackaging = false
         }
     }
 
@@ -193,6 +208,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Список тот же, что у cargo-ndk: иначе локальная сборка без
+        // `--target-platform` тянет .so плагинов под ABI, которого в ядре нет.
+        ndk { abiFilters += mndAbis }
         // OAuth-клиенты задаются локально: -PИМЯ=... или в gradle.properties.
         manifestPlaceholders["YANDEX_CLIENT_ID"] =
             (project.findProperty("YANDEX_CLIENT_ID") as String?) ?: ""

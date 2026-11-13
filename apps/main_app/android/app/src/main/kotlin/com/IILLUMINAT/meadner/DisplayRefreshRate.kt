@@ -74,8 +74,15 @@ object DisplayRefreshRate {
         window.attributes = params
     }
 
+    /// По умолчанию — стандартная частота (60 Гц).
+    ///
+    /// Максимальный режим (90/120/144 Гц) вдвое сокращает бюджет кадра: всё,
+    /// что при 60 Гц укладывалось в 16 мс, при 120 Гц обязано уложиться в 8,3 мс.
+    /// На тяжёлых экранах (лента с фото, канвас редактора, переходы) это и есть
+    /// источник «лагов на мощных телефонах». Высокая частота остаётся выбором
+    /// пользователя в настройках, а не дефолтом.
     private fun isEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_KEY, true)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_KEY, false)
 
     private fun maxRate(display: Display?): Float {
         if (display == null) return 60f
