@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
@@ -211,10 +212,25 @@ class QuestDataGuard {
   /// Каталог `_history` пропускается: снимки лежат в zip и проверяются
   /// отдельно. Пустой `config.json` — это тоже порча (без конфига квест
   /// не открывается), пустой файл нод — законное состояние нового квеста.
-  static Future<List<String>> findBrokenJsonFiles(Directory root) async {
-    if (!await root.exists()) return const [];
+  ///
+  /// Обход каталога и `jsonDecode` каждого файла идут в отдельном изоляте:
+  /// у большого квеста это сотни файлов и мегабайты JSON, а вызов стоит на
+  /// пути открытия редактора (первое открытие квеста за сессию). В UI-изоляте
+  /// такой обход давал заметное «нажал — подумало» на телефоне.
+  static Future<List<String>> findBrokenJsonFiles(Directory root) =>
+      Isolate.run(() => scanBrokenJsonFiles(root.path));
+
+  /// Синхронная часть проверки — выполняется в фоновом изоляте.
+  ///
+  /// Отдельная публичная функция, а не замыкание: `Isolate.run` не умеет
+  /// захватывать статическое состояние класса, да и тестировать чистую
+  /// функцию по пути проще.
+  @visibleForTesting
+  static List<String> scanBrokenJsonFiles(String rootPath) {
+    final root = Directory(rootPath);
+    if (!root.existsSync()) return const [];
     final broken = <String>[];
-    await for (final entity in root.list(recursive: true, followLinks: false)) {
+    for (final entity in root.listSync(recursive: true, followLinks: false)) {
       if (entity is! File) continue;
       final relative = p
           .relative(entity.path, from: root.path)
@@ -225,16 +241,16 @@ class QuestDataGuard {
       if (!relative.toLowerCase().endsWith('.json')) continue;
       // `.backup` не заканчивается на `.json`, но легаси-копии конфига
       // (config.json.backup) не читаются загрузчиком — их не проверяем.
-      if (!await _jsonIsReadable(entity, relative)) broken.add(relative);
+      if (!_jsonIsReadableSync(entity, relative)) broken.add(relative);
     }
     broken.sort();
     return broken;
   }
 
-  static Future<bool> _jsonIsReadable(File file, String relative) async {
+  static bool _jsonIsReadableSync(File file, String relative) {
     String text;
     try {
-      text = await file.readAsString();
+      text = file.readAsStringSync();
     } catch (_) {
       return false;
     }

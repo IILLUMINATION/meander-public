@@ -69,6 +69,34 @@ void main() {
       expect(jsonDecode(readFile(dir, 'nodes.json')), isA<Map>());
     });
 
+    test('поиск битых файлов идёт по вложенным папкам и не лезет в _history',
+        () async {
+      final dir = await createQuest('q-scan');
+      await File(p.join(dir.path, 'nodes', 'n1', 'body.json'))
+          .create(recursive: true)
+          .then((file) => file.writeAsString('{"ok":true}'));
+      await File(p.join(dir.path, 'nodes', 'n2', 'body.json'))
+          .create(recursive: true)
+          .then((file) => file.writeAsString('{"broken'));
+      // Внутри `_history` битый JSON не должен попадать в отчёт.
+      await File(p.join(dir.path, '_history', 'state.json'))
+          .create(recursive: true)
+          .then((file) => file.writeAsString('{"broken'));
+      await File(p.join(dir.path, 'nodes.json')).writeAsString('');
+
+      final broken = await QuestDataGuard.findBrokenJsonFiles(dir);
+
+      expect(broken, ['nodes/n2/body.json']);
+    });
+
+    test('пустой config.json — порча, пустой nodes.json — норма', () async {
+      final dir = await createQuest('q-empty', config: '', nodes: '');
+
+      final broken = await QuestDataGuard.findBrokenJsonFiles(dir);
+
+      expect(broken, ['config.json']);
+    });
+
     test('битый nodes.json откатывается на последний целый снимок', () async {
       final dir = await createQuest('q-repair');
       final goodNodes = readFile(dir, 'nodes.json');
@@ -223,6 +251,26 @@ void main() {
       final zip = File(p.join(dir.path, '_history', first!));
       final archive = ZipDecoder().decodeBytes(await zip.readAsBytes());
       expect(archive.files.map((entry) => entry.name), contains('config.json'));
+    });
+
+    test('снимок включает вложенные файлы и не тащит _history', () async {
+      final dir = await createQuest('q-nested');
+      await File(p.join(dir.path, 'assets', 'img', 'a.png'))
+          .create(recursive: true)
+          .then((file) => file.writeAsBytes(List<int>.filled(64, 7)));
+
+      final name = await LocalHistoryService.autoSnapshotOnOpen('q-nested');
+      expect(name, isNotNull);
+
+      final zip = File(p.join(dir.path, '_history', name!));
+      final archive = ZipDecoder().decodeBytes(await zip.readAsBytes());
+      final entries = archive.files.map((entry) => entry.name).toList();
+      expect(entries, containsAll(['config.json', 'nodes.json']));
+      expect(entries, contains(allOf(startsWith('assets/'), endsWith('a.png'))));
+      expect(
+        entries.where((entry) => entry.startsWith('_history')),
+        isEmpty,
+      );
     });
 
     test('старые авто-снимки чистятся, ручные остаются', () async {

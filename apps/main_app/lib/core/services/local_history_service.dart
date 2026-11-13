@@ -1,7 +1,7 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:archive/archive.dart';
 import 'package:mnd_player/utils/file_storage.dart';
-import 'package:mnd_player/utils/quest_nodes_store.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:mnd_core/utils/quest_paths.dart';
@@ -58,17 +58,6 @@ class LocalHistoryService {
 
   static const List<String> _prefixes = [manualPrefix, autoPrefix, brokenPrefix];
 
-  // --- DIAGNOSTIC: Read node count from disk ---
-  static Future<int> _debugCountNodesOnDisk(String questId) async {
-    try {
-      final json = await QuestNodesStore.read(questId);
-      return (json['nodes'] as List? ?? const []).length;
-    } catch (e) {
-      print('⚠️ [History Debug] Error reading nodes.json: $e');
-      return -1;
-    }
-  }
-
   /// Ручной снимок (кнопка «Создать копию» и вызовы из чистки/тегов).
   static Future<void> createSnapshot(String questId) async {
     await _writeSnapshotZip(questId, manualPrefix);
@@ -119,6 +108,12 @@ class LocalHistoryService {
   }
 
   /// Пишет zip-снимок квеста с заданным префиксом имени.
+  ///
+  /// Чтение файлов и zip-кодирование идут в отдельном изоляте: квест до
+  /// 200 МБ deflate'ится секундами, и раньше это была синхронная работа в
+  /// UI-изоляте — открыл квест, и интерфейс замирал. Снимок делается при
+  /// каждом открытии (не чаще раза в 10 минут), поэтому на телефоне это
+  /// выглядело как «фризы на ровном месте».
   static Future<String?> _writeSnapshotZip(
     String questId,
     String prefix,
@@ -129,29 +124,12 @@ class LocalHistoryService {
         try {
           print('📦 [History] === CREATING BACKUP ($prefix) ===');
 
-          // Diagnostic
-          final nodeCount = await _debugCountNodesOnDisk(questId);
-          print('📦 [History] Nodes on disk before archive: $nodeCount');
-
           final questPath = await FileStorage.getFilePath(
             QuestPaths.questRoot(questId),
           );
-          final questDir = Directory(questPath);
-
-          if (!await questDir.exists()) {
+          if (!await Directory(questPath).exists()) {
             throw Exception('Quest folder not found: $questPath');
           }
-
-          final archive = Archive();
-
-          await _addDirectoryToArchive(archive, questDir, questDir.path);
-
-          if (archive.isEmpty) {
-            print('⚠️ [History] Archive is empty, skipping backup.');
-            return null;
-          }
-
-          final zipData = ZipEncoder().encode(archive);
 
           final historyDirPath = await FileStorage.getFilePath(
             QuestPaths.questFile(questId, _historyFolder),
@@ -163,11 +141,15 @@ class LocalHistoryService {
           final fileName = '$prefix${formatter.format(now)}.zip';
           final backupFile = File(p.join(historyDirPath, fileName));
 
-          await backupFile.writeAsBytes(zipData, flush: true);
-
-          print(
-            '✅ [History] Backup created: $fileName (${zipData.length} bytes)',
+          final bytes = await Isolate.run(
+            () => buildSnapshotZip(questPath, backupFile.path),
           );
+          if (bytes == null) {
+            print('⚠️ [History] Archive is empty, skipping backup.');
+            return null;
+          }
+
+          print('✅ [History] Backup created: $fileName ($bytes bytes)');
           return fileName;
         } catch (e, stack) {
           print('❌ [History] Backup failed: $e');
@@ -210,27 +192,6 @@ class LocalHistoryService {
       return false;
     }
     return false;
-  }
-
-  static Future<void> _addDirectoryToArchive(
-    Archive archive,
-    Directory dir,
-    String rootPath,
-  ) async {
-    await for (final entity in dir.list(recursive: false, followLinks: false)) {
-      if (p.basename(entity.path) == _historyFolder) continue;
-
-      if (entity is File) {
-        final relativePath = p.relative(entity.path, from: rootPath);
-        // CRITICAL: Force forward slashes for ZIP spec
-        final zipPath = relativePath.replaceAll('\\', '/');
-
-        final bytes = await entity.readAsBytes();
-        archive.addFile(ArchiveFile(zipPath, bytes.length, bytes));
-      } else if (entity is Directory) {
-        await _addDirectoryToArchive(archive, entity, rootPath);
-      }
-    }
   }
 
   static final RegExp _snapshotStampPattern = RegExp(
@@ -381,9 +342,7 @@ class LocalHistoryService {
           // (и следующий writeJsonFile затрёт откат старым снимком).
           FileStorage.invalidateJsonCache([QuestPaths.questRoot(questId)]);
 
-          // 4. Diagnostic post-restore
-          final nodeCount = await _debugCountNodesOnDisk(questId);
-          print('✅ [History] Restore complete. Nodes on disk: $nodeCount');
+          print('✅ [History] Restore complete: $questId');
         } catch (e, stack) {
           print('❌ [History] Restore failed: $e');
           print(stack);
@@ -400,6 +359,45 @@ class LocalHistoryService {
     final file = File(p.join(historyDirPath, fileName));
     if (await file.exists()) {
       await file.delete();
+    }
+  }
+}
+
+/// Тело снимка: обойти папку квеста, прочитать файлы, сжать в zip и записать.
+///
+/// Выполняется в фоновом изоляте (см. [_writeSnapshotZip]): `ZipEncoder`
+/// синхронный и на большом квесте надолго занимает поток. Возвращает размер
+/// архива в байтах или `null`, если архивировать нечего.
+int? buildSnapshotZip(String questDirPath, String backupPath) {
+  final questDir = Directory(questDirPath);
+  if (!questDir.existsSync()) {
+    throw Exception('Quest folder not found: $questDirPath');
+  }
+  final archive = Archive();
+  _addDirectoryToArchiveSync(archive, questDir, questDir.path);
+  if (archive.isEmpty) return null;
+
+  final zipData = ZipEncoder().encode(archive);
+  File(backupPath).writeAsBytesSync(zipData, flush: true);
+  return zipData.length;
+}
+
+void _addDirectoryToArchiveSync(
+  Archive archive,
+  Directory dir,
+  String rootPath,
+) {
+  for (final entity in dir.listSync(recursive: false, followLinks: false)) {
+    if (p.basename(entity.path) == LocalHistoryService.historyFolder) continue;
+
+    if (entity is File) {
+      final relativePath = p.relative(entity.path, from: rootPath);
+      // CRITICAL: Force forward slashes for ZIP spec
+      final zipPath = relativePath.replaceAll('\\', '/');
+      final bytes = entity.readAsBytesSync();
+      archive.addFile(ArchiveFile(zipPath, bytes.length, bytes));
+    } else if (entity is Directory) {
+      _addDirectoryToArchiveSync(archive, entity, rootPath);
     }
   }
 }
