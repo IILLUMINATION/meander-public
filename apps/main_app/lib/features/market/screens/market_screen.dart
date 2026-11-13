@@ -214,6 +214,41 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
 
+          // Новинки — свежие публикации вне порядка уровней. Сетка ниже
+          // ставит отобранные вручную выше всего, поэтому только что
+          // одобренный квест иначе виден лишь после прокрутки десятков
+          // карточек. Полка пустая — секции нет.
+          Consumer(
+            builder: (context, ref, _) {
+              final fresh =
+                  ref.watch(freshQuestsProvider).valueOrNull ??
+                  const <MarketQuest>[];
+              if (fresh.isEmpty) {
+                return const SliverToBoxAdapter(child: SizedBox.shrink());
+              }
+              return SliverMainAxisGroup(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: CatalogSectionHeader(
+                      title: tr('Новинки'),
+                      icon: Icons.new_releases_outlined,
+                      subtitle: tr('Только что опубликованные и обновлённые'),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                  SliverToBoxAdapter(
+                    child: _HorizontalQuestList(
+                      provider: freshQuestsProvider,
+                      height: 215,
+                      cardWidth: 170,
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                ],
+              );
+            },
+          ),
+
           // Лучшие — ручной отбор, виден только когда он не пуст
           if (bestQuests.isNotEmpty) ...[
             SliverToBoxAdapter(

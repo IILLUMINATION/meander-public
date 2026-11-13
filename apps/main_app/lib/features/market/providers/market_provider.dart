@@ -98,6 +98,22 @@ final marketCatalogProvider = FutureProvider.autoDispose<List<MarketQuest>>((
   ];
 });
 
+/// 1b. Новинки — свежие публикации без правила «уровень выше свежести».
+///
+/// В основной сетке (`marketQuestsProviderNew`) уровень каталога идёт первым
+/// ключом, поэтому только что одобренный квест встаёт за всеми отобранными
+/// вручную и на первом экране его не видно: автор публикует, одобрение
+/// проходит, а в маркете пусто — находится только поиском. Полка показывает
+/// свежее явно, не меняя порядок самого каталога.
+final freshQuestsProvider = FutureProvider.autoDispose<List<MarketQuest>>((
+  ref,
+) async {
+  final base = await ref.watch(marketCatalogProvider.future);
+  final list = base.where((q) => !q.isDemo).toList()
+    ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  return list.take(10).toList();
+});
+
 /// 1. Свежие релизы (Все квесты, сортировка по ДАТЕ ОБНОВЛЕНИЯ)
 /// ИСПРАВЛЕНО: Теперь сортируем по updatedAt, чтобы поднятые квесты были сверху
 final marketQuestsProviderNew = FutureProvider.autoDispose<List<MarketQuest>>((
