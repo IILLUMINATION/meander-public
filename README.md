@@ -91,6 +91,9 @@ Melos берётся из корневого `pubspec.yaml` (6.3.3): верси�
 `melos.yaml`. После пересборки Rust-ядра `flutter run` нужно перезапускать:
 hot reload не подхватывает новую `.so`.
 
+iOS собирается только на macOS и только с тега релиза — полный путь от клона
+до архива в App Store Connect: [Сборка релиза для iOS](docs/ios-release.md).
+
 ### Домен бэкенда
 
 Адрес живёт в одном месте — `AppConfig.vpsApiBaseUrl` (`apps/main_app/lib/core/config.dart`).
@@ -208,6 +211,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 - [Таблицы](docs/tables.md) — формат JSON, адресация, кавычки и скобки в
   именах, функции, что возвращает и в каком виде печатается.
+- [Сборка релиза для iOS](docs/ios-release.md) — macOS, Xcode, Rust-ядро,
+  подпись, `flutter build ipa`, загрузка в App Store Connect.
 
 ## Участие
 

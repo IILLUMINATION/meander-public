@@ -90,6 +90,10 @@ Melos comes from the root `pubspec.yaml` (6.3.3): versions 7 and 8 do not read
 `melos.yaml`. Restart `flutter run` after rebuilding the Rust core: hot reload
 does not load a new `.so`.
 
+iOS builds on macOS only and from a release tag — full path from clone to an
+archive in App Store Connect: [iOS release build](docs/ios-release.md) (in
+Russian, like the rest of `docs/`).
+
 ### OAuth
 
 Google, Yandex and Telegram login require your own OAuth clients. Copy
