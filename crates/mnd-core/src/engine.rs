@@ -18,7 +18,7 @@ use crate::contracts::{DynSaveStore, FsScriptAssetStore, ScriptAssetStore};
 use crate::executor::{DynAssetStore, EventType, ScriptExecutor};
 use crate::lua::LuaSession;
 use crate::models::{
-    ContentItem, ContentTrigger, Quest, QuestTable, SaveSlot, SavedNode, TemplateItem,
+    ContentItem, ContentTrigger, Quest, QuestTable, SaveSlot, SavedNode, TemplateItem, TemplateKind,
 };
 
 /// Принудительно выставить LC_NUMERIC=C для mpv/libmpv (требует C-локаль, иначе
@@ -154,6 +154,11 @@ pub struct GameEngine {
     nodes: HashMap<String, SavedNode>,
     templates: HashMap<String, TemplateItem>,
     embedded_scripts: HashMap<String, Value>,
+    /// id айтема мастера → id того же айтема в инстансах шаблона во всех
+    /// нодах. Блок `set_image`/`set_visible` живёт в мастере и адресует
+    /// айтем по id мастера, а в инстансе тот же айтем уже носит производный
+    /// `tpl_*` id: без этого перевода картинка менялась только в мастере.
+    item_targets: HashMap<String, Vec<String>>,
     asset_store: Option<DynAssetStore>,
     save_store: Option<DynSaveStore>,
     platform: PlatformInfo,
@@ -227,8 +232,12 @@ impl GameEngine {
         extra: GameEngineConfig,
     ) -> Self {
         ensure_c_numeric_locale();
-        let nodes_map = nodes.into_iter().map(|n| (n.id.clone(), n)).collect();
-        let templates_map = templates.into_iter().map(|t| (t.id.clone(), t)).collect();
+        let nodes_map: HashMap<String, SavedNode> =
+            nodes.into_iter().map(|n| (n.id.clone(), n)).collect();
+        let templates_map: HashMap<String, TemplateItem> =
+            templates.into_iter().map(|t| (t.id.clone(), t)).collect();
+        // Ноды и шаблоны после конструктора не меняются — считаем один раз.
+        let item_targets = build_item_targets(&nodes_map, &templates_map);
         let quest_version = config
             .version
             .clone()
@@ -240,6 +249,7 @@ impl GameEngine {
             nodes: nodes_map,
             templates: templates_map,
             embedded_scripts: extra.embedded_scripts,
+            item_targets,
             asset_store: extra.asset_store,
             save_store: extra.save_store,
             platform: extra.platform,
@@ -347,7 +357,9 @@ impl GameEngine {
     /// Создать исполнитель с зависимостями движка (вложенные скрипты +
     /// ленивый asset store).
     fn new_executor(&self) -> ScriptExecutor {
-        let mut exec = ScriptExecutor::new().with_embedded_scripts(self.embedded_scripts.clone());
+        let mut exec = ScriptExecutor::new()
+            .with_embedded_scripts(self.embedded_scripts.clone())
+            .with_item_targets(self.item_targets.clone());
         if let Some(store) = &self.asset_store {
             exec = exec.with_asset_store(store.clone());
         }
@@ -2427,6 +2439,133 @@ fn expand_content_map(content: Map<String, Value>, instance_id: &str) -> Map<Str
     result
 }
 
+/// Пути, по которым раскрывается мастер шаблона: (id айтема мастера, путь).
+///
+/// Путь — тот же, что движок передаёт в [`derive_template_id`]: у шаблона-ноды
+/// отсчёт идёт от `content.items`, у шаблона-айтема — от самого payload.
+fn template_item_paths(template: &TemplateItem) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    match template.kind {
+        TemplateKind::Node => {
+            let content = match template.payload.get("content").and_then(Value::as_object) {
+                Some(content) => content,
+                None => return out,
+            };
+            let items = match content.get("items").and_then(Value::as_array) {
+                Some(items) => items,
+                None => return out,
+            };
+            // В шаблоне-ноде `expand_content_map` передеривирует только
+            // верхний уровень: id вложенных айтемов остаются именами мастера,
+            // и переопределение по ним и так видно в копии.
+            for (i, raw) in items.iter().enumerate() {
+                if let Some(id) = raw.get("id").and_then(Value::as_str)
+                    && !id.is_empty()
+                {
+                    out.push((id.to_string(), format!("$.items[{i}]")));
+                }
+            }
+        }
+        _ => walk_item_paths(&template.payload, "$", &mut out),
+    }
+    out
+}
+
+/// Собрать (id, путь) для айтема и его потомков.
+///
+/// Внутрь вложенного linked-инстанса не заходим: его содержимое раскрывается
+/// из другого мастера, и производные id там считаются от его собственного
+/// корня — путь относительно внешнего мастера дал бы чужие id.
+fn walk_item_paths(item: &Map<String, Value>, path: &str, out: &mut Vec<(String, String)>) {
+    if let Some(id) = item.get("id").and_then(Value::as_str)
+        && !id.is_empty()
+    {
+        out.push((id.to_string(), path.to_string()));
+    }
+    let nested_instance = item
+        .get("templateRef")
+        .and_then(Value::as_str)
+        .is_some_and(|r| !r.is_empty());
+    if nested_instance {
+        return;
+    }
+    if let Some(children) = item.get("children").and_then(Value::as_array) {
+        for (i, raw) in children.iter().enumerate() {
+            if let Some(child) = raw.as_object() {
+                walk_item_paths(child, &format!("{path}.children[{i}]"), out);
+            }
+        }
+    }
+    if let Some(buttons) = item.get("modalButtons").and_then(Value::as_array) {
+        for (i, raw) in buttons.iter().enumerate() {
+            if let Some(button) = raw.as_object() {
+                walk_item_paths(button, &format!("{path}.modalButtons[{i}]"), out);
+            }
+        }
+    }
+}
+
+/// Корни linked-инстансов шаблона `template_id` внутри контента ноды: их id
+/// и есть `instance_id` для [`derive_template_id`].
+fn collect_content_roots(items: &[Value], template_id: &str, out: &mut Vec<String>) {
+    for raw in items {
+        let Some(item) = raw.as_object() else {
+            continue;
+        };
+        let linked = item.get("templateRef").and_then(Value::as_str);
+        let is_master = item
+            .get("isTemplateMaster")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if linked == Some(template_id) && !is_master {
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                out.push(id.to_string());
+            }
+            continue;
+        }
+        if let Some(children) = item.get("children").and_then(Value::as_array) {
+            collect_content_roots(children, template_id, out);
+        }
+    }
+}
+
+/// Карта «id в мастере → id в инстансах» по всем нодам квеста.
+fn build_item_targets(
+    nodes: &HashMap<String, SavedNode>,
+    templates: &HashMap<String, TemplateItem>,
+) -> HashMap<String, Vec<String>> {
+    let mut targets: HashMap<String, Vec<String>> = HashMap::new();
+    for (template_id, template) in templates {
+        let paths = template_item_paths(template);
+        if paths.is_empty() {
+            continue;
+        }
+        let mut roots: Vec<String> = Vec::new();
+        for node in nodes.values() {
+            if node.is_template_instance()
+                && node.template_ref.as_deref() == Some(template_id.as_str())
+            {
+                roots.push(node.id.clone());
+            }
+            if let Some(items) = node.content.get("items").and_then(Value::as_array) {
+                collect_content_roots(items, template_id, &mut roots);
+            }
+        }
+        roots.sort();
+        roots.dedup();
+        for root in &roots {
+            for (master_id, path) in &paths {
+                let derived = derive_template_id(root, path);
+                let entry = targets.entry(master_id.clone()).or_default();
+                if !entry.contains(&derived) {
+                    entry.push(derived);
+                }
+            }
+        }
+    }
+    targets
+}
+
 /// Деривация id linked-инстанса (шаблон): sha1(instanceId|path) → `tpl_<16 hex>`.
 fn derive_template_id(instance_id: &str, path: &str) -> String {
     use sha1::{Digest, Sha1};
@@ -2477,3 +2616,7 @@ mod save_bgm_tests;
 #[cfg(test)]
 #[path = "engine_tests/data_change.rs"]
 mod data_change_tests;
+
+#[cfg(test)]
+#[path = "engine_tests/template_item_targets.rs"]
+mod template_item_targets_tests;

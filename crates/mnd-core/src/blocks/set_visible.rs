@@ -178,7 +178,20 @@ impl BlockHandler for SetVisible {
             Some(Value::Object(map)) => map,
             _ => Map::new(),
         };
-        let next = apply_mode(&mut overrides, &item_id, mode);
+        // Как и `set_image`: адресат из мастера шаблона должен прилететь и в
+        // копии — иначе спрятанное в мастере остаётся на экране в инстансах.
+        let mut targets = ctx
+            .executor
+            .item_targets(&item_id)
+            .cloned()
+            .unwrap_or_default();
+        if !targets.contains(&item_id) {
+            targets.push(item_id.clone());
+        }
+        let mut next = Stored::Visible;
+        for target in &targets {
+            next = apply_mode(&mut overrides, target, mode);
+        }
         ctx.game_state
             .set_variable(ITEM_HIDDEN_VAR, Value::Object(overrides));
         ctx.executor.log(&format!(

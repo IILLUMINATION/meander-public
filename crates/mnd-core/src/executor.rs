@@ -206,6 +206,11 @@ pub struct ScriptExecutor {
     /// `asset_store` не настроен или не нашёл скрипт — позволяет клиенту
     /// передавать скрипты прямо в вызов, минуя файловую систему.
     embedded_scripts: HashMap<String, Value>,
+    /// id айтема в мастере шаблона → id того же айтема в раскрытых
+    /// инстансах (все ноды квеста). Блок скрипта лежит в мастере и ссылается
+    /// на id мастера, а в инстансе у айтема уже производный `tpl_*` id —
+    /// без этого перевода `set_image` менял картинку только в мастере.
+    item_targets: HashMap<String, Vec<String>>,
 }
 
 impl ScriptExecutor {
@@ -217,6 +222,7 @@ impl ScriptExecutor {
             logger: global.and_then(|g| g.logger.clone()),
             debug_logs_enabled: global.map(|g| g.debug_logs_enabled).unwrap_or(false),
             embedded_scripts: HashMap::new(),
+            item_targets: HashMap::new(),
         }
     }
 
@@ -251,6 +257,18 @@ impl ScriptExecutor {
     pub fn with_embedded_scripts(mut self, scripts: HashMap<String, Value>) -> Self {
         self.embedded_scripts = scripts;
         self
+    }
+
+    /// Подменить id мастера на id его копий в инстансах шаблонов.
+    pub fn with_item_targets(mut self, targets: HashMap<String, Vec<String>>) -> Self {
+        self.item_targets = targets;
+        self
+    }
+
+    /// Куда писать переопределение для айтема [item_id]: id в инстансах
+    /// шаблона. `None` — обычный айтем, пишем ровно по его id.
+    pub(crate) fn item_targets(&self, item_id: &str) -> Option<&Vec<String>> {
+        self.item_targets.get(item_id)
     }
 
     pub(crate) fn log(&self, message: &str) {

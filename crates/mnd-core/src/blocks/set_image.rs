@@ -45,11 +45,27 @@ impl BlockHandler for SetImage {
             Some(Value::Object(map)) => map,
             _ => Map::new(),
         };
-        overrides.insert(item_id.clone(), Value::String(source.clone()));
+        // Скрипт лежит в мастере шаблона и адресует айтем по id мастера. В
+        // инстансах тот же айтем живёт под производным `tpl_*` id, поэтому
+        // пишем и туда — иначе картинка менялась только в мастере, а копии
+        // (HUD в каждой ноде) оставались со старой.
+        let mut targets = ctx
+            .executor
+            .item_targets(&item_id)
+            .cloned()
+            .unwrap_or_default();
+        if !targets.contains(&item_id) {
+            targets.push(item_id.clone());
+        }
+        for target in &targets {
+            overrides.insert(target.clone(), Value::String(source.clone()));
+        }
         ctx.game_state
             .set_variable(ITEM_SOURCE_VAR, Value::Object(overrides));
-        ctx.executor
-            .log(&format!("🖼 set_image: {item_id} → {source}"));
+        ctx.executor.log(&format!(
+            "🖼 set_image: {item_id} → {source} (копий: {})",
+            targets.len().saturating_sub(1)
+        ));
         Ok(None)
     }
 }

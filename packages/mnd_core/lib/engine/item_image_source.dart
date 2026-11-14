@@ -10,6 +10,11 @@ library;
 const String kItemSourceVar = '_internal_item_sources';
 
 /// Источник картинки, назначенный айтему [itemId] скриптом (или null).
+///
+/// В инстансе шаблона айтем носит производный `tpl_*` id, а скрипт мастера
+/// адресует его по id мастера. Движок при исполнении раскладывает
+/// переопределение на все инстансы (и на сам мастер), так что здесь всё
+/// сводится к поиску по id раскрытого айтема.
 String? itemSourceOverride(Map<String, dynamic> variables, String itemId) {
   final overrides = variables[kItemSourceVar];
   if (overrides is! Map) return null;
