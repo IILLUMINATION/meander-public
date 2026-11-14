@@ -3,6 +3,10 @@ import 'package:canvas_app/features/messages/models/dm_models.dart';
 import 'package:canvas_app/features/messages/providers/dm_provider.dart';
 import 'package:canvas_app/features/messages/screens/chat_screen.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
+import 'package:canvas_app/features/channels/screens/channels_screen.dart';
+import 'package:canvas_app/features/profile/providers/profile_provider.dart';
+import 'package:canvas_app/features/support/screens/support_inbox_screen.dart';
+import 'package:canvas_app/features/support/screens/support_screen.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
@@ -93,6 +97,19 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                 pinned: true,
                 backgroundColor: scheme.surface,
                 surfaceTintColor: scheme.surfaceTint,
+                actions: [
+                  IconButton(
+                    key: const ValueKey('open-channels'),
+                    tooltip: tr('Каналы'),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChannelsScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.podcasts_rounded),
+                  ),
+                ],
               ),
               SliverToBoxAdapter(
                 child: AdaptiveContent(
@@ -152,7 +169,10 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
     }
 
     if (state.threads.isEmpty) {
-      return Padding(
+      return Column(
+        children: [
+          _SupportEntryCard(viewerId: _viewerId),
+          Padding(
         padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
         child: Column(
           children: [
@@ -173,11 +193,14 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
             ),
           ],
         ),
+          ),
+        ],
       );
     }
 
     return Column(
       children: [
+        _SupportEntryCard(viewerId: _viewerId),
         for (final thread in state.threads)
           _ThreadTile(
             thread: thread,
@@ -206,6 +229,99 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+    );
+  }
+}
+
+/// «Поддержка» — всегда первая строка ленты: это не переписка с человеком,
+/// но искать её в глубине меню, когда что-то сломалось, никто не станет.
+class _SupportEntryCard extends ConsumerWidget {
+  const _SupportEntryCard({required this.viewerId});
+
+  final String viewerId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final staff = viewerId.isEmpty
+        ? false
+        : ref
+              .watch(userProfileProvider(viewerId))
+              .maybeWhen(
+                data: (profile) =>
+                    profile.role == 'admin' || profile.role == 'moderator',
+                orElse: () => false,
+              );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      child: Material(
+        color: scheme.secondaryContainer.withValues(alpha: 0.45),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey('support-entry'),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => SupportScreen()),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: scheme.primary,
+                  child: Icon(
+                    Icons.support_agent_rounded,
+                    color: scheme.onPrimary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tr('Поддержка'),
+                        style: textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        tr('Бот ответит сразу, команда — когда прочитает'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (staff) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: const ValueKey('support-inbox'),
+                    tooltip: tr('Обращения'),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SupportInboxScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.inbox_rounded),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

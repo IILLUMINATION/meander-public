@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'package:canvas_app/core/services/deep_link_service.dart';
+import 'package:canvas_app/features/channels/screens/channel_screen.dart';
+import 'package:canvas_app/features/support/screens/support_screen.dart';
 import 'package:canvas_app/features/forums/screens/forum_lobby_screen.dart';
 import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
 import 'package:canvas_app/features/messages/models/dm_models.dart';
@@ -25,6 +27,7 @@ void routeNotificationTap(Map<String, dynamic> data) {
   }
 
   final questId = data['questId'] as String?;
+  final channelId = data['channelId'] as String?;
   final postId = data['postId'] as String?;
   final actorId = data['actorId'] as String?;
   final forumSlug = data['forumSlug'] as String?;
@@ -42,6 +45,20 @@ void routeNotificationTap(Map<String, dynamic> data) {
 
   if (type == 'system_news') {
     open(ChatScreen(peerId: kSystemUserId));
+    return;
+  }
+
+  if (type == 'support_message' || type == 'support_reply') {
+    // Обращение открывается в том же окне, что и диалог с ботом: отдельного
+    // экрана у тикета для автора нет.
+    open(SupportScreen());
+    return;
+  }
+
+  if (type == 'channel_post') {
+    if (channelId != null && channelId.isNotEmpty) {
+      open(ChannelScreen(channelId: channelId));
+    }
     return;
   }
 

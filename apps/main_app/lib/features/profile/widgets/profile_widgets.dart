@@ -11,6 +11,9 @@ import 'package:canvas_app/features/profile/screens/profile_screen.dart';
 import 'package:canvas_app/models/market_quest_model.dart';
 import 'package:canvas_app/models/notification_model.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/features/channels/screens/channel_screen.dart';
+import 'package:canvas_app/features/support/screens/support_screen.dart';
+import 'package:canvas_app/shared/widgets/app_markdown_config.dart';
 import 'package:canvas_app/models/review_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -677,6 +680,47 @@ Color _notificationColor(String type, ColorScheme scheme) {
   }
 }
 
+/// Тап по уведомлению, у которого есть собственный экран: поддержка, канал,
+/// ссылка из `payload.link`. Возвращает `true`, если переход уже случился.
+bool openTargetedNotification(BuildContext context, AppNotification n) {
+  if (n.type == 'support_message' || n.type == 'support_reply') {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => SupportScreen()),
+    );
+    return true;
+  }
+  if (n.type == 'channel_post') {
+    final channelId = n.payload?['channel_id']?.toString() ?? '';
+    if (channelId.isEmpty) return false;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ChannelScreen(channelId: channelId)),
+    );
+    return true;
+  }
+  // Общая ссылка: сервер кладёт её в payload.link для новых типов.
+  final link = n.payload?['link']?.toString() ?? '';
+  final channelMatch = RegExp(r'^/channels/([0-9a-f-]{36})').firstMatch(link);
+  if (channelMatch != null) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChannelScreen(channelId: channelMatch.group(1)!),
+      ),
+    );
+    return true;
+  }
+  if (link == '/support') {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => SupportScreen()),
+    );
+    return true;
+  }
+  return false;
+}
+
 /// Заголовок уведомления. Ник актёра — отдельным спаном с цветом из каталога:
 /// градиент рисуют шейдером по границам текста, а они внутри фразы неизвестны,
 /// поэтому здесь плоский цвет предмета.
@@ -709,6 +753,9 @@ InlineSpan _notificationTitle(AppNotification n) {
         'system_news' => tr('Новости Meander'),
         'forum_ban' => tr('Бан в сообществе'),
         'forum_topic_removed' => tr('Топик удалён модератором'),
+        'support_message' => tr('Ответ в поддержку'),
+        'support_reply' => tr('Ответ поддержки'),
+        'channel_post' => tr('Новый пост в канале'),
         _ => tr('Новое уведомление'),
       },
     );
@@ -746,11 +793,33 @@ class ProfileNotificationTile extends ConsumerWidget {
       'forum_topic_removed' => notification.payload?['forum']?.toString(),
       _ => null,
     };
-    final subtitle = notification.questTitle != null
-        ? '«${notification.questTitle}»'
-        : (forumNote == null || forumNote.isEmpty)
-        ? null
-        : trf('Сообщество: {p0}', {'p0': forumNote});
+    // Канал и поддержка присылают текст реплики: в списке он важнее имени
+    // автора — по нему решают, открывать ли уведомление.
+    final payload = notification.payload;
+    final preview = switch (notification.type) {
+      'support_message' ||
+      'support_reply' ||
+      'channel_post' => payload?['preview']?.toString(),
+      _ => null,
+    };
+    // Скобки не косметика: `cond ? a?['k'] : b` разбирается как ошибка —
+    // `?[` после `?` парсер читает как часть тернарника.
+    final channelTitle =
+        notification.type == 'channel_post'
+        ? (payload?['channel_title']?.toString())
+        : null;
+    final String? subtitle;
+    if (notification.questTitle != null) {
+      subtitle = '«${notification.questTitle}»';
+    } else if (preview != null && preview.isNotEmpty) {
+      subtitle = channelTitle == null || channelTitle.isEmpty
+          ? preview
+          : '$channelTitle · $preview';
+    } else if (forumNote == null || forumNote.isEmpty) {
+      subtitle = null;
+    } else {
+      subtitle = trf('Сообщество: {p0}', {'p0': forumNote});
+    }
 
     return Material(
       color: isRead
@@ -761,6 +830,7 @@ class ProfileNotificationTile extends ConsumerWidget {
         onTap:
             onTap ??
             () {
+              if (openTargetedNotification(context, notification)) return;
               if (notification.postId != null && notification.postId!.isNotEmpty) {
                 Navigator.push(
                   context,
@@ -841,10 +911,9 @@ class ProfileNotificationTile extends ConsumerWidget {
                     ),
                     if (subtitle != null) ...[
                       const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      AppMarkdownInline(
+                        text: subtitle,
+                        maxLines: 2,
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
                           fontSize: 12,

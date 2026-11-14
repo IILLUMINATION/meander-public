@@ -1,10 +1,12 @@
 import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:canvas_app/features/messages/models/dm_models.dart';
 import 'package:canvas_app/features/messages/providers/dm_provider.dart';
+import 'package:canvas_app/features/messages/services/chat_media_service.dart';
+import 'package:canvas_app/features/messages/widgets/chat_attachments.dart';
+import 'package:canvas_app/features/profile/providers/profile_provider.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/features/profile/screens/profile_screen.dart';
-import 'package:canvas_app/shared/entity_links/entity_ref_card.dart';
 import 'package:canvas_app/shared/widgets/report_dialog.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
@@ -59,6 +61,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// «окно закрыли» надо сообщить ему напрямую, без `ref` в `dispose`.
   DmChatNotifier? _chat;
 
+  /// Уже загруженные на сервер фото — до отправки они не в сообщении, но
+  /// человек должен видеть, что уйдёт.
+  final List<DmAttachment> _draft = [];
+  bool _uploading = false;
+  String? _viewerId;
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +76,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _chat = ref.read(dmChatProvider(widget.peerId).notifier);
       _chat!.setViewed(true);
     });
+    _loadViewer();
+  }
+
+  Future<void> _loadViewer() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _viewerId = prefs.getString('user_id'));
+  }
+
+  /// Админ и модератор пишут в чат команды от её имени; остальным композер
+  /// там не показывается вовсе.
+  bool _isStaff(WidgetRef ref, String? viewerId) {
+    if (viewerId == null) return false;
+    return ref
+        .watch(userProfileProvider(viewerId))
+        .maybeWhen(
+          data: (profile) =>
+              profile.role == 'admin' || profile.role == 'moderator',
+          orElse: () => false,
+        );
   }
 
   @override
@@ -95,22 +123,69 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && _draft.isEmpty) return;
+    final notifier = ref.read(dmChatProvider(widget.peerId).notifier);
+    final outgoing = List<DmAttachment>.of(_draft);
+    final isSystem = ref.read(dmChatProvider(widget.peerId)).isSystem;
     _input.clear();
-    final sent = await ref
-        .read(dmChatProvider(widget.peerId).notifier)
-        .send(text);
+    setState(_draft.clear);
+    final sent = isSystem
+        ? await notifier.sendNews(text, attachments: outgoing)
+        : await notifier.send(text, attachments: outgoing);
     if (!mounted) return;
     if (sent) {
       _scrollToBottom();
     } else {
+      // Не отправленное возвращаем в поле: набранный текст и фото не должны
+      // пропадать из-за обрыва связи.
+      _input.text = text;
+      setState(() => _draft.insertAll(0, outgoing));
       final error = ref.read(dmChatProvider(widget.peerId)).sendError;
-      ref.read(dmChatProvider(widget.peerId).notifier).clearSendError();
+      notifier.clearSendError();
       if (error != null) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error)));
       }
+    }
+  }
+
+  /// Выбор и загрузка фото. Каждое уходит отдельным запросом: сервер сжимает
+  /// кадр сам и возвращает готовые размеры, поэтому сразу есть и превью.
+  Future<void> _pickPhotos() async {
+    if (_uploading || _draft.length >= ChatMediaService.albumLimit) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final picked = await ChatMediaService.pickAlbum(
+        remaining: ChatMediaService.albumLimit - _draft.length,
+      );
+      if (picked.isEmpty || !mounted) return;
+      for (final file in picked) {
+        final length = await file.length();
+        if (length > ChatMediaService.maxBytes) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                trf('Фото больше {p0} МБ — не прикрепилось', {
+                  'p0': ChatMediaService.maxBytes ~/ (1024 * 1024),
+                }),
+              ),
+            ),
+          );
+          continue;
+        }
+        if (!mounted) return;
+        setState(() => _uploading = true);
+        final attachment = await ChatMediaService.upload(file);
+        if (!mounted) return;
+        setState(() => _draft.add(attachment));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _uploading = false);
     }
   }
 
@@ -199,6 +274,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final state = ref.watch(dmChatProvider(widget.peerId));
+    final staff = state.isSystem && _isStaff(ref, _viewerId);
 
     if (state.messages.isNotEmpty && !_hasScrolledToBottom) {
       _hasScrolledToBottom = true;
@@ -230,13 +306,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
           if (state.error == null)
-            state.isSystem
-                ? const _SystemChatFooter()
-                : _Composer(
-                    controller: _input,
-                    isSending: state.isSending,
-                    onSend: _send,
-                  ),
+            if (state.isSystem && !staff)
+              _SystemChatFooter()
+            else
+              _Composer(
+                controller: _input,
+                isSending: state.isSending,
+                onSend: _send,
+                onPickPhotos: _pickPhotos,
+                draft: _draft,
+                uploading: _uploading,
+                onRemoveDraft: (index) =>
+                    setState(() => _draft.removeAt(index)),
+                isBroadcast: state.isSystem,
+              ),
         ],
       ),
     );
@@ -581,9 +664,25 @@ class _Bubble extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: MeanderEntityLinkText(
-                data: message.body,
-                style: textTheme.bodyMedium?.copyWith(color: scheme.onSurface),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (message.body.trim().isNotEmpty)
+                    ChatMessageText(
+                      text: message.body,
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  if (message.attachments.isNotEmpty) ...[
+                    if (message.body.trim().isNotEmpty)
+                      const SizedBox(height: 6),
+                    ChatAttachmentGrid(
+                      attachments: message.attachments,
+                      width: 300,
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(width: 8),
@@ -630,13 +729,22 @@ class _Bubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              MeanderEntityLinkText(
-                data: message.body,
-                style: textTheme.bodyMedium?.copyWith(
-                  color: textColor,
-                  height: 1.35,
+              if (message.attachments.isNotEmpty)
+                ChatAttachmentGrid(
+                  attachments: message.attachments,
+                  mine: mine,
+                  width: 240,
                 ),
-              ),
+              if (message.body.trim().isNotEmpty) ...[
+                if (message.attachments.isNotEmpty) const SizedBox(height: 6),
+                ChatMessageText(
+                  text: message.body,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: textColor,
+                    height: 1.35,
+                  ),
+                ),
+              ],
               if (showStamp || onReport != null) ...[
                 const SizedBox(height: 2),
                 Row(
@@ -694,11 +802,23 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.isSending,
     required this.onSend,
+    required this.onPickPhotos,
+    required this.draft,
+    required this.uploading,
+    required this.onRemoveDraft,
+    this.isBroadcast = false,
   });
 
   final TextEditingController controller;
   final bool isSending;
   final VoidCallback onSend;
+  final VoidCallback onPickPhotos;
+  final List<DmAttachment> draft;
+  final bool uploading;
+  final void Function(int index) onRemoveDraft;
+
+  /// Чат команды: реплика уходит всем, поэтому и подсказка другая.
+  final bool isBroadcast;
 
   @override
   Widget build(BuildContext context) {
@@ -711,45 +831,91 @@ class _Composer extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 5,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    hintText: tr('Сообщение…'),
-                    filled: true,
-                    fillColor: scheme.surfaceContainerHigh,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isBroadcast)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.campaign_outlined,
+                      size: 16,
+                      color: scheme.primary,
                     ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide.none,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        tr(
+                          'От имени команды: сообщение получат все пользователи.',
+                        ),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: isSending ? null : onSend,
-                icon: isSending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send_rounded),
+            AlbumDraftStrip(
+              previews: draft,
+              isUploading: uploading,
+              onRemove: onRemoveDraft,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (!isBroadcast)
+                    IconButton(
+                      key: const ValueKey('chat-attach'),
+                      onPressed: uploading ? null : onPickPhotos,
+                      tooltip: tr('Прикрепить фото'),
+                      icon: Icon(
+                        Icons.add_photo_alternate_outlined,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        hintText: isBroadcast
+                            ? tr('Новость…')
+                            : tr('Сообщение…'),
+                        filled: true,
+                        fillColor: scheme.surfaceContainerHigh,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: isSending ? null : onSend,
+                    icon: isSending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send_rounded),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -759,7 +925,7 @@ class _Composer extends StatelessWidget {
 /// Аккаунт команды не читает входящие — писать туда нельзя намеренно, иначе
 /// «чат по умолчанию» мгновенно стал бы ещё одной витриной для спама.
 class _SystemChatFooter extends StatelessWidget {
-  const _SystemChatFooter();
+  _SystemChatFooter();
 
   @override
   Widget build(BuildContext context) {

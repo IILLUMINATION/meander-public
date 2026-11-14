@@ -1,5 +1,6 @@
 import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/shared/entity_links/meander_entity.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -243,6 +244,84 @@ class AppMarkdownBlock extends StatelessWidget {
     );
     return selectable ? SelectionArea(child: column) : column;
   }
+}
+
+/// Короткая строка из уведомления или превью: markdown-разметку убираем, а
+/// адреса оставляем нажимаемыми.
+///
+/// Полный `MarkdownBlock` в строке высотой в две строки не помещается и
+/// переразбирается на каждый скролл; здесь нужен только текст и ссылки.
+class AppMarkdownInline extends StatelessWidget {
+  const AppMarkdownInline({
+    super.key,
+    required this.text,
+    this.style,
+    this.maxLines = 2,
+  });
+
+  final String text;
+  final TextStyle? style;
+  final int maxLines;
+
+  static final RegExp _url = RegExp(r'https?://[^\s<>()]+');
+  static final RegExp _markdown = RegExp(
+    r'[*_`>#]+|\[([^\]]*)\]\([^)]*\)',
+  );
+
+  /// Разметку в превью не рендерим: звёздочки в строке уведомления читаются
+  /// как мусор. Ссылку `[текст](адрес)` превращаем в текст — адрес всё равно
+  /// открывается тапом по строке.
+  static String plain(String source) => source
+      .replaceAllMapped(_markdown, (match) => match.group(1) ?? '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final base = style ?? DefaultTextStyle.of(context).style;
+    final clean = plain(text);
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final match in _url.allMatches(clean)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: clean.substring(cursor, match.start)));
+      }
+      final url = match.group(0)!;
+      spans.add(
+        TextSpan(
+          text: url,
+          style: base.copyWith(
+            color: scheme.primary,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: _TapUrl(url),
+        ),
+      );
+      cursor = match.end;
+    }
+    if (cursor < clean.length) {
+      spans.add(TextSpan(text: clean.substring(cursor)));
+    }
+    return Text.rich(
+      TextSpan(children: spans, style: base),
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+/// Распознаватель тапа, который сам себя освобождает: в `TextSpan` нет
+/// владельца, который бы это сделал за него.
+class _TapUrl extends TapGestureRecognizer {
+  _TapUrl(this.url) {
+    onTap = () {
+      AppMarkdown.openLink(url);
+      dispose();
+    };
+  }
+
+  final String url;
 }
 
 class _BlockKey {

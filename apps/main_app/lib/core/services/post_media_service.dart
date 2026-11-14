@@ -88,8 +88,8 @@ class PostMediaUpload {
 
 /// MIME-тип части multipart по расширению файла. Файл из галереи — всегда
 /// jpg/png/webp/gif; неизвестное расширение отдаём как jpeg: сервер смотрит на
-/// сигнатуру байт, а не на эту строку.
-@visibleForTesting
+/// сигнатуру байт, а не на эту строку. Общий для стены, форума и чата: без
+/// явного типа `package:http` ставит octet-stream, и сервер режет файл.
 http.MediaType imagePartType(String filePath) {
   const byExtension = <String, String>{
     '.jpg': 'jpeg',

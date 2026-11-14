@@ -390,9 +390,10 @@ class DmChatNotifier extends StateNotifier<DmChatState> {
     }
   }
 
-  Future<bool> send(String body) async {
+  Future<bool> send(String body, {List<DmAttachment> attachments = const []}) async {
     final text = body.trim();
-    if (text.isEmpty || state.isSending || state.isSystem) return false;
+    if (attachments.isEmpty && text.isEmpty) return false;
+    if (state.isSending || state.isSystem) return false;
 
     // Сообщения, которые не влезли в один экран, сервер всё равно принял бы —
     // порог одна сторона, и клиенту о нём напоминает отказ, а не счётчик.
@@ -401,7 +402,19 @@ class DmChatNotifier extends StateNotifier<DmChatState> {
       final api = ref.read(apiServiceProvider);
       final response = await api.post(
         'api/messages/threads/$peerId',
-        body: {'body': text},
+        body: {
+          'body': text,
+          if (attachments.isNotEmpty)
+            'attachments': [
+              for (final attachment in attachments)
+                {
+                  'url': attachment.url,
+                  'width': attachment.width,
+                  'height': attachment.height,
+                  'size': attachment.size,
+                },
+            ],
+        },
       );
       final raw = response is Map ? response['message'] : null;
       if (raw is! Map) {
@@ -427,6 +440,46 @@ class DmChatNotifier extends StateNotifier<DmChatState> {
       return true;
     } catch (e, s) {
       CrashLogService.log('dm: сообщение не отправлено', error: e, stack: s);
+      if (!mounted) return false;
+      state = state.copyWith(isSending: false, sendError: _friendly(e));
+      return false;
+    }
+  }
+
+  /// Новость подписчикам от имени команды. Отдельный адрес, потому что это не
+  /// реплика в переписке, а вещание: получатели — все, у кого есть такой чат.
+  Future<bool> sendNews(
+    String body, {
+    List<DmAttachment> attachments = const [],
+  }) async {
+    final text = body.trim();
+    if (text.isEmpty && attachments.isEmpty) return false;
+    if (state.isSending) return false;
+    state = state.copyWith(isSending: true, clearError: true);
+    try {
+      final api = ref.read(apiServiceProvider);
+      await api.post(
+        'api/messages/system/broadcast',
+        body: {
+          'body': text,
+          if (attachments.isNotEmpty)
+            'attachments': [
+              for (final attachment in attachments)
+                {
+                  'url': attachment.url,
+                  'width': attachment.width,
+                  'height': attachment.height,
+                  'size': attachment.size,
+                },
+            ],
+        },
+      );
+      if (!mounted) return true;
+      state = state.copyWith(isSending: false);
+      await _load();
+      return true;
+    } catch (e, s) {
+      CrashLogService.log('dm: новость не отправлена', error: e, stack: s);
       if (!mounted) return false;
       state = state.copyWith(isSending: false, sendError: _friendly(e));
       return false;

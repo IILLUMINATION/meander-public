@@ -74,6 +74,8 @@ class SocketService {
     _socket?.on('dm_message', _handleDmMessage);
     _socket?.on('post_stats_updated', _handlePostStatsUpdated);
     _socket?.on('new_wall_post', _handleNewWallPost);
+    _socket?.on('support_message', _handleSupportMessage);
+    _socket?.on('support_ticket_message', _handleSupportTicketMessage);
 
     _socket?.connect();
     _initialized = true;
@@ -141,6 +143,45 @@ class SocketService {
 
   /// Лента переписок и окно открытого чата слушают одно и то же событие,
   /// поэтому здесь список, а не один колбэк как у комментариев.
+  /// Поддержка и инбокс команды: события раздельные (реплика в окне юзера и
+  /// новый тикет в инбоксе), слушателей у каждого может быть несколько.
+  final Set<void Function(Map<String, dynamic>)> _supportListeners = {};
+  final Set<void Function(Map<String, dynamic>)> _ticketListeners = {};
+
+  void _handleSupportMessage(dynamic data) {
+    if (data is! Map) return;
+    final payload = Map<String, dynamic>.from(data);
+    for (final listener in _supportListeners.toList()) {
+      listener(payload);
+    }
+  }
+
+  void _handleSupportTicketMessage(dynamic data) {
+    if (data is! Map) return;
+    final payload = Map<String, dynamic>.from(data);
+    for (final listener in _ticketListeners.toList()) {
+      listener(payload);
+    }
+  }
+
+  void addSupportListener(void Function(Map<String, dynamic>) listener) {
+    _supportListeners.add(listener);
+  }
+
+  void removeSupportListener(void Function(Map<String, dynamic>) listener) {
+    _supportListeners.remove(listener);
+  }
+
+  void addSupportTicketListener(void Function(Map<String, dynamic>) listener) {
+    _ticketListeners.add(listener);
+  }
+
+  void removeSupportTicketListener(
+    void Function(Map<String, dynamic>) listener,
+  ) {
+    _ticketListeners.remove(listener);
+  }
+
   void addDmListener(void Function(Map<String, dynamic>) listener) {
     _dmListeners.add(listener);
   }

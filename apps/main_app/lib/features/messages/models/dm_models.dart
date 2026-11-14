@@ -72,6 +72,7 @@ class DmThread {
     this.muted = false,
     this.unread = 0,
     this.lastMessageAt,
+    this.lastAttachments = const [],
   });
 
   final String threadId;
@@ -88,11 +89,19 @@ class DmThread {
   final int unread;
   final DateTime? lastMessageAt;
 
+  /// Фото последней реплики: в ленте вместо текста пишем «Фото».
+  final List<DmAttachment> lastAttachments;
+
   bool get isSystem => peer.isSystem;
 
   String get preview {
     final body = lastBody;
     if (body == null || body.isEmpty) {
+      if (lastAttachments.isNotEmpty) {
+        return lastAttachments.length == 1
+            ? tr('Фото')
+            : trf('{p0} фото', {'p0': lastAttachments.length});
+      }
       return isSystem
           ? tr('Пока пусто — здесь появятся новости Meander')
           : tr('Нет сообщений');
@@ -121,6 +130,7 @@ class DmThread {
           ? json['unread'] as int
           : int.tryParse('${json['unread']}') ?? 0,
       lastMessageAt: _local(json['last_message_at']),
+      lastAttachments: DmAttachment.listFrom(json['last_attachments']),
     );
   }
 
@@ -131,6 +141,7 @@ class DmThread {
     DateTime? lastMessageAt,
     bool? muted,
     int? unread,
+    List<DmAttachment>? lastAttachments,
   }) {
     return DmThread(
       threadId: threadId,
@@ -141,8 +152,50 @@ class DmThread {
       muted: muted ?? this.muted,
       unread: unread ?? this.unread,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      lastAttachments: lastAttachments ?? this.lastAttachments,
     );
   }
+}
+
+/// Фото в сообщении: сервер уже пересжал его и вернул размеры, поэтому
+/// превью можно резервировать до загрузки и лента не прыгает.
+class DmAttachment {
+  const DmAttachment({
+    required this.url,
+    this.width = 0,
+    this.height = 0,
+    this.size = 0,
+  });
+
+  final String url;
+  final int width;
+  final int height;
+  final int size;
+
+  /// Пропорции кадра для резерва места: 0 — размеры неизвестны.
+  double? get aspectRatio => width > 0 && height > 0 ? width / height : null;
+
+  static List<DmAttachment> listFrom(Object? raw) {
+    if (raw is! List) return const [];
+    final result = <DmAttachment>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final url = (item['url'] ?? '').toString();
+      if (url.isEmpty) continue;
+      result.add(
+        DmAttachment(
+          url: url,
+          width: _int(item['width']),
+          height: _int(item['height']),
+          size: _int(item['size']),
+        ),
+      );
+    }
+    return result;
+  }
+
+  static int _int(Object? raw) =>
+      raw is int ? raw : int.tryParse('${raw ?? 0}') ?? 0;
 }
 
 /// Реплика переписки.
@@ -155,6 +208,7 @@ class DmMessage {
     required this.createdAt,
     this.kind = 'text',
     this.pending = false,
+    this.attachments = const [],
   });
 
   final String id;
@@ -169,6 +223,9 @@ class DmMessage {
   /// Отправлено, но ответа сервера ещё нет: показываем часики, а не галочку.
   final bool pending;
 
+  /// До пяти фото: сервер режет размер и отдаёт уже сжатые ссылки.
+  final List<DmAttachment> attachments;
+
   bool get isService => kind == 'news' || kind == 'system';
 
   factory DmMessage.fromJson(Map<dynamic, dynamic> json) {
@@ -180,10 +237,16 @@ class DmMessage {
       createdAt:
           _local(json['created_at']) ?? DateTime.now(),
       kind: (json['kind'] ?? 'text').toString(),
+      attachments: DmAttachment.listFrom(json['attachments']),
     );
   }
 
-  DmMessage copyWith({String? id, String? threadId, bool? pending}) {
+  DmMessage copyWith({
+    String? id,
+    String? threadId,
+    bool? pending,
+    List<DmAttachment>? attachments,
+  }) {
     return DmMessage(
       id: id ?? this.id,
       threadId: threadId ?? this.threadId,
@@ -192,6 +255,7 @@ class DmMessage {
       createdAt: createdAt,
       kind: kind,
       pending: pending ?? this.pending,
+      attachments: attachments ?? this.attachments,
     );
   }
 }
