@@ -20,7 +20,10 @@ export type NotificationType =
   | 'system_news'
   | 'dm_message'
   | 'forum_ban'
-  | 'forum_topic_removed';
+  | 'forum_topic_removed'
+  | 'support_message'
+  | 'support_reply'
+  | 'channel_post';
 
 interface CreateNotificationInput {
   userId: string;
@@ -179,6 +182,11 @@ const sendPushForNotification = async (
     // некуда вести — другого адреса у форума нет.
     if (payload?.forum_slug) dataPayload.forumSlug = String(payload.forum_slug);
     if (payload?.reviewId || reviewId) dataPayload.reviewId = payload?.reviewId ?? reviewId;
+    // Поддержка и каналы ведут не по id сущности, а по своему адресу: у
+    // обращения и поста в канале разные экраны.
+    if (payload?.channel_id) dataPayload.channelId = String(payload.channel_id);
+    if (payload?.ticket_id) dataPayload.ticketId = String(payload.ticket_id);
+    if (payload?.link) dataPayload.link = String(payload.link);
 
     try {
       getIO().to(`user_${userId}`).emit('new_notification', {

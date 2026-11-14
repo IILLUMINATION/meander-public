@@ -1,7 +1,20 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request, NextFunction } from 'express';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import rateLimit from 'express-rate-limit';
-import { validate as uuidValidate } from 'uuid';
+import multer from 'multer';
+import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
 import pool from '../config/database';
+import {
+    CHAT_ALBUM_MAX,
+    CHAT_IMAGE_MAX_BYTES,
+    compressChatImage,
+    isChatImageName,
+    normalizeAttachments,
+    storeChatImageAsIs,
+} from '../services/chat_media';
+import { acceptsImagePartMime, UnsupportedImageError } from '../services/image_host';
 import authMiddleware, { AuthRequest } from '../middleware/auth';
 import { getIO } from '../services/socket';
 import { clientIp } from '../services/client_ip';
@@ -75,7 +88,79 @@ const mapMessage = (row: any) => ({
     sender_id: row.sender_id,
     body: row.body,
     kind: row.kind,
+    attachments: Array.isArray(row.attachments) ? row.attachments : [],
     created_at: row.created_at,
+});
+
+// =======================================================================
+//  ФОТО В ЧАТЕ
+// =======================================================================
+// Временный каталог тот же, что у постов и аватаров; лимит 5 МБ на кадр и
+// один файл за запрос — клиент грузит альбом по очереди и только потом
+// отправляет сообщение со списком ссылок.
+const CHAT_TEMP_DIR = path.join(os.tmpdir(), 'meander_uploads');
+fs.mkdirSync(CHAT_TEMP_DIR, { recursive: true });
+
+const chatUpload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, CHAT_TEMP_DIR),
+        filename: (_req, file, cb) => {
+            const ext = path.extname(file.originalname || '').toLowerCase();
+            cb(null, `mnd-chat-${uuidv4()}${isChatImageName(file.originalname) ? ext : '.jpg'}`);
+        },
+    }),
+    fileFilter: (_req, file, cb) => {
+        if (!isChatImageName(file.originalname) || !acceptsImagePartMime(file.mimetype)) {
+            return cb(new Error('Можно прикрепить jpg, png, webp или gif'));
+        }
+        cb(null, true);
+    },
+    limits: { fileSize: CHAT_IMAGE_MAX_BYTES, files: 1 },
+});
+
+const uploadChatImage = (req: Request, res: Response, next: NextFunction) => {
+    chatUpload.single('file')(req, res, (err: any) => {
+        if (!err) return next();
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({
+                error: `Фото не больше ${CHAT_IMAGE_MAX_BYTES / 1024 / 1024} МБ`,
+            });
+        }
+        return res.status(400).json({ error: err.message || 'Не удалось загрузить фото' });
+    });
+};
+
+/**
+ * POST /api/messages/upload-media
+ *
+ * Пересжатие обязательно: клиент может прислать 5 МБ исходника с EXIF и
+ * геометкой, а лента читается на телефоне. Ответ — готовое вложение, которое
+ * клиент кладёт в `attachments` сообщения.
+ */
+router.post('/upload-media', authMiddleware, limitSend, uploadChatImage, async (req: AuthRequest, res: Response) => {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Файл не дошёл до сервера' });
+    try {
+        let attachment;
+        try {
+            attachment = await compressChatImage(file.path);
+        } catch (error) {
+            // Нет нативного sharp или формат не декодировался — отдаём файл
+            // как есть, если он в пределах лимита: чат важнее пересжатия.
+            console.error('chat image compress:', (error as Error)?.message);
+            if (error instanceof UnsupportedImageError) throw error;
+            attachment = await storeChatImageAsIs(file.path);
+        }
+        res.status(201).json({ attachment });
+    } catch (error) {
+        if (error instanceof UnsupportedImageError) {
+            return res.status(415).json({ error: 'Это не картинка — jpg, png, webp или gif' });
+        }
+        console.error('chat media upload:', error);
+        res.status(500).json({ error: 'Не удалось сохранить фото' });
+    } finally {
+        fs.unlink(file.path, () => {});
+    }
 });
 
 // =======================================================================
@@ -90,6 +175,7 @@ router.get('/threads', authMiddleware, async (req: AuthRequest, res: Response) =
                     peer.id AS peer_id, peer.full_name AS peer_name, peer.avatar_url AS peer_avatar_url,
                     peer.cosmetics AS peer_cosmetics, peer.role AS peer_role, peer.last_seen_at AS peer_last_seen_at,
                     last.body AS last_body, last.sender_id AS last_sender_id, last.kind AS last_kind,
+                    last.attachments AS last_attachments,
                     (st.muted_at IS NOT NULL) AS muted,
                     (SELECT COUNT(*)::int FROM dm_messages c
                       WHERE c.thread_id = t.id AND c.deleted_at IS NULL AND c.sender_id <> $1
@@ -98,12 +184,12 @@ router.get('/threads', authMiddleware, async (req: AuthRequest, res: Response) =
                JOIN LATERAL (SELECT ${PEER_FIELDS} FROM profiles p
                               WHERE p.id = (CASE WHEN t.user_a = $1 THEN t.user_b ELSE t.user_a END)) peer ON TRUE
                LEFT JOIN dm_thread_state st ON st.thread_id = t.id AND st.user_id = $1
-               LEFT JOIN LATERAL (SELECT body, sender_id, kind FROM dm_messages m
+               LEFT JOIN LATERAL (SELECT body, sender_id, kind, attachments FROM dm_messages m
                                    WHERE m.thread_id = t.id AND m.deleted_at IS NULL
                                    ORDER BY m.created_at DESC LIMIT 1) last ON TRUE
               WHERE (t.user_a = $1 OR t.user_b = $1)
                 AND st.hidden_at IS NULL
-              ORDER BY t.last_message_at DESC NULLS LAST, t.created_at DESC
+              ORDER BY COALESCE(t.last_message_at, t.created_at) DESC
               LIMIT 200`,
             [me]
         );
@@ -165,7 +251,7 @@ router.get('/threads/:id', authMiddleware, async (req: AuthRequest, res: Respons
         const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 100);
 
         const messages = await pool.query(
-            `SELECT id, thread_id, sender_id, body, kind, created_at
+            `SELECT id, thread_id, sender_id, body, kind, attachments, created_at
                FROM dm_messages
               WHERE thread_id = $1 AND deleted_at IS NULL
                 AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
@@ -202,7 +288,13 @@ router.post('/threads/:peerId', authMiddleware, limitSend, async (req: AuthReque
     if (peerId === me) return res.status(400).json({ error: 'Себе писать нельзя' });
 
     const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
-    if (!body) return res.status(400).json({ error: 'Пустое сообщение' });
+    const attachments = normalizeAttachments(req.body?.attachments);
+    if (attachments.length > CHAT_ALBUM_MAX) {
+        return res.status(400).json({ error: `Не больше ${CHAT_ALBUM_MAX} фото в сообщении` });
+    }
+    if (!body && attachments.length === 0) {
+        return res.status(400).json({ error: 'Пустое сообщение' });
+    }
     if (body.length > DM_RULES.maxBodyChars) {
         return res.status(400).json({ error: `Сообщение длиннее ${DM_RULES.maxBodyChars} символов` });
     }
@@ -251,10 +343,10 @@ router.post('/threads/:peerId', authMiddleware, limitSend, async (req: AuthReque
         const threadId = isNewThread ? await ensureThread(me, peerId) : found.rows[0].id;
 
         const inserted = await pool.query(
-            `INSERT INTO dm_messages (thread_id, sender_id, body)
-             VALUES ($1, $2, $3)
-             RETURNING id, thread_id, sender_id, body, kind, created_at`,
-            [threadId, me, body]
+            `INSERT INTO dm_messages (thread_id, sender_id, body, attachments)
+             VALUES ($1, $2, $3, $4::jsonb)
+             RETURNING id, thread_id, sender_id, body, kind, attachments, created_at`,
+            [threadId, me, body, JSON.stringify(attachments)]
         );
         await pool.query(
             `UPDATE dm_threads SET last_message_at = NOW() WHERE id = $1`,
@@ -281,7 +373,12 @@ router.post('/threads/:peerId', authMiddleware, limitSend, async (req: AuthReque
 
         // Пуш — то, по чему человек вообще узнает, что ему написали, когда
         // приложение закрыто. Не дожидаемся: доставка сообщения уже случилась.
-        notifyPeerOfMessage(threadId, me, peerId, body).catch(e => console.error('dm push:', e));
+        notifyPeerOfMessage(
+            threadId,
+            me,
+            peerId,
+            body || (attachments.length > 1 ? `📷 ${attachments.length} фото` : '📷 Фото'),
+        ).catch(e => console.error('dm push:', e));
 
         res.status(201).json({ thread_id: threadId, message: mapMessage(message) });
     } catch (err) {
@@ -516,7 +613,10 @@ const limitBroadcast = rateLimit({
 router.post('/system/broadcast', authMiddleware, limitBroadcast, async (req: AuthRequest, res: Response) => {
     const me = req.user!.id;
     const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
-    if (!body) return res.status(400).json({ error: 'Пустое сообщение' });
+    const attachments = normalizeAttachments(req.body?.attachments);
+    if (!body && attachments.length === 0) {
+        return res.status(400).json({ error: 'Пустое сообщение' });
+    }
     if (body.length > DM_RULES.maxBodyChars) {
         return res.status(400).json({ error: `Новость длиннее ${DM_RULES.maxBodyChars} символов` });
     }
@@ -541,21 +641,21 @@ router.post('/system/broadcast', authMiddleware, limitBroadcast, async (req: Aut
             `WITH peers AS (
                 SELECT t.id AS thread_id, t.user_b AS user_id
                   FROM dm_threads t
-                 WHERE t.user_a = $1::uuid AND t.user_b <> $2::uuid
+                 WHERE t.user_a = $1::uuid
              ), written AS (
-                INSERT INTO dm_messages (thread_id, sender_id, body, kind)
-                SELECT thread_id, $1::uuid, $3, 'news' FROM peers
+                INSERT INTO dm_messages (thread_id, sender_id, body, kind, attachments)
+                SELECT thread_id, $1::uuid, $2, 'news', $3::jsonb FROM peers
                 RETURNING 1
              )
              UPDATE dm_threads t SET last_message_at = NOW()
                FROM peers WHERE t.id = peers.thread_id
              RETURNING (SELECT COUNT(*) FROM written) AS delivered`,
-            [SYSTEM_USER_ID, me, body]
+            [SYSTEM_USER_ID, body, JSON.stringify(attachments)]
         );
         await pool.query(
             `INSERT INTO notifications (user_id, actor_id, type, payload)
-             SELECT t.user_b, $1::uuid, 'system_news', $3::jsonb FROM dm_threads t WHERE t.user_a = $1::uuid`,
-            [SYSTEM_USER_ID, me, JSON.stringify({ title: 'Новости Meander', body })]
+             SELECT t.user_b, $1::uuid, 'system_news', $2::jsonb FROM dm_threads t WHERE t.user_a = $1::uuid`,
+            [SYSTEM_USER_ID, JSON.stringify({ title: 'Новости Meander', body })]
         );
 
         // Push рассылки на несколько тысяч аккаунтов здесь нет намеренно: новость

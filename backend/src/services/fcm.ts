@@ -241,6 +241,31 @@ export const buildPushFromNotification = (
           : 'Модератор сообщества удалил ваш топик',
       };
 
+    case 'support_message': {
+      const preview = String(payload?.preview || '').slice(0, 90);
+      return {
+        title: 'Поддержка Meander',
+        body: preview || 'Команда ответила в обращении',
+      };
+    }
+
+    case 'support_reply': {
+      const preview = String(payload?.preview || '').slice(0, 90);
+      return {
+        title: 'Ответ поддержки',
+        body: preview || 'Вам ответили по обращению',
+      };
+    }
+
+    case 'channel_post': {
+      const channel = String(payload?.channel_title || '');
+      const preview = String(payload?.preview || '').slice(0, 90);
+      return {
+        title: channel ? `${channel}` : 'Новый пост в канале',
+        body: preview || 'В канале, на который вы подписаны, новый пост',
+      };
+    }
+
     default:
       // Don't send push for other types
       return null;

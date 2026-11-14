@@ -26,6 +26,8 @@ import notificationRoutes from './routes/notifications';
 import appRoutes from './routes/app';
 import authorWallRoutes from './routes/author-wall';
 import communityRoutes from './routes/community';
+import supportRoutes from './routes/support';
+import channelRoutes from './routes/channels';
 import cloudSyncRoutes from './routes/cloud_sync';
 import musicRoutes from './routes/music';
 import assetRoutes from './routes/assets';
@@ -314,6 +316,8 @@ app.use('/api/author-walls', authorWallRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/forums', forumRoutes);
+app.use('/support', supportRoutes);
+app.use('/channels', channelRoutes);
 app.use('/music', musicRoutes);
 app.use('/assets', assetRoutes);
 
