@@ -870,9 +870,16 @@ class ConnectionGeometry {
 // ================================================================
 class SpatialHash {
   final double cellSize;
-  final Map<String, Set<Node>> _grid = {};
+  final Map<int, Set<Node>> _grid = {};
+
+  /// Ключ ячейки — целое, а не строка: на квесте в 1200 нод `'$x,$y'` на
+  /// каждую ячейку каждой ноды стоил больше, чем сам поиск по сетке.
+  ///
+  /// Мультипликативное смешивание может дать коллизии — их не страшно:
+  /// запросы фильтруют кандидатов по настоящему прямоугольнику.
+  static int _cellKey(int x, int y) => (x * 73856093) ^ (y * 19349663);
+
   SpatialHash({this.cellSize = 200});
-  String _getKey(int x, int y) => '$x,$y';
   void clear() => _grid.clear();
 
   void insert(Node node) {
@@ -883,8 +890,7 @@ class SpatialHash {
     final maxY = (rect.bottom / cellSize).floor();
     for (int x = minX; x <= maxX; x++) {
       for (int y = minY; y <= maxY; y++) {
-        final key = _getKey(x, y);
-        _grid.putIfAbsent(key, () => {}).add(node);
+        _grid.putIfAbsent(_cellKey(x, y), () => {}).add(node);
       }
     }
   }
@@ -892,7 +898,7 @@ class SpatialHash {
   Node? queryPoint(Offset point) {
     final x = (point.dx / cellSize).floor();
     final y = (point.dy / cellSize).floor();
-    final cells = _grid[_getKey(x, y)];
+    final cells = _grid[_cellKey(x, y)];
     if (cells != null) {
       for (final node in cells.toList().reversed) {
         if (node.rect.contains(point)) return node;
@@ -916,9 +922,12 @@ class SpatialHash {
     final maxY = (rect.bottom / cellSize).floor();
     for (int x = minX; x <= maxX; x++) {
       for (int y = minY; y <= maxY; y++) {
-        final cells = _grid[_getKey(x, y)];
-        if (cells != null) {
-          result.addAll(cells);
+        final cells = _grid[_cellKey(x, y)];
+        if (cells == null) continue;
+        for (final node in cells) {
+          // Коллизия ключа не должна протаскивать чужую ячейку: отбираем
+          // только то, что действительно пересекает запрошенный прямоугольник.
+          if (node.rect.overlaps(rect)) result.add(node);
         }
       }
     }

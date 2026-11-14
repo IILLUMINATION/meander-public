@@ -26,18 +26,20 @@ Future<Map<String, dynamic>> _readMap(String rel) async =>
 // ——— геометрия связей кэш (чтобы paint не считал lane/bezier каждый кадр)
 // Лейн (смещение параллельных связей) запекается прямо в start/end, наружу
 // отдаём только геометрии — отдельная карта lanes никому не нужна.
-Map<String, ConnectionGeometry> _computeCanvasGeometries(
-  List<Connection> connections,
-  List<Node> nodes,
-) {
+String _laneKey(Connection c) =>
+    '${c.fromNode.id}->${c.toNode.id}|${c.id}|${c.kind.name}';
+
+/// Смещение дорожки для каждой связи: lane зависит от того, сколько связей
+/// идёт между той же парой нод и в каком они порядке по виду. От позиций нод
+/// он не зависит, поэтому пересчитывается только при изменении списка связей.
+Map<String, double> _connectionLanes(List<Connection> connections) {
   final grouped = <String, List<Connection>>{};
   for (final c in connections) {
-    final key = '${c.fromNode.id}->${c.toNode.id}';
-    grouped.putIfAbsent(key, () => []).add(c);
+    grouped.putIfAbsent('${c.fromNode.id}->${c.toNode.id}', () => []).add(c);
   }
   final lanes = <String, double>{};
-  for (final entry in grouped.entries) {
-    final g = [...entry.value]
+  for (final group in grouped.values) {
+    final sorted = [...group]
       ..sort((a, b) {
         int order(ConnectionKind k) => k == ConnectionKind.content
             ? 0
@@ -46,70 +48,193 @@ Map<String, ConnectionGeometry> _computeCanvasGeometries(
             : 2;
         return order(a.kind).compareTo(order(b.kind));
       });
-    final center = (g.length - 1) / 2;
-    for (var i = 0; i < g.length; i++) {
-      lanes['${g[i].fromNode.id}->${g[i].toNode.id}|${g[i].id}|${g[i].kind.name}'] =
-          i - center;
+    final center = (sorted.length - 1) / 2;
+    for (var i = 0; i < sorted.length; i++) {
+      lanes[_laneKey(sorted[i])] = i - center;
     }
   }
-  final geoms = <String, ConnectionGeometry>{};
+  return lanes;
+}
+
+/// Геометрия связей вместе со смещениями дорожек.
+///
+/// Дорожки зависят только от состава связей, а не от позиций нод, поэтому
+/// едут вместе с геометрией и переиспользуются между кадрами перетаскивания.
+typedef CanvasGeometries = ({
+  Map<String, ConnectionGeometry> geoms,
+  Map<String, double> lanes,
+});
+
+CanvasGeometries _computeCanvasGeometries(
+  List<Connection> connections,
+  List<Node> nodes,
+) {
+  final lanes = _connectionLanes(connections);
   final nodeMap = {for (final n in nodes) n.id: n};
+  final geoms = <String, ConnectionGeometry>{};
   for (final c in connections) {
-    final from = nodeMap[c.fromNode.id];
-    final to = nodeMap[c.toNode.id];
+    final geometry = _canvasGeometryFor(c, nodeMap, lanes[_laneKey(c)] ?? 0);
+    if (geometry != null) geoms[c.id] = geometry;
+  }
+  return (geoms: geoms, lanes: lanes);
+}
+
+/// Геометрия одной связи: якоря, контрольные точки и габариты для кулла.
+ConnectionGeometry? _canvasGeometryFor(
+  Connection c,
+  Map<String, Node> nodeMap,
+  double lane,
+) {
+  final from = nodeMap[c.fromNode.id];
+  final to = nodeMap[c.toNode.id];
+  if (from == null || to == null) return null;
+  var start = from.getClosestAnchor(to.position);
+  var end = to.getClosestAnchor(from.position);
+  var fromCenter = from.position;
+  var toCenter = to.position;
+  if (lane != 0) {
+    final d = end - start;
+    final len = d.distance;
+    if (len != 0) {
+      const spacing = 12.0;
+      final n = Offset(-d.dy / len, d.dx / len);
+      final shift = n * (lane * spacing);
+      start += shift;
+      end += shift;
+      fromCenter += shift;
+      toCenter += shift;
+    }
+  }
+  final dx = end.dx - start.dx;
+  final dy = end.dy - start.dy;
+  final dist = math.sqrt(dx * dx + dy * dy);
+  final off = math.min(dist * 0.5, 100.0);
+  late final Offset c1, c2;
+  if ((start.dx - fromCenter.dx).abs() > (start.dy - fromCenter.dy).abs()) {
+    c1 = Offset(start.dx + (dx > 0 ? off : -off), start.dy);
+  } else {
+    c1 = Offset(start.dx, start.dy + (dy > 0 ? off : -off));
+  }
+  if ((end.dx - toCenter.dx).abs() > (end.dy - toCenter.dy).abs()) {
+    c2 = Offset(end.dx - (dx > 0 ? off : -off), end.dy);
+  } else {
+    c2 = Offset(end.dx, end.dy - (dy > 0 ? off : -off));
+  }
+  final minX =
+      [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a < b ? a : b) - 24;
+  final maxX =
+      [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a > b ? a : b) + 24;
+  final minY =
+      [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a < b ? a : b) - 24;
+  final maxY =
+      [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a > b ? a : b) + 24;
+  return ConnectionGeometry(
+    start: start,
+    end: end,
+    cp1: c1,
+    cp2: c2,
+    bounds: Rect.fromLTRB(minX, minY, maxX, maxY),
+    lane: lane,
+  );
+}
+
+/// Пересчёт геометрии связей с переиспользованием неизменившихся.
+///
+/// Перетаскивание одной ноды раньше пересчитывало все рёбра квеста и
+/// пересоздавало объекты геометрии — а художник кеширует по ним пунктир,
+/// поэтому кеш промахивался каждый кадр. Теперь геометрия рёбер, не
+/// касающихся сдвинутых нод, остаётся тем же объектом.
+CanvasGeometries _recomputeCanvasGeometries({
+  required Map<String, ConnectionGeometry> previous,
+  required Map<String, double> previousLanes,
+  required List<Connection> previousConnections,
+  required List<Node> previousNodes,
+  required List<Connection> connections,
+  required List<Node> nodes,
+  required bool nodesChanged,
+}) {
+  CanvasGeometries full() => _computeCanvasGeometries(connections, nodes);
+  if (!nodesChanged || previous.isEmpty) return full();
+  if (connections.length != previousConnections.length) return full();
+  for (var i = 0; i < connections.length; i++) {
+    final next = connections[i];
+    final before = previousConnections[i];
+    if (next.id != before.id ||
+        next.kind != before.kind ||
+        next.fromNode.id != before.fromNode.id ||
+        next.toNode.id != before.toNode.id) {
+      return full();
+    }
+  }
+  final previousById = {for (final n in previousNodes) n.id: n};
+  if (previousById.length != nodes.length) return full();
+  final moved = <String>{};
+  for (final node in nodes) {
+    final before = previousById[node.id];
+    if (before == null ||
+        before.position != node.position ||
+        before.size != node.size) {
+      moved.add(node.id);
+    }
+  }
+  if (moved.isEmpty) return (geoms: previous, lanes: previousLanes);
+
+  final lanes = previousLanes.isEmpty
+      ? _connectionLanes(connections)
+      : previousLanes;
+  final nodeMap = {for (final n in nodes) n.id: n};
+  final result = Map<String, ConnectionGeometry>.of(previous);
+  for (final connection in connections) {
+    if (!moved.contains(connection.fromNode.id) &&
+        !moved.contains(connection.toNode.id)) {
+      continue;
+    }
+    final geometry = _canvasGeometryFor(
+      connection,
+      nodeMap,
+      lanes[_laneKey(connection)] ?? 0,
+    );
+    if (geometry == null) {
+      result.remove(connection.id);
+    } else {
+      result[connection.id] = geometry;
+    }
+  }
+  return (geoms: result, lanes: lanes);
+}
+
+/// Пересобирает рёбра после сдвига нод: обновляются только касающиеся
+/// [movedIds], остальные переиспользуются (потребителям от связи нужны id
+/// концов, а не свежие объекты нод).
+List<Connection> rewireConnections(
+  List<Connection> connections,
+  List<Node> nodes,
+  Set<String> movedIds,
+) {
+  final byId = {for (final node in nodes) node.id: node};
+  final result = <Connection>[];
+  for (final connection in connections) {
+    final from = byId[connection.fromNode.id];
+    final to = byId[connection.toNode.id];
+    // Висящее ребро (нода уже удалена) уходит, как и при полной пересборке.
     if (from == null || to == null) continue;
-    var start = from.getClosestAnchor(to.position);
-    var end = to.getClosestAnchor(from.position);
-    var fromCenter = from.position;
-    var toCenter = to.position;
-    final lane =
-        lanes['${c.fromNode.id}->${c.toNode.id}|${c.id}|${c.kind.name}'] ?? 0;
-    if (lane != 0) {
-      final d = end - start;
-      final len = d.distance;
-      if (len != 0) {
-        const spacing = 12.0;
-        final n = Offset(-d.dy / len, d.dx / len);
-        final shift = n * (lane * spacing);
-        start += shift;
-        end += shift;
-        fromCenter += shift;
-        toCenter += shift;
-      }
+    if (!movedIds.contains(connection.fromNode.id) &&
+        !movedIds.contains(connection.toNode.id)) {
+      result.add(connection);
+      continue;
     }
-    final dx = end.dx - start.dx;
-    final dy = end.dy - start.dy;
-    final dist = math.sqrt(dx * dx + dy * dy);
-    final off = math.min(dist * 0.5, 100.0);
-    late final Offset c1, c2;
-    if ((start.dx - fromCenter.dx).abs() > (start.dy - fromCenter.dy).abs()) {
-      c1 = Offset(start.dx + (dx > 0 ? off : -off), start.dy);
-    } else {
-      c1 = Offset(start.dx, start.dy + (dy > 0 ? off : -off));
-    }
-    if ((end.dx - toCenter.dx).abs() > (end.dy - toCenter.dy).abs()) {
-      c2 = Offset(end.dx - (dx > 0 ? off : -off), end.dy);
-    } else {
-      c2 = Offset(end.dx, end.dy - (dy > 0 ? off : -off));
-    }
-    final minX =
-        [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a < b ? a : b) - 24;
-    final maxX =
-        [start.dx, end.dx, c1.dx, c2.dx].reduce((a, b) => a > b ? a : b) + 24;
-    final minY =
-        [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a < b ? a : b) - 24;
-    final maxY =
-        [start.dy, end.dy, c1.dy, c2.dy].reduce((a, b) => a > b ? a : b) + 24;
-    geoms[c.id] = ConnectionGeometry(
-      start: start,
-      end: end,
-      cp1: c1,
-      cp2: c2,
-      bounds: Rect.fromLTRB(minX, minY, maxX, maxY),
-      lane: lane,
+    result.add(
+      Connection(
+        id: connection.id,
+        fromNode: from,
+        toNode: to,
+        color: connection.color,
+        isVirtual: connection.isVirtual,
+        kind: connection.kind,
+      ),
     );
   }
-  return geoms;
+  return result;
 }
 
 @immutable
@@ -119,6 +244,10 @@ class CanvasState {
   final List<Node> nodes;
   final List<Connection> connections;
   final Map<String, ConnectionGeometry> connectionGeometries;
+
+  /// Смещения дорожек связей. Считаются по составу связей, поэтому
+  /// переживают перетаскивание нод.
+  final Map<String, double> connectionLanes;
   final List<CanvasGroup> groups;
   final List<CanvasComment> comments;
   final Set<String> selectedNodeIds;
@@ -140,6 +269,7 @@ class CanvasState {
     this.nodes = const [],
     this.connections = const [],
     this.connectionGeometries = const {},
+    this.connectionLanes = const {},
     this.groups = const [],
     this.comments = const [],
     this.selectedNodeIds = const {},
@@ -190,9 +320,17 @@ class CanvasState {
     final newConns = connections ?? this.connections;
     final needGeom =
         (nodes != null || connections != null) && connectionGeometries == null;
-    Map<String, ConnectionGeometry>? geom = connectionGeometries;
+    CanvasGeometries? geometry;
     if (needGeom) {
-      geom = _computeCanvasGeometries(newConns, newNodes);
+      geometry = _recomputeCanvasGeometries(
+        previous: this.connectionGeometries,
+        previousLanes: connectionLanes,
+        previousConnections: this.connections,
+        previousNodes: this.nodes,
+        connections: newConns,
+        nodes: newNodes,
+        nodesChanged: nodes != null,
+      );
     }
 
     final newSearchQuery = searchQuery ?? this.searchQuery;
@@ -219,7 +357,9 @@ class CanvasState {
       scale: scale ?? this.scale,
       nodes: newNodes,
       connections: newConns,
-      connectionGeometries: geom ?? this.connectionGeometries,
+      connectionGeometries:
+          geometry?.geoms ?? connectionGeometries ?? this.connectionGeometries,
+      connectionLanes: geometry?.lanes ?? connectionLanes,
       groups: groups ?? this.groups,
       comments: comments ?? this.comments,
       selectedNodeIds: clearSelection
@@ -1087,7 +1227,14 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       return node;
     }).toList();
 
-    final newConnections = _rebuildConnections(state.connections, newNodes);
+    // Пересобираем только рёбра, которые касаются сдвинутых нод: остальные
+    // держат ссылки на прежние объекты `Node`, а потребителям (художник,
+    // сохранение, индикаторы) от связи нужны только id концов.
+    final newConnections = rewireConnections(
+      state.connections,
+      newNodes,
+      state.selectedNodeIds,
+    );
     state = state.copyWith(nodes: newNodes, connections: newConnections);
     _debounceAndSave();
   }
@@ -1542,7 +1689,14 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       return node;
     }).toList();
 
-    final newConnections = _rebuildConnections(state.connections, newNodes);
+    // Пересобираем только рёбра, которые касаются сдвинутых нод: остальные
+    // держат ссылки на прежние объекты `Node`, а потребителям (художник,
+    // сохранение, индикаторы) от связи нужны только id концов.
+    final newConnections = rewireConnections(
+      state.connections,
+      newNodes,
+      state.selectedNodeIds,
+    );
     state = state.copyWith(nodes: newNodes, connections: newConnections);
     _debounceAndSave();
   }
