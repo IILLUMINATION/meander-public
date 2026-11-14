@@ -3,6 +3,8 @@ import 'package:canvas_app/models/market_quest_model.dart';
 import 'package:canvas_app/features/profile/screens/profile_screen.dart';
 import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
 import 'package:canvas_app/features/shell/widgets/admin_cosmetics_panel.dart';
+import 'package:canvas_app/features/support/providers/support_provider.dart';
+import 'package:canvas_app/features/support/screens/support_inbox_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
@@ -102,7 +104,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 7, vsync: this);
+    _tabController = TabController(length: 8, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -185,6 +187,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
                 Tab(text: tr('Ассеты')),
                 Tab(text: tr('Баны')),
                 Tab(text: tr('Оформление')),
+                Tab(
+                  child: _AdminTabLabel(
+                    label: tr('Обращения'),
+                    count: ref
+                        .watch(supportInboxProvider)
+                        .unreadTotal,
+                  ),
+                ),
               ],
             ),
           ),
@@ -204,6 +214,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               _buildAssetModerationTab(),
               _buildBlockedUsersTab(),
               AdminCosmeticsPanel(nonce: _cosmeticsNonce),
+              SupportInboxBody(),
             ],
           ),
         ),

@@ -956,7 +956,7 @@ router.post('/:id/follow', authMiddleware, async (req: AuthRequest, res: Respons
                 userId: targetUserId,
                 actorId: currentUserId,
                 type: 'user_follow',
-                payload: null
+                payload: { link: `/share/profile/${currentUserId}` }
             });
 
             const followCountRes = await pool.query(

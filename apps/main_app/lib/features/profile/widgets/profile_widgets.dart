@@ -718,6 +718,11 @@ bool openTargetedNotification(BuildContext context, AppNotification n) {
     );
     return true;
   }
+  // Остальные ссылки — те же, что в шаринге: `/share/...`, `/channels/...`.
+  if (link.startsWith('/share/') || link.startsWith('/channels/')) {
+    DeepLinkService().openUrl(link);
+    return true;
+  }
   return false;
 }
 

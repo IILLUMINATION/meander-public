@@ -8,6 +8,7 @@ import 'package:canvas_app/features/community/screens/post_comments_screen.dart'
 import 'package:canvas_app/models/wall_post_model.dart';
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:canvas_app/features/channels/screens/channel_screen.dart';
 import 'package:canvas_app/features/market/screens/quest_market_details_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -176,6 +177,15 @@ class DeepLinkService {
         nav.push(
           MaterialPageRoute(builder: (_) => PostLinkLoaderScreen(postId: id!)),
         );
+        return;
+      }
+
+      // Канал живёт по адресу `/channels/<id>`; в шаринге он приходит так же,
+      // как пост и профиль, — без этого ссылка открывалась в браузере.
+      if ((type == 'channel' || type == 'channels') &&
+          id != null &&
+          id.isNotEmpty) {
+        nav.push(MaterialPageRoute(builder: (_) => ChannelScreen(channelId: id!)));
         return;
       }
 

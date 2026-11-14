@@ -63,3 +63,72 @@ test('расширения картинок распознаются по име
   assert.equal(isChatImageName('archive.zip'), false);
   assert.equal(isChatImageName(''), false);
 });
+// ---------------------------------------------------------------------------
+//  Сжатие: сервер не верит клиенту и приводит кадр к своим правилам.
+// ---------------------------------------------------------------------------
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const sharp = require('sharp');
+
+const { compressChatImage, CHAT_IMAGE_MAX_SIDE } = require('../dist/services/chat_media');
+
+test('большой кадр ужимается до 1600 px и теряет EXIF', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meander-chat-'));
+  const source = path.join(dir, 'huge.jpg');
+  await sharp({
+    create: {
+      width: 3200,
+      height: 2000,
+      channels: 3,
+      background: { r: 30, g: 90, b: 160 },
+    },
+  })
+    .jpeg({ quality: 92 })
+    .withMetadata({ exif: { IFD0: { Copyright: 'hidden-location' } } })
+    .toFile(source);
+
+  const attachment = await compressChatImage(source);
+  assert.equal(attachment.width, CHAT_IMAGE_MAX_SIDE);
+  assert.ok(attachment.height <= CHAT_IMAGE_MAX_SIDE);
+  assert.ok(attachment.url.startsWith(publicUrl('/uploads/')));
+
+  // Файл на диске тоже без метаданных: иначе они уезжают в публичный урл.
+  const stored = path.join(process.cwd(), 'public/uploads', path.basename(attachment.url));
+  const meta = await sharp(stored).metadata();
+  assert.equal(meta.exif, undefined);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(stored, { force: true });
+});
+
+test('кадр с прозрачностью остаётся прозрачным (webp, а не jpeg)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meander-chat-'));
+  const source = path.join(dir, 'alpha.png');
+  await sharp({
+    create: {
+      width: 400,
+      height: 400,
+      channels: 4,
+      background: { r: 255, g: 0, b: 0, alpha: 0.5 },
+    },
+  })
+    .png()
+    .toFile(source);
+
+  const attachment = await compressChatImage(source);
+  assert.ok(attachment.url.endsWith('.webp'));
+  assert.equal(attachment.mime, 'image/webp');
+  const stored = path.join(process.cwd(), 'public/uploads', path.basename(attachment.url));
+  const meta = await sharp(stored).metadata();
+  assert.equal(meta.hasAlpha, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(stored, { force: true });
+});
+
+test('не картинка не превращается в файл в общем доступе', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meander-chat-'));
+  const source = path.join(dir, 'note.jpg');
+  fs.writeFileSync(source, 'это не картинка');
+  await assert.rejects(() => compressChatImage(source));
+  fs.rmSync(dir, { recursive: true, force: true });
+});

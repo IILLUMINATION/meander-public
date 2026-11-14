@@ -611,7 +611,10 @@ router.post('/:id/vote', authMiddleware, async (req: AuthRequest, res: Response)
                     actorId: userId,
                     type: 'quest_like',
                     questId: id,
-                    payload: { title: questRes.rows[0]?.title }
+                    payload: {
+                        title: questRes.rows[0]?.title,
+                        link: `/share/quest/${id}`,
+                    }
                 });
             }
         }

@@ -24,7 +24,6 @@ class SupportInboxScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final state = ref.watch(supportInboxProvider);
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -39,45 +38,56 @@ class SupportInboxScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                for (final filter in _filters)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      key: ValueKey('inbox-filter-$filter'),
-                      label: Text(filterTitle(filter)),
-                      selected: state.filter == filter,
-                      onSelected: (_) => ref
-                          .read(supportInboxProvider.notifier)
-                          .load(filter: filter),
-                    ),
+      body: SupportInboxBody(),
+    );
+  }
+}
+
+/// Тело инбокса без шапки: тем же списком пользуется вкладка админ-панели,
+/// где свой `Scaffold` и своя шапка.
+class SupportInboxBody extends ConsumerWidget {
+  const SupportInboxBody({super.key});
+
+  static String filterTitle(String filter) =>
+      SupportInboxScreen.filterTitle(filter);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(supportInboxProvider);
+    return Column(
+      children: [
+        SizedBox(
+          height: 48,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: [
+              for (final filter in SupportInboxScreen._filters)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    key: ValueKey('inbox-filter-$filter'),
+                    label: Text(filterTitle(filter)),
+                    selected: state.filter == filter,
+                    onSelected: (_) => ref
+                        .read(supportInboxProvider.notifier)
+                        .load(filter: filter),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
-          Expanded(
-            child: AdaptiveContent(
-              maxWidth: 860,
-              child: _body(context, ref, state),
-            ),
+        ),
+        Expanded(
+          child: AdaptiveContent(
+            maxWidth: 860,
+            child: _body(context, ref, state),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _body(
-    BuildContext context,
-    WidgetRef ref,
-    SupportInboxState state,
-  ) {
+  Widget _body(BuildContext context, WidgetRef ref, SupportInboxState state) {
     final scheme = Theme.of(context).colorScheme;
     if (state.isLoading && state.tickets.isEmpty) {
       return Center(child: CircularProgressIndicator(color: scheme.primary));
@@ -106,9 +116,9 @@ class SupportInboxScreen extends ConsumerWidget {
                 Text(
                   state.error!,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.error,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: scheme.error),
                 ),
               ],
             ],

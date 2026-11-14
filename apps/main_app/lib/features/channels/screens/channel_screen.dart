@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:canvas_app/features/channels/models/channel_models.dart';
@@ -8,7 +11,10 @@ import 'package:canvas_app/features/messages/widgets/chat_attachments.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/shared/widgets/app_markdown_config.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Канал: шапка с подпиской и лента постов. Писать может владелец и его
@@ -96,6 +102,21 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
     }
   }
 
+  /// Ссылка на канал — публичная страница сайта: по ней канал открывается и
+  /// у того, кто ещё не подписан.
+  void _shareChannel() {
+    final url = '${AppConfig.vpsApiBaseUrl}/channels/${widget.channelId}';
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      Clipboard.setData(ClipboardData(text: url));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(tr('Ссылка скопирована'))));
+      return;
+    }
+    Share.share(url);
+  }
+
   Future<void> _toggle() async {
     final error = await ref
         .read(channelProvider(widget.channelId).notifier)
@@ -123,13 +144,18 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
         backgroundColor: scheme.surface,
         title: Text(channel?.title ?? tr('Канал')),
         actions: [
-          if (channel != null && channel.commentsEnabled)
+          if (channel != null)
             IconButton(
-              tooltip: tr('Обновить'),
-              onPressed: () =>
-                  ref.read(channelProvider(widget.channelId).notifier).load(),
-              icon: const Icon(Icons.refresh_rounded),
+              tooltip: tr('Поделиться'),
+              onPressed: _shareChannel,
+              icon: const Icon(Icons.share_outlined),
             ),
+          IconButton(
+            tooltip: tr('Обновить'),
+            onPressed: () =>
+                ref.read(channelProvider(widget.channelId).notifier).load(),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
         ],
       ),
       floatingActionButton: channel != null && channel.canPost

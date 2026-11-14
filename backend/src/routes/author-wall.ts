@@ -288,7 +288,13 @@ router.post('/:authorId/posts', authMiddleware, async (req: Request, res: Respon
               userIds: followerIds,
               actorId: authorId,
               type: 'wall_post_new',
-              payload: { postId: post.id },
+              // Ссылка на пост и на автора: тап по уведомлению ведёт прямо к
+              // публикации, а имя в строке — к профилю.
+              payload: {
+                postId: post.id,
+                profileId: authorId,
+                link: `/share/post/${post.id}`,
+              },
             });
           }
         } catch (e) {
@@ -452,7 +458,7 @@ router.post('/posts/:postId/like', authMiddleware, async (req: Request, res: Res
               userId: postAuthorId,
               actorId: userId,
               type: 'wall_post_like',
-              payload: { postId },
+              payload: { postId, link: `/share/post/${postId}` },
             });
           }
         } catch (e) {
@@ -909,7 +915,10 @@ router.post('/quests/:questId/reviews/:reviewId/reply', authMiddleware, async (r
         type: 'review_reply',
         questId: questId,
         reviewId: reviewId,
-        payload: { title: quest.rows[0].title }
+        payload: {
+          title: quest.rows[0].title,
+          link: `/share/quest/${questId}`,
+        }
       });
     }
 
