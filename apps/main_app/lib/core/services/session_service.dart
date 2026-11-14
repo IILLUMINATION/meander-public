@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:canvas_app/core/services/api_service.dart';
+import 'package:canvas_app/core/services/session_store.dart';
 import 'package:canvas_app/core/services/socket_service.dart';
 import 'package:canvas_app/features/community/providers/community_feed_provider.dart';
 import 'package:canvas_app/features/community/providers/community_users_provider.dart';
@@ -83,6 +84,11 @@ Future<void> endSession({
       // выход важнее отписки
     }
   }
+
+  // Сессия активного сервера: убираем и раскладку по областям, иначе при
+  // следующем переключении на этот сервер мёртвый токен вернулся бы в
+  // `jwt_token` из `session_token@…`. Сессии других серверов не трогаем.
+  await SessionStore.clearActive();
 
   for (final key in _accountPrefsKeys) {
     await prefs.remove(key);

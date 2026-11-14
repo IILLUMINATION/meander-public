@@ -29,6 +29,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:canvas_app/core/services/google_browser_auth.dart';
 import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/session_store.dart';
 import 'package:telegram_login/telegram_login.dart';
 import 'package:yandex_login_sdk/yandex_login_sdk.dart';
 import 'package:canvas_app/core/services/socket_service.dart';
@@ -1022,12 +1023,29 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
     await _authenticateWithBackend(idToken);
   }
 
+  /// Сохранить сессию сервера, который её выдал.
+  ///
+  /// Токен приложения подписан `JWT_SECRET` этого бэкенда и на чужом
+  /// сервере невалиден, поэтому кладётся в область доверия сервера
+  /// ([MirrorRegistry.domainFor]): основной домен и встроенные зеркала —
+  /// одна сессия, любой добавленный пользователем сервер — своя.
+  Future<void> _saveSession(
+    String baseUrl,
+    String appToken,
+    String userId,
+  ) => SessionStore.save(
+    domain: MirrorRegistry.domainFor(baseUrl),
+    token: appToken,
+    userId: userId,
+  );
+
   Future<void> _authenticateWithBackend(String idToken) async {
     // Вход может быть первым сетевым действием сессии: проверяем зеркала
     // до запроса, чтобы не падать на заблокированном домене.
     await MirrorRegistry.instance.ensureReachable();
+    final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
-      Uri.parse('${AppConfig.apiUrl}/auth/google/token'),
+      Uri.parse('$baseUrl/auth/google/token'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'idToken': idToken}),
     );
@@ -1037,9 +1055,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       final String appToken = data['token'];
       final String userId = data['user']['id'];
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jwt_token', appToken);
-      await prefs.setString('user_id', userId);
+      await _saveSession(baseUrl, appToken, userId);
 
       // Синхронизируем возрастное согласие с профилем (18+ контент).
       await _syncAdultConsent(appToken);
@@ -1054,8 +1070,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
 
   Future<void> _authenticateWithBackendYandex(String yandexToken) async {
     await MirrorRegistry.instance.ensureReachable();
+    final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
-      Uri.parse('${AppConfig.apiUrl}/auth/yandex/token'),
+      Uri.parse('$baseUrl/auth/yandex/token'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'yandexToken': yandexToken}),
     );
@@ -1063,9 +1080,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       final String appToken = data['token'];
       final String userId = data['user']['id'];
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jwt_token', appToken);
-      await prefs.setString('user_id', userId);
+      await _saveSession(baseUrl, appToken, userId);
       await _syncAdultConsent(appToken);
       SocketService().init(appToken);
       widget.onLoginSuccess();
@@ -1078,8 +1093,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
 
   Future<void> _authenticateWithBackendTelegram(String idToken) async {
     await MirrorRegistry.instance.ensureReachable();
+    final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
-      Uri.parse('${AppConfig.apiUrl}/auth/telegram/token'),
+      Uri.parse('$baseUrl/auth/telegram/token'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'telegramIdToken': idToken}),
     );
@@ -1087,9 +1103,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       final String appToken = data['token'];
       final String userId = data['user']['id'];
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jwt_token', appToken);
-      await prefs.setString('user_id', userId);
+      await _saveSession(baseUrl, appToken, userId);
       await _syncAdultConsent(appToken);
       SocketService().init(appToken);
       widget.onLoginSuccess();
@@ -1107,8 +1121,9 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
     String? lastName,
   }) async {
     await MirrorRegistry.instance.ensureReachable();
+    final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
-      Uri.parse('${AppConfig.apiUrl}/auth/apple/token'),
+      Uri.parse('$baseUrl/auth/apple/token'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'idToken': idToken,
@@ -1121,9 +1136,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       final String appToken = data['token'];
       final String userId = data['user']['id'];
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jwt_token', appToken);
-      await prefs.setString('user_id', userId);
+      await _saveSession(baseUrl, appToken, userId);
       await _syncAdultConsent(appToken);
       SocketService().init(appToken);
       widget.onLoginSuccess();

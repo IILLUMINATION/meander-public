@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:canvas_app/core/config.dart';
+import 'package:canvas_app/core/services/session_store.dart';
 
 /// Перебор зеркал бэкенда.
 ///
@@ -87,7 +88,24 @@ class MirrorRegistry {
       _activeUrl = allUrls.first;
     }
     _loaded = true;
+    // Сессия привязана к серверу: на старте подставляем сессию того
+    // сервера, который окажется активным.
+    await SessionStore.activate(domainFor(_activeUrl!));
   }
+
+  /// Область доверия для сессии: основной домен и встроенные зеркала — это
+  /// один бэкенд (общая БД и общий `JWT_SECRET`), поэтому у них одна
+  /// сессия. Любой другой сервер — своя область, ключ = его URL: выданный
+  /// им токен невалиден на основном домене и наоборот.
+  static String domainFor(String url) {
+    final normalized = _normalize(url) ?? url;
+    return AppConfig.defaultMirrorUrls.contains(normalized)
+        ? SessionStore.primaryDomain
+        : normalized;
+  }
+
+  /// Активная область доверия (см. [domainFor]).
+  String get activeDomain => domainFor(activeUrl);
 
   /// Все URL в порядке приоритета: активное первым (его проверяем раньше
   /// всего), затем остальные дефолты, пользовательское — сразу после
@@ -133,6 +151,7 @@ class MirrorRegistry {
       _activeUrl = AppConfig.defaultMirrorUrls.first;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_activeUrlKey, _activeUrl!);
+      await SessionStore.activate(domainFor(_activeUrl!));
     }
   }
 
@@ -153,6 +172,7 @@ class MirrorRegistry {
     _activeUrl = url;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_activeUrlKey, url);
+    await SessionStore.activate(domainFor(url));
   }
 
   /// Результат зонда: `pingMs == null` — зеркало недоступно.

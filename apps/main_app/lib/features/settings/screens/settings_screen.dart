@@ -1082,6 +1082,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                     ).colorScheme.onSurfaceVariant,
                                   ),
                                 ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  tr(
+                                    'Свой сервер — это отдельный бэкенд: у него своя база и свой вход. Сессия основного сервера на него не передаётся, а сервер видит всё, что вы на нём размещаете.',
+                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
+                                      ),
+                                ),
                               ],
                             ),
                           ),

@@ -10,6 +10,7 @@ import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/hang_watchdog.dart';
 import 'package:canvas_app/core/services/firebase_messaging_service.dart';
 import 'package:canvas_app/core/services/meander_core_bootstrap.dart';
+import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/services/rebuild_storm_observer.dart';
 import 'package:canvas_app/core/services/talker_service.dart';
 import 'package:canvas_app/features/game/providers/game_screen_provider.dart'
@@ -172,6 +173,11 @@ Future<void> bootstrap() async {
   MeanderCoreBootstrap.initialize(debugLogs: kDebugMode);
   HangWatchdog.mark('bootstrap: deepLink');
   DeepLinkService().init();
+
+  // Адресная книга зеркал и сессии по серверам читаются до первого кадра:
+  // экраны в initState читают `jwt_token`, и там должна лежать сессия
+  // активного сервера, а не токен, оставшийся от прежнего.
+  await MirrorRegistry.instance.ensureLoaded();
 
   // Кэш декодированных картинок ограничиваем по памяти устройства. Дефолт
   // Flutter — 100 МиБ и 1000 картинок: на 2 ГБ это заметная доля бюджета, а
