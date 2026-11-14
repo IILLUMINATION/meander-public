@@ -1855,7 +1855,7 @@ final Map<String, String> trStrings = {
   'Экспортировать в PDF': 'PDF olarak aktar',
   'Эти поля можно изменить позже': 'Bu alanları sonra değiştirebilirsin',
   'Этот формат будет поддерживаться в будущей версии': 'Bu format ileriki bir sürümde desteklenecek',
-  'Язык квеста': 'Quest dili',
+  'Языки квеста': 'Quest dili',
   '"{p0}" будет удалён безвозвратно.': '"{p0}" kalıcı olarak silinecek.',
   'Lua-файлы могут выступать обработчиками событий триггеров квеста. onQuestStart движок вызывает у .lua-файлов из папки scripts/ квеста — один раз при запуске игры, до первой ноды; список «глобальных скриптов» в настройках квеста для этого не нужен. onDataChange — диспетчер изменений данных: файл должен объявлять это событие (см. ниже), подписки задаёт визуальный блок «При изменении данных».': 'Lua dosyaları, quest tetikleyicileri için olay işleyicisi olarak çalışabilir. Motor, questin scripts/ klasöründeki .lua dosyalarında onQuestStart\'ı çağırır — oyun başlarken, ilk düğümden önce bir kez; bunun için quest ayarlarındaki "genel betikler" listesi gerekmez. onDataChange bir veri değişikliği yönlendiricisidir: dosya bu olayı bildirmelidir (aşağıya bak), abonelikleri "Veri Değiştiğinde" görsel bloğu belirler.',
   'QuestTable — единое хранилище таблиц со структурой { name, columns, rows, data }. В Lua нелатинские (русские) имена колонок в словарях задаются в скобках [\'имя\'].': 'QuestTable — { name, columns, rows, data } yapısıyla tek bir tablo deposu. Lua\'da sözlüklerde latince olmayan (Türkçe) sütun adları köşeli parantezle [\'ad\'] biçiminde verilir.',

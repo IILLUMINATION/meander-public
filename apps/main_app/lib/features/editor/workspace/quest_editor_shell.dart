@@ -575,6 +575,19 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       return;
     }
 
+    // Документ вложенный (нода знает свой канвас): «Назад» меняет вкладку
+    // на родителя. Без этого восстановленная сессия (стек посещений живёт
+    // только в памяти) или нода, открытая заменой канваса, выкидывали
+    // пользователя из квеста в список вместо полотна.
+    final parent = controller.backToParentOf(activeId);
+    if (parent != null) {
+      await _replace(activeId, parent);
+      // Подъём «вверх» — не визит: нода больше не цель истории.
+      controller.forgetNav(activeId);
+      _schedulePersist();
+      return;
+    }
+
     final saved = await controller.flushDirtyDocuments();
     if (!mounted || !saved) return;
     _popEditorRoute();

@@ -117,6 +117,32 @@ void main() {
     expect(h.keys, ['a', 'b'], reason: 'вкладка b остаётся открытой');
   });
 
+  testWidgets('нода без истории: «Назад» возвращает на канвас, а не выходит', (
+    tester,
+  ) async {
+    // Восстановленная сессия: стек посещений живёт в памяти, поэтому после
+    // входа в квест «Назад» с ноды видел пустую историю и выкидывал автора
+    // в список квестов вместо полотна главы.
+    final h = await _Harness.mount(
+      tester,
+      questId: 'q_from_node',
+      parent: EditorDocumentDescriptor.canvas('q_from_node', 'ch1'),
+    );
+
+    await h.pressBack();
+
+    expect(h.observer.pops, 0, reason: 'из квеста не выходим');
+    expect(h.activeKind, EditorDocumentKind.canvas);
+    expect(h.keys, ['ch1'], reason: 'вкладка ноды стала полотном, не размножилась');
+
+    // Второй «Назад» уже на полотне: выход из редактора, а не возврат в ноду.
+    await h.pressBack();
+
+    expect(h.observer.pops, 1);
+    expect(h.activeKind, EditorDocumentKind.canvas);
+    expect(h.keys, ['ch1'], reason: 'нода не всплывает повторно');
+  });
+
   testWidgets('сохранение не удалось: «Назад» не выбрасывает из редактора', (
     tester,
   ) async {
@@ -169,6 +195,7 @@ class _Harness {
     required String questId,
     bool? saveResult,
     bool registersBackHandler = true,
+    EditorDocumentDescriptor? parent,
   }) async {
     SharedPreferences.setMockInitialValues({
       'editor_tabs_enabled': true,
@@ -217,6 +244,7 @@ class _Harness {
             saveResult: document.id.key == 'a' ? saveResult : null,
             registersBackHandler:
                 harness.backHandlers[document.id.key] ?? true,
+            parent: document.id.key == 'a' ? parent : null,
           ),
         ),
       ),
@@ -231,6 +259,15 @@ class _Harness {
   List<String> get keys => _workspace.documents.map((d) => d.id.key).toList();
 
   String? get activeKey => _workspace.activeId?.key;
+
+  EditorDocumentKind? get activeKind {
+    final id = _workspace.activeId;
+    if (id == null) return null;
+    return _workspace.documents
+        .firstWhere((document) => document.id == id)
+        .id
+        .kind;
+  }
 
   /// Кадр + прогон таймеров деперсиста, чтобы в конце теста не осталось
   /// висеть таймеру.
@@ -284,11 +321,16 @@ class _FakeDocument extends StatefulWidget {
     required this.document,
     required this.registersBackHandler,
     this.saveResult,
+    this.parent,
   });
 
   final EditorDocumentDescriptor document;
   final bool registersBackHandler;
   final bool? saveResult;
+
+  /// Родительский экран вкладки — как канвас у ноды. null — документ
+  /// корневой (история исчерпана → выход из редактора).
+  final EditorDocumentDescriptor? parent;
 
   @override
   State<_FakeDocument> createState() => _FakeDocumentState();
@@ -302,17 +344,21 @@ class _FakeDocumentState extends State<_FakeDocument> {
     super.didChangeDependencies();
     _scope = EditorWorkspaceScope.maybeOf(context);
     final result = widget.saveResult;
-    if (result != null) {
+    final parent = widget.parent;
+    if (result != null || parent != null) {
       _scope?.registerRuntime(
         widget.document.id,
-        EditorDocumentRuntime(onSave: () async => result),
+        EditorDocumentRuntime(
+          onSave: result == null ? null : () async => result,
+          onBackToParent: parent == null ? null : () => parent,
+        ),
       );
     }
   }
 
   @override
   void dispose() {
-    if (widget.saveResult != null) {
+    if (widget.saveResult != null || widget.parent != null) {
       _scope?.unregisterRuntime(widget.document.id);
     }
     super.dispose();

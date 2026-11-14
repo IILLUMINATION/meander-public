@@ -1605,7 +1605,7 @@ final Map<String, String> frStrings = {
   'Экспортировать в PDF': 'Exporter en PDF',
   'Эти поля можно изменить позже': 'Ces champs peuvent être modifiés plus tard',
   'Этот формат будет поддерживаться в будущей версии': 'Ce format sera pris en charge dans une version future',
-  'Язык квеста': 'Langue de la quête',
+  'Языки квеста': 'Langues de la quête',
   '"{p0}" будет удалён безвозвратно.': '« {p0} » sera supprimé définitivement.',
   'Lua-файлы могут выступать обработчиками событий триггеров квеста. onQuestStart движок вызывает у .lua-файлов из папки scripts/ квеста — один раз при запуске игры, до первой ноды; список «глобальных скриптов» в настройках квеста для этого не нужен. onDataChange — диспетчер изменений данных: файл должен объявлять это событие (см. ниже), подписки задаёт визуальный блок «При изменении данных».': 'Les fichiers Lua peuvent servir de gestionnaires d\'événements pour les déclencheurs de la quête. Le moteur appelle onQuestStart sur les fichiers .lua du dossier scripts/ de la quête — une fois au lancement du jeu, avant le premier nœud ; la liste des « scripts globaux » dans les paramètres de la quête n\'est pas nécessaire pour cela. onDataChange est un distributeur de changements de données : le fichier doit déclarer cet événement (voir ci-dessous), les abonnements se règlent par le bloc visuel « Lors d\'un changement de données ».',
   'QuestTable — единое хранилище таблиц со структурой { name, columns, rows, data }. В Lua нелатинские (русские) имена колонок в словарях задаются в скобках [\'имя\'].': 'QuestTable — un stockage unique de tableaux avec la structure { name, columns, rows, data }. En Lua, les noms de colonnes non latins dans les dictionnaires s\'écrivent entre crochets : [\'nom\'].',

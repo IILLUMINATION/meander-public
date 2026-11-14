@@ -190,5 +190,5 @@ final Map<String, String> enQuests = {
   'Ошибка сборки веб-версии: {p0}': 'Web version build failed: {p0}',
   'Эти поля можно изменить позже': 'These fields can be changed later',
   'Этот формат будет поддерживаться в будущей версии': 'This format will be supported in a future version',
-  'Язык квеста': 'Quest language',
+  'Языки квеста': 'Quest languages',
 };

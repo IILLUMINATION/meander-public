@@ -6,14 +6,22 @@ import 'editor_document.dart';
 typedef EditorSaveCallback = Future<bool> Function();
 typedef EditorCloseCallback = Future<bool> Function();
 
+/// Куда документ уходит, когда история посещений исчерпана. Вложенный экран
+/// (нода) знает свой родительский (канвас главы): «Назад» обязан вернуть туда,
+/// а не выйти из редактора. Вызывается лениво — к моменту нажатия данные уже
+/// загружены.
+typedef EditorParentTarget = EditorDocumentDescriptor? Function();
+
 class EditorDocumentRuntime {
   final EditorSaveCallback? onSave;
   final EditorCloseCallback? onBeforeClose;
+  final EditorParentTarget? onBackToParent;
   final bool keepAlive;
 
   const EditorDocumentRuntime({
     this.onSave,
     this.onBeforeClose,
+    this.onBackToParent,
     this.keepAlive = true,
   });
 }
@@ -257,6 +265,18 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
 
   void unregisterRuntime(EditorDocumentId id) {
     _runtimes.remove(id);
+  }
+
+  /// Родительский экран документа для «Назад» при исчерпанной истории.
+  /// null — документ не вложенный (канвас, настройки), поведение прежнее.
+  EditorDocumentDescriptor? backToParentOf(EditorDocumentId id) =>
+      _runtimes[id]?.onBackToParent?.call();
+
+  /// Забыть вкладку в истории посещений. Нужно при подъёме «вверх»: нода,
+  /// из которой «Назад» вернул на канвас, не должна всплывать следующим
+  /// «Назад» — иначе кнопка цик лит между двумя экранами и выйти нельзя.
+  void forgetNav(EditorDocumentId id) {
+    _navStack.removeWhere((entry) => entry.id == id);
   }
 
   Future<bool> save(EditorDocumentId id) async {

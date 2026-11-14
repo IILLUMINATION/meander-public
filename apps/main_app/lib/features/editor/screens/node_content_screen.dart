@@ -26,6 +26,7 @@ import 'package:canvas_app/features/editor/logic/item_editor_helper.dart';
 import 'package:canvas_app/features/editor/screens/node_content/content_item_card.dart';
 import 'package:canvas_app/features/editor/screens/node_settings_screen.dart';
 import 'package:canvas_app/features/editor/workspace/editor_back_handler.dart';
+import 'package:canvas_app/features/editor/workspace/editor_document.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_launcher.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_lifecycle.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
@@ -146,6 +147,19 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
             if (!_isDirty) return true;
             return _saveNode(force: true);
           },
+          // Нода живёт внутри главы: когда история посещений пуста (сессия
+          // восстановлена, канвас был заменён нодой), «Назад» возвращает на
+          // полотно главы, а не выбрасывает из квеста.
+          onBackToParent: widget.fromGameSession
+              ? null
+              : () {
+                  final chapterId = _initialNode?.chapterId;
+                  if (chapterId == null) return null;
+                  return EditorDocumentDescriptor.canvas(
+                    widget.questId,
+                    chapterId,
+                  );
+                },
         ),
       );
       _loadNodeData();
