@@ -64,17 +64,18 @@ class _GoToNodeBlockWidgetState extends State<GoToNodeBlockWidget> {
     try {
       final nodesData = await QuestNodesStore.read(widget.questId);
       final nodes = (nodesData['nodes'] as List<dynamic>? ?? []);
-      final selectedNode = nodes.firstWhere(
-        (node) => (node as Map<String, dynamic>)['id'] == nodeId,
-        orElse: () => null,
-      );
+      Map<String, dynamic>? selectedNode;
+      for (final node in nodes) {
+        if (node is Map && node['id']?.toString() == nodeId) {
+          selectedNode = Map<String, dynamic>.from(node);
+          break;
+        }
+      }
       if (!mounted) return;
       setState(() {
         widget.block.targetNodeId = nodeId;
         if (selectedNode != null) {
-          widget.block.targetNodeName =
-              (selectedNode as Map<String, dynamic>)['title'] as String? ??
-              'Нода';
+          widget.block.targetNodeName = selectedNode['title'] as String? ?? 'Нода';
         } else {
           widget.block.targetNodeName =
               'ID: ${nodeId.substring(0, nodeId.length > 8 ? 8 : nodeId.length)}…';

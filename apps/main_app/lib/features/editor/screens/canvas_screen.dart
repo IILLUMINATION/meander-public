@@ -598,19 +598,31 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
     String? nodeId,
   ) async {
     if (nodeId == null) return;
-    final success = await duplicateNode(widget.questId, nodeId);
-    if (success) {
-      await notifier.reloadData();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(tr('Нода дублирована')),
-            backgroundColor: Colors.green,
-            duration: Duration(milliseconds: 800),
-          ),
-        );
-      }
+    final copyId = await duplicateNode(widget.questId, nodeId);
+    if (copyId == null) {
+      // Раньше провал был молчаливым: кнопка «Дублировать» выглядела
+      // сломанной без единого сообщения. Теперь видно, что не так.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('Не удалось дублировать ноду')),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
+    await notifier.reloadData();
+    if (!mounted) return;
+    // Выделяем копию: она ложится рядом на 30 px, и без выделения не видно,
+    // что именно появилось.
+    notifier.selectNode(copyId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(tr('Нода дублирована')),
+        backgroundColor: Colors.green,
+        duration: Duration(milliseconds: 800),
+      ),
+    );
   }
 
   Future<void> _showTidyUpConfirmationDialog(CanvasNotifier notifier) async {

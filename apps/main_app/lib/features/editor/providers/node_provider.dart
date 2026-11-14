@@ -1,5 +1,6 @@
 import 'dart:convert'; // Для jsonDecode/jsonEncode (Deep Copy)
 import 'dart:ui' show Offset;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/utils/quest_store.dart';
 import 'package:mnd_player/utils/quest_nodes_store.dart';
@@ -7,10 +8,27 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/quest_content_change_bus.dart';
 import 'package:mnd_core/models/saved_node.dart';
 import 'package:canvas_app/models/canvas_models.dart'; // Для моделей Group/Comment
+import 'package:collection/collection.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 
 export 'package:mnd_core/models/saved_node.dart';
+
+/// Найти ноду по id в списке из `QuestNodesStore.read`.
+///
+/// Не `firstWhere(orElse: () => null)`: в per-node режиме `read` возвращает
+/// типизированный `List<Map<String, dynamic>>`, и `orElse`, возвращающий
+/// `null`, падает на рантайме с «type '() => Null' is not a subtype».
+/// Копирование ноды из-за этого не работало у всех, у кого квест переведён
+/// на per-node (а он переводится сам при первом экспорте).
+Map<String, dynamic>? _findNodeJson(List<dynamic> raw, String nodeId) {
+  for (final item in raw) {
+    if (item is Map && item['id']?.toString() == nodeId) {
+      return Map<String, dynamic>.from(item);
+    }
+  }
+  return null;
+}
 
 // План 020-C4.3: чтение/запись квеста — через ядро.
 Future<QuestStore> _qs() => QuestStore.defaultInstance();
@@ -151,9 +169,8 @@ final tagCameraStateProvider = FutureProvider.autoDispose
           if (!await (await _qs()).exists(configPath)) return CameraState();
           final config = await _readMap(configPath);
           final tagsJson = config['tags'] as List<dynamic>? ?? [];
-          final tagJson = tagsJson.firstWhere(
+          final tagJson = tagsJson.firstWhereOrNull(
             (tag) => (tag as Map<String, dynamic>)['id'] == tagInfo.tagId,
-            orElse: () => null,
           );
           if (tagJson != null) {
             final tagMap = tagJson as Map<String, dynamic>;
@@ -638,37 +655,40 @@ Future<void> updateNode(String questId, SavedNode nodeToSave) async {
   }
 }
 
-Future<bool> duplicateNode(String questId, String originalNodeId) async {
+/// Скопировать ноду. Возвращает id копии, чтобы канвас мог её выделить;
+/// `null` — ноду не нашли или запись не удалась.
+Future<String?> duplicateNode(String questId, String originalNodeId) async {
   return _qsync('nodes_$questId', () async {
     try {
       final nodesData = await QuestNodesStore.read(questId);
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
 
-      final originalNodeMap = allNodesJson.firstWhere(
-        (n) => n['id'] == originalNodeId,
-        orElse: () => null,
-      );
-
-      if (originalNodeMap == null) return false;
+      final originalNodeMap = _findNodeJson(allNodesJson, originalNodeId);
+      if (originalNodeMap == null) return null;
 
       final deepCopy =
           jsonDecode(jsonEncode(originalNodeMap)) as Map<String, dynamic>;
 
-      deepCopy['id'] = const Uuid().v4();
-      deepCopy['title'] = trf('{p0} (Копия)', {'p0': deepCopy['title']});
-      deepCopy['x'] = (deepCopy['x'] as num).toDouble() + 30.0;
-      deepCopy['y'] = (deepCopy['y'] as num).toDouble() + 30.0;
+      final copyId = const Uuid().v4();
+      deepCopy['id'] = copyId;
+      deepCopy['title'] = trf('{p0} (Копия)', {
+        'p0': deepCopy['title'] ?? '',
+      });
+      // Нода из старого документа могла прийти без координат: копия должна
+      // появиться на холсте, а не уронить всё дублирование.
+      deepCopy['x'] = ((deepCopy['x'] as num?)?.toDouble() ?? 0.0) + 30.0;
+      deepCopy['y'] = ((deepCopy['y'] as num?)?.toDouble() ?? 0.0) + 30.0;
 
       allNodesJson.add(deepCopy);
       nodesData['nodes'] = allNodesJson;
 
       await QuestNodesStore.write(questId, nodesData);
       QuestContentChangeBus.instance.markChanged(questId);
-      return true;
+      return copyId;
     } catch (e) {
-      print("Ошибка дублирования: $e");
-      return false;
+      debugPrint('Ошибка дублирования: $e');
+      return null;
     }
   });
 }
@@ -684,11 +704,7 @@ Future<bool> copyNodeToChapter(
       final allNodesJson = (nodesData['nodes'] as List<dynamic>? ?? [])
           .toList();
 
-      final nodeToCopy = allNodesJson.firstWhere(
-        (n) => (n as Map<String, dynamic>)['id'] == nodeId,
-        orElse: () => null,
-      );
-
+      final nodeToCopy = _findNodeJson(allNodesJson, nodeId);
       if (nodeToCopy == null) return false;
 
       final copiedNode =

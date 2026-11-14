@@ -9,6 +9,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:mnd_core/src/gen/api/quest_store.dart' as gen;
 
 import 'package:mnd_player/utils/file_storage.dart';
@@ -93,6 +94,11 @@ class QuestStore {
 
   /// Кэшированный инстанс для горячих путей (провайдеры/экраны).
   static Future<QuestStore> defaultInstance() => _defaultInstance ??= create();
+
+  /// Сбросить кэш корня (только тесты: каждый кейс — своя временная папка,
+  /// а кэш иначе тянет файлы предыдущего кейса).
+  @visibleForTesting
+  static void resetDefaultInstanceForTest() => _defaultInstance = null;
 
   static Future<QuestStore> forRoot(String root) async {
     final rust = await _probeRust();

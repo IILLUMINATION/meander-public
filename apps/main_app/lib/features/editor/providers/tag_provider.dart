@@ -352,10 +352,13 @@ Future<bool> duplicateTag(String questId, String originalTagId) async {
         final tagsJson = (config['tags'] as List<dynamic>? ?? []).toList();
 
         // 2. Находим исходный тег
-        final originalTagMap = tagsJson.firstWhere(
-          (t) => t['id'] == originalTagId,
-          orElse: () => null,
-        );
+        Map<String, dynamic>? originalTagMap;
+        for (final tag in tagsJson) {
+          if (tag is Map && tag['id']?.toString() == originalTagId) {
+            originalTagMap = Map<String, dynamic>.from(tag);
+            break;
+          }
+        }
         if (originalTagMap == null) return false;
 
         // 3. Создаем новый тег
