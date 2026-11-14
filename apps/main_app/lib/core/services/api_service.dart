@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
+import 'package:canvas_app/core/services/device_identity.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 import 'package:flutter/foundation.dart' show compute;
@@ -86,6 +87,8 @@ class ApiService {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': authorization,
       'User-Agent': _userAgent,
+      // Журнал обращений на сервере: устройство и версия клиента рядом с IP.
+      ...await DeviceIdentity.headers(),
     };
   }
 

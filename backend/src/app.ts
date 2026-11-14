@@ -43,6 +43,11 @@ import { startCosmeticExpirySweep } from './services/cosmetics';
 import { startRewardSweep } from './services/rewards';
 import { initSocket } from './services/socket';
 import { clientIp } from './services/client_ip';
+import { visitAuditMiddleware } from './middleware/visit_audit';
+import {
+  startVisitRetentionSweep,
+  visitAudit,
+} from './services/visit_audit';
 
 dotenv.config();
 
@@ -76,6 +81,12 @@ app.use(helmet({
 
 app.use(hpp());
 app.use(compression());
+
+// Журнал обращений: время, IP, пользователь, устройство. Стоит ДО лимитеров:
+// отказы 429 при атаке — первое, что смотрят, а лимитер ответ отдаёт сам и
+// до маршрута запрос не пускает. Пишется на finish, пачками, поэтому ответ
+// не ждёт базы. Статику и загрузки middleware отбрасывает по префиксу.
+app.use(visitAuditMiddleware);
 
 // CSRF: состояние меняется только по Bearer-токену; cookie-сессий и
 // автоматически отправляемых креденшелов у API нет (SEC-20).
@@ -344,4 +355,12 @@ server.listen(PORT, () => {
   startAccountDeletionSweep(); // раз в час: удаления, у которых истёк grace-срок
   startCosmeticExpirySweep(10 * 60 * 1000); // снимает оформление, срок на которое истёк
   startRewardSweep(15 * 60 * 1000); // выдаёт оформление за стрик, игровые дни, отзывы и скачивания
+  startVisitRetentionSweep(); // 180 дней журнала обращений
 });
+
+// Перезапуск pm2 не должен терять последние секунды журнала.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    visitAudit.flush().finally(() => process.exit(0));
+  });
+}
