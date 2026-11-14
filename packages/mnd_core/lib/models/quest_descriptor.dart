@@ -13,6 +13,18 @@ String? _stringOrNull(dynamic value) {
   return result.isEmpty ? null : result;
 }
 
+/// Список непустых строк без повторов: `null`, одна строка и массив
+/// приводятся к одной форме — так старые `config.json` читаются без ветвлений.
+List<String> _stringList(dynamic value) {
+  final source = value is List ? value : [value];
+  final result = <String>[];
+  for (final item in source) {
+    final text = _stringOrNull(item);
+    if (text != null && !result.contains(text)) result.add(text);
+  }
+  return result;
+}
+
 String _stringOrFallback(dynamic value, String fallback) {
   return _stringOrNull(value) ?? fallback;
 }
@@ -104,6 +116,11 @@ class Quest {
   /// маркете первыми показывать квесты на языке игрока.
   final String? language;
 
+  /// Все поддерживаемые языки в порядке автора; первый — основной
+  /// ([language]). Пустой список у старых квестов, где автор выбрал один
+  /// язык или не выбрал вовсе.
+  final List<String> languages;
+
   Quest({
     required this.id,
     required this.title,
@@ -144,6 +161,7 @@ class Quest {
     this.pluginDependencies = const [],
     this.allowOpenContent = false,
     this.language,
+    this.languages = const [],
   });
 
   factory Quest.fromJson(Map<String, dynamic> json) {
@@ -173,6 +191,10 @@ class Quest {
         const <String>[];
     final bool allowOpenContent = json['allowOpenContent'] as bool? ?? false;
     final String? language = _stringOrNull(json['language']);
+    // Старый `config.json` знает только один язык — список собираем из него,
+    // чтобы редактор и публикация не различали две формы.
+    final List<String> languages = _stringList(json['languages']);
+    if (languages.isEmpty && language != null) languages.add(language);
     final String? defaultPresetName = _stringOrNull(
       json['defaultButtonPresetName'],
     );
@@ -240,6 +262,7 @@ class Quest {
       pluginDependencies: pluginDeps,
       allowOpenContent: allowOpenContent,
       language: language,
+      languages: languages,
     );
   }
 
@@ -280,6 +303,7 @@ class Quest {
     'pluginDependencies': pluginDependencies,
     'category': genres.isNotEmpty ? genres.first : null,
     if (language != null) 'language': language,
+    if (languages.isNotEmpty) 'languages': languages,
     if (backgroundAssetId != null) 'backgroundAssetId': backgroundAssetId,
     if (screenshotFiles != null) 'screenshot_files': screenshotFiles,
     if (customFontFileName != null) 'customFontFileName': customFontFileName,
@@ -325,6 +349,7 @@ class Quest {
     List<String>? pluginDependencies,
     bool? allowOpenContent,
     String? language,
+    List<String>? languages,
   }) {
     return Quest(
       id: id ?? this.id,
@@ -367,6 +392,7 @@ class Quest {
       pluginDependencies: pluginDependencies ?? this.pluginDependencies,
       allowOpenContent: allowOpenContent ?? this.allowOpenContent,
       language: language ?? this.language,
+      languages: languages ?? this.languages,
     );
   }
 }

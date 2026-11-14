@@ -625,10 +625,13 @@ class _QuestPublishScreenState extends ConsumerState<QuestPublishScreen> {
 
       // Отправляем жанры как JSON-строку.
       request.fields['genres'] = jsonEncode(widget.quest.genres);
-      // Язык квеста сервер использует для порядка выдачи в маркете. Поле
-      // шлём всегда: пустая строка — «автор снял метку», а отсутствие поля
-      // сервер прочитал бы как «старый клиент» и оставил бы прежний язык.
-      request.fields['language'] = widget.quest.language ?? '';
+      // Языки квеста сервер использует для порядка выдачи в маркете. Поля
+      // шлём всегда: пустой список — «автор снял метки», а отсутствие полей
+      // сервер прочитал бы как «старый клиент» и оставил бы прежние языки.
+      request.fields['languages'] = jsonEncode(widget.quest.languages);
+      request.fields['language'] = widget.quest.languages.isNotEmpty
+          ? widget.quest.languages.first
+          : '';
       // Для обратной совместимости отправляем первый жанр как category.
       if (widget.quest.genres.isNotEmpty) {
         request.fields['category'] = widget.quest.genres.first;

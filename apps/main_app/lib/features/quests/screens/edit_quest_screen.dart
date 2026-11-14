@@ -89,7 +89,10 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
   bool _allowStepBack = false;
   bool _wrapButtonText = true;
   bool _allowOpenContent = false;
-  String? _questLanguage;
+  /// Языки квеста в порядке автора: первый — основной. Мультивыбор, потому
+  /// что историю переводят, и маркет поднимает её для игрока на любом из
+  /// заявленных языков.
+  List<String> _questLanguages = const [];
   bool _musicInBackground = false;
   String _defaultTextFit = 'scale';
   String _nodeTransitionMode = 'none';
@@ -158,7 +161,7 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         _allowStepBack = quest.allowStepBack;
         _wrapButtonText = quest.wrapButtonText;
         _allowOpenContent = quest.allowOpenContent;
-        _questLanguage = quest.language;
+        _questLanguages = List<String>.of(quest.languages);
         _musicInBackground = quest.musicInBackground;
         _defaultTextFit = quest.defaultTextFit;
         _nodeTransitionMode = quest.nodeTransitionMode;
@@ -255,7 +258,8 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
       config['nodeTransitionMode'] = _nodeTransitionMode;
       config['scriptEngineMode'] = kScriptEngineModeNew;
       config['allowOpenContent'] = _allowOpenContent;
-      config['language'] = _questLanguage;
+      config['languages'] = _questLanguages;
+      config['language'] = _questLanguages.isEmpty ? null : _questLanguages.first;
 
       if (_newPreviewFile != null) {
         final extension = p.extension(_newPreviewFile!.path);
@@ -480,49 +484,75 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
     });
   }
 
-  /// Подпись выбранного языка в настройках. Код из удалённого импортированного
+  /// Подпись выбранных языков в настройках. Код из удалённого импортированного
   /// языка показывается как есть: строка честно говорит, что квест помечен.
   String get _questLanguageLabel {
-    final code = _questLanguage;
-    if (code == null) return tr('Не указан');
+    if (_questLanguages.isEmpty) return tr('Не указан');
+    return _questLanguages.map(_languageTitle).join(', ');
+  }
+
+  String _languageTitle(String code) {
     for (final language in L10n.supported) {
       if (language.code == code) return language.nativeName;
     }
     return code;
   }
 
-  /// Пикер языка квеста: реестр интерфейсных языков плюс импортированные,
-  /// чтобы код совпадал с тем, по которому маркет сортирует выдачу.
-  Future<void> _pickQuestLanguage() async {
-    final chosen = await showAdaptiveSheet<String>(
+  /// Пикер языков квеста: мультивыбор. Реестр интерфейсных языков плюс
+  /// импортированные, чтобы код совпадал с тем, по которому маркет сортирует
+  /// выдачу. Первый выбранный язык — основной: его читают старые клиенты,
+  /// публикация и сортировка в сервере.
+  Future<void> _pickQuestLanguages() async {
+    final draft = List<String>.of(_questLanguages);
+    final chosen = await showAdaptiveSheet<List<String>>(
       context: context,
-      title: tr('Язык квеста'),
+      title: tr('Языки квеста'),
       showDragHandle: true,
       scrollable: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildPresetChoiceRow(
-              sheetContext,
-              title: tr('Не указан'),
-              value: '',
-              selected: _questLanguage == null,
-            ),
-            for (final language in L10n.supported)
-              _buildPresetChoiceRow(
-                sheetContext,
-                title: language.nativeName,
-                value: language.code,
-                selected: _questLanguage == language.code,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(tr('Не указан')),
+                trailing: draft.isEmpty
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => setSheetState(draft.clear),
               ),
-          ],
+              for (final language in L10n.supported)
+                ListTile(
+                  title: Text(language.nativeName),
+                  trailing: draft.contains(language.code)
+                      ? const Icon(Icons.check_rounded)
+                      : null,
+                  // Снятие и повторный выбор переносят язык в конец: порядок
+                  // в списке — это приоритет, и автор им управляет.
+                  onTap: () => setSheetState(() {
+                    if (!draft.remove(language.code)) {
+                      draft.add(language.code);
+                    }
+                  }),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext, draft),
+                    child: Text(tr('Готово')),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
     if (chosen == null || !mounted) return;
     setState(() {
-      _questLanguage = chosen.isEmpty ? null : chosen;
+      _questLanguages = List<String>.of(chosen);
       _isDirty = true;
     });
   }
@@ -865,9 +895,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         const SizedBox(height: 12),
         _NavTile(
           icon: Icons.translate_rounded,
-          title: tr('Язык квеста'),
+          title: tr('Языки квеста'),
           subtitle: _questLanguageLabel,
-          onTap: _pickQuestLanguage,
+          onTap: _pickQuestLanguages,
         ),
 
         const SizedBox(height: 24),

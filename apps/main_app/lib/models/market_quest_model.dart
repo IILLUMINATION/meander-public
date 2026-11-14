@@ -49,6 +49,11 @@ class MarketQuest {
   /// его не указал. Маркет первыми показывает квесты на языке игрока.
   final String? language;
 
+  /// Все языки, которые поддерживает квест. Первый — основной ([language]);
+  /// у старых квестов список либо пуст, либо из одного элемента. Маркет
+  /// поднимает историю, если язык игрока есть в списке, а не только первым.
+  final List<String> languages;
+
   const MarketQuest({
     required this.id,
     required this.title,
@@ -78,6 +83,7 @@ class MarketQuest {
     this.isNsfw = false,
     this.marketTier = kMarketTierModerated,
     this.language,
+    this.languages = const [],
   });
 
   bool get isBest => marketTier == kMarketTierBest;
@@ -102,6 +108,21 @@ class MarketQuest {
     if (value == null) return null;
     final result = value.toString().trim();
     return result.isEmpty ? null : result;
+  }
+
+  /// `languages` приходит массивом; старый бэкенд поля не знает, и тогда
+  /// список собирается из основного языка — так сортировка маркета не ломается
+  /// на смешанных версиях клиента и сервера.
+  static List<String> _parseLanguages(dynamic value, String? primary) {
+    final result = <String>[];
+    if (value is List) {
+      for (final item in value) {
+        final code = _parseLanguage(item);
+        if (code != null && !result.contains(code)) result.add(code);
+      }
+    }
+    if (result.isEmpty && primary != null) result.add(primary);
+    return result;
   }
 
   static bool _parseBool(dynamic value) {
@@ -158,6 +179,7 @@ class MarketQuest {
     }
 
     final isDemo = _parseBool(json['is_demo'] ?? json['demo']);
+    final primaryLanguage = _parseLanguage(json['language']);
 
     return MarketQuest(
       id: json['id'] as String,
@@ -187,7 +209,8 @@ class MarketQuest {
       isDemo: isDemo,
       isNsfw: _parseBool(json['is_nsfw']),
       marketTier: _parseMarketTier(json['market_tier'], isDemo: isDemo),
-      language: _parseLanguage(json['language']),
+      language: primaryLanguage,
+      languages: _parseLanguages(json['languages'], primaryLanguage),
     );
   }
 }

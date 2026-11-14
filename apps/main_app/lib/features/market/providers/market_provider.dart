@@ -25,6 +25,18 @@ bool _matchesPlayerLanguage(String? questLanguage, String playerLanguage) {
   return code.split('-').first == playerLanguage.split('-').first;
 }
 
+/// Совпадает ли язык игрока с любым из языков квеста.
+///
+/// Квест может поддерживать несколько языков: историю с переводом нечестно
+/// уносить вниз только потому, что первый тег в списке — не язык игрока.
+/// Пустой список (старый бэкенд без `languages`) сравнивается по основному.
+bool questSupportsPlayerLanguage(MarketQuest quest, String playerLanguage) {
+  final codes = quest.languages.isEmpty
+      ? [quest.language]
+      : quest.languages;
+  return codes.any((code) => _matchesPlayerLanguage(code, playerLanguage));
+}
+
 /// Квесты на языке игрока — первыми, остальные — в исходном порядке.
 ///
 /// Порядок внутри групп не трогается: он уже выставан сортировкой списка
@@ -35,7 +47,7 @@ List<MarketQuest> orderByPlayerLanguage(
   String playerLanguage,
 ) {
   final mine = quests
-      .where((q) => _matchesPlayerLanguage(q.language, playerLanguage))
+      .where((q) => questSupportsPlayerLanguage(q, playerLanguage))
       .toList();
   if (mine.isEmpty || mine.length == quests.length) return quests;
   final mineIds = mine.map((q) => q.id).toSet();
@@ -72,8 +84,8 @@ List<MarketQuest> orderCatalogForPlayer(
     ..sort((a, b) {
       final byTier = a.$2.marketTier.compareTo(b.$2.marketTier);
       if (byTier != 0) return byTier;
-      final aMine = _matchesPlayerLanguage(a.$2.language, playerLanguage);
-      final bMine = _matchesPlayerLanguage(b.$2.language, playerLanguage);
+      final aMine = questSupportsPlayerLanguage(a.$2, playerLanguage);
+      final bMine = questSupportsPlayerLanguage(b.$2, playerLanguage);
       if (aMine != bMine) return aMine ? -1 : 1;
       return a.$1.compareTo(b.$1);
     });
