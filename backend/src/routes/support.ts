@@ -74,7 +74,10 @@ const mapMessage = (row: Record<string, unknown>): SupportMessageRow => {
 };
 
 /** Профильные данные собеседника для шапки инбокса. */
-const STAFF_FIELDS = `p.id, p.full_name, p.avatar_url, p.role`;
+// p.id здесь нельзя: в списке и карточке он перекрывает t.id (у pg
+// одноимённые колонки затирают друг друга), и клиент открывает обращение по
+// id профиля автора — сервер отвечает 404 «Обращение не найдено».
+const STAFF_FIELDS = `p.full_name, p.avatar_url, p.role`;
 
 const isSupportLang = (value: unknown): value is SupportLanguage =>
   value === 'ru' || value === 'en';
