@@ -48,7 +48,7 @@ use crate::services::quest_analytics::{clamp_days, get_author_analytics, get_que
 use crate::services::quest_genres::{
     QUEST_GENRE_IDS, genres_from_form_value, normalize_genre_id, normalize_quest_genres,
 };
-use crate::services::quest_language::normalize_quest_language;
+use crate::services::quest_language::{normalize_quest_language, normalize_quest_languages};
 use crate::services::quest_scan::{analyze_quest_zip, publish_decision};
 use crate::services::quest_stream;
 use crate::services::visibility::{can_see_unpublished, is_admin, is_staff};
@@ -393,6 +393,14 @@ async fn publish(
     let is_demo = bool_field(&form, "is_demo") || bool_field(&form, "demo");
     let is_nsfw = bool_field(&form, "is_nsfw");
     let quest_language = normalize_quest_language(form.str("language"));
+    // A quest may support several languages; old clients send a single
+    // `language`, so the list falls back to it to keep `languages` populated.
+    let quest_languages = normalize_quest_languages(form.str("languages"));
+    let languages_to_store: Vec<String> = if quest_languages.is_empty() {
+        quest_language.clone().into_iter().collect()
+    } else {
+        quest_languages
+    };
 
     // Genres: the field arrives as a JSON string, a plain string or repeated
     // fields. Old clients sent `category` only.
@@ -602,11 +610,18 @@ async fn publish(
         .await
         .map_err(|err| unexpected(&err))?;
 
-    // The language is a separate UPDATE: only new clients send the field. No
-    // field means "old client, keep the label"; an empty field clears it.
-    if form.fields.contains_key("language") {
-        sqlx::query("UPDATE quests SET language = $1 WHERE id = $2")
-            .bind(quest_language.as_deref())
+    // The languages are a separate UPDATE: only new clients send the fields. No
+    // field means "old client, keep the labels"; an empty field clears them.
+    // `language` keeps the primary tag (the first one the author picked) for
+    // old clients and integrations that read the single column.
+    if form.fields.contains_key("languages") || form.fields.contains_key("language") {
+        let primary = languages_to_store
+            .first()
+            .cloned()
+            .or_else(|| quest_language.clone());
+        sqlx::query("UPDATE quests SET language = $1, languages = $2 WHERE id = $3")
+            .bind(primary.as_deref())
+            .bind(&languages_to_store)
             .bind(quest_id)
             .execute(&mut *tx)
             .await

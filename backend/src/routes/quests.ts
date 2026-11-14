@@ -22,7 +22,7 @@ import crypto from 'crypto';
 import { pipeline } from 'stream/promises';
 import { moderateQuestContent, moderateReview } from '../services/moderation';
 import { analyzeQuestZip, publishDecision } from '../services/quest_scan';
-import { normalizeQuestLanguage } from '../services/quest_language';
+import { normalizeQuestLanguage, normalizeQuestLanguages } from '../services/quest_language';
 import { QUEST_GENRE_IDS, normalizeGenreId, normalizeQuestGenres } from '../data/quest_genres';
 import {
     VERIFIED_USER_MAX_FILE_SIZE_BYTES,
@@ -236,6 +236,13 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
         // «свои» квесты первыми. Невалидная форма — то же самое, что «не
         // указано», публикацию из-за неё отбивать не за что.
         const questLanguage = normalizeQuestLanguage(req.body.language);
+        // Квест может поддерживать несколько языков: автор шлёт список.
+        // Старый клиент присылает один `language` — из него собираем список
+        // из одного элемента, чтобы колонка `languages` не оставалась пустой.
+        const questLanguages = normalizeQuestLanguages(req.body.languages);
+        const languagesToStore = questLanguages.length > 0
+            ? questLanguages
+            : (questLanguage ? [questLanguage] : []);
 
         // 1. Обработка жанров (Multi-select)
         let selectedGenres: string[] = [];
@@ -417,13 +424,20 @@ router.post('/', authMiddleware, publishSizeGate, upload.fields([
             tierForNewQuest(isDemo)
         ]);
 
-        // Язык — отдельным UPDATE, не колонкой upsert'а: поле шлёт только
-        // новый клиент. «Поля нет» = старый клиент, метку бережём; «поле
-        // пустое» = автор снял язык, пишем null.
-        if ('language' in req.body) {
+        // Языки — отдельным UPDATE, не колонкой upsert'а: поле шлёт только
+        // новый клиент. «Поля нет» = старый клиент, метки бережём; «поле
+        // пустое» = автор снял языки, пишем пустой список.
+        //
+        // `language` остаётся основным тегом: его читают старые клиенты,
+        // сортировка маркета в Rust и внешние интеграции. Основной — первый
+        // в списке автора, а если список пуст, а старое поле пришло — оно.
+        if ('languages' in req.body || 'language' in req.body) {
+            const primary = languagesToStore.length > 0
+                ? languagesToStore[0]
+                : questLanguage;
             await client.query(
-                'UPDATE quests SET language = $1 WHERE id = $2',
-                [questLanguage, questId]
+                'UPDATE quests SET language = $1, languages = $2 WHERE id = $3',
+                [primary, languagesToStore, questId]
             );
         }
 
