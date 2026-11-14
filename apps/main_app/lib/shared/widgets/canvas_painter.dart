@@ -2,18 +2,18 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:canvas_app/models/canvas_lod.dart';
 import 'package:canvas_app/models/canvas_models.dart';
+import 'package:canvas_app/models/canvas_picture_cache.dart';
 import 'package:canvas_app/features/editor/providers/canvas_provider.dart';
 
 class InfiniteCanvasPainter extends CustomPainter {
   final CanvasState state;
   final NodeRenderer nodeRenderer;
 
-  /// Цена кадра канваса. Инстанц живёт в `State` экрана и передаётся сюда,
-  /// чтобы бюджет подписей пережил перестройку виджета.
-  final CanvasFrameCost frameCost;
+  /// Решение о детализации — переживает перестройку виджета.
+  final CanvasLodState lod;
 
-  /// Выключается в тестах: там реальное время сборки списка нестабильно.
-  final bool measureFrame;
+  /// Записанные пикчи нод: пока нода не менялась, кадр её не перерисовывает.
+  final CanvasNodePictureCache nodePictures;
   final Set<String> problematicNodeIds;
   final bool showOnlyProblematic;
   final Set<ConnectionKind> visibleConnectionKinds;
@@ -32,8 +32,8 @@ class InfiniteCanvasPainter extends CustomPainter {
   InfiniteCanvasPainter(
     this.state, {
     NodeRenderer? nodeRenderer,
-    CanvasFrameCost? frameCost,
-    this.measureFrame = true,
+    CanvasLodState? lod,
+    CanvasNodePictureCache? nodePictures,
     this.problematicNodeIds = const <String>{},
     this.showOnlyProblematic = false,
     this.visibleConnectionKinds = const <ConnectionKind>{
@@ -48,13 +48,11 @@ class InfiniteCanvasPainter extends CustomPainter {
     this.movingItemId,
     this.temporaryItemPosition,
   }) : nodeRenderer = nodeRenderer ?? NodeRenderer(),
-       frameCost = frameCost ?? CanvasFrameCost();
+       lod = lod ?? CanvasLodState(),
+       nodePictures = nodePictures ?? CanvasNodePictureCache();
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Ценой кадра правим бюджет подписей: текст нод — самая дорогая часть
-    // отрисовки (layout на каждую ноду), и именно он режется первым.
-    final frameStopwatch = measureFrame ? (Stopwatch()..start()) : null;
     // 1. Фон
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
@@ -82,13 +80,23 @@ class InfiniteCanvasPainter extends CustomPainter {
       final r = group.id == resizingGroupId && temporaryGroupRect != null
           ? temporaryGroupRect!
           : group.id == movingItemId && temporaryItemPosition != null
-              ? Rect.fromLTWH(temporaryItemPosition!.dx, temporaryItemPosition!.dy, group.rect.width, group.rect.height)
-              : group.rect;
+          ? Rect.fromLTWH(
+              temporaryItemPosition!.dx,
+              temporaryItemPosition!.dy,
+              group.rect.width,
+              group.rect.height,
+            )
+          : group.rect;
       if (!r.overlaps(expandedRect)) continue;
       if (group.id == resizingGroupId && temporaryGroupRect != null) {
         _drawGroup(canvas, group.copyWith(rect: temporaryGroupRect!));
       } else if (group.id == movingItemId && temporaryItemPosition != null) {
-        final newRect = Rect.fromLTWH(temporaryItemPosition!.dx, temporaryItemPosition!.dy, group.rect.width, group.rect.height);
+        final newRect = Rect.fromLTWH(
+          temporaryItemPosition!.dx,
+          temporaryItemPosition!.dy,
+          group.rect.width,
+          group.rect.height,
+        );
         _drawGroup(canvas, group.copyWith(rect: newRect));
       } else {
         _drawGroup(canvas, group);
@@ -146,35 +154,46 @@ class InfiniteCanvasPainter extends CustomPainter {
         } else {
           final curve = Path()
             ..moveTo(g.start.dx, g.start.dy)
-            ..cubicTo(g.cp1.dx, g.cp1.dy, g.cp2.dx, g.cp2.dy, g.end.dx, g.end.dy);
+            ..cubicTo(
+              g.cp1.dx,
+              g.cp1.dy,
+              g.cp2.dx,
+              g.cp2.dy,
+              g.end.dx,
+              g.end.dy,
+            );
           target.addPath(curve, Offset.zero);
           _addArrowToPath(arrowPath, g.cp2, g.end, size: arrowSize);
         }
       }
       // content — синий, timer — amber, script — violet; все 3 батча — 3 draw calls
       canvas.drawPath(
-          solidContent,
-          Paint()
-            ..color = CanvasTheme.connectionContent
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = strokeWidth);
+        solidContent,
+        Paint()
+          ..color = CanvasTheme.connectionContent
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth,
+      );
       canvas.drawPath(
-          solidScript,
-          Paint()
-            ..color = CanvasTheme.connectionScript
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = strokeWidth);
+        solidScript,
+        Paint()
+          ..color = CanvasTheme.connectionScript
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth,
+      );
       canvas.drawPath(
-          solidTimer,
-          Paint()
-            ..color = CanvasTheme.connectionTimer
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = strokeWidth);
+        solidTimer,
+        Paint()
+          ..color = CanvasTheme.connectionTimer
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth,
+      );
       canvas.drawPath(
-          arrowPath,
-          Paint()
-            ..color = CanvasTheme.connectionContent
-            ..style = PaintingStyle.fill);
+        arrowPath,
+        Paint()
+          ..color = CanvasTheme.connectionContent
+          ..style = PaintingStyle.fill,
+      );
     }
 
     if (state.connectionMode &&
@@ -186,11 +205,14 @@ class InfiniteCanvasPainter extends CustomPainter {
       _drawConnectionPreview(canvas, startNode, state.connectionPreviewEnd!);
     }
 
-    // --- НОДЫ --- (тело карточки прячется по числу нод в кадре и цене кадра,
-    // а не по зуму; подписи нормируются бюджетом из измеренной цены кадра)
-    final bool showDetails =
-        CanvasLod.showDetailsFor(visibleNodes.length) &&
-        frameCost.detailsAllowed;
+    // --- НОДЫ --- (тело карточки прячется по числу нод в кадре с
+    // гистерезисом; подписи рисуются всегда, потому что стоят в кеше)
+    final bool showDetails = lod.detailsFor(visibleNodes.length);
+    // Исходящие связи нужны только как «есть/нет» — считаем один раз на кадр,
+    // а не полным перебором рёбер на каждую ноду.
+    final nodeIdsWithOutgoing = <String>{
+      for (final connection in state.connections) connection.fromNode.id,
+    };
     final List<({Node node, bool dimmed})> priorityTitles = [];
     final List<({Node node, bool dimmed})> otherTitles = [];
     for (final node in visibleNodes) {
@@ -201,23 +223,45 @@ class InfiniteCanvasPainter extends CustomPainter {
       final bool isDimmed = isSearchDimmed || isProblemDimmed;
       final bool isSelected = state.selectedNodeIds.contains(node.id);
 
-      nodeRenderer.drawNode(
-        canvas,
+      final bool isHovered = node.id == state.hoveredNodeId && !isDimmed;
+      final bool isConnectionStart = node.id == state.connectionStartNodeId;
+      final bool isConnectionTarget =
+          state.connectionMode &&
+          state.connectionStartNodeId != null &&
+          node.id == state.hoveredNodeId &&
+          node.id != state.connectionStartNodeId &&
+          !isDimmed;
+
+      final bodySignature = _bodySignature(
         node,
         isSelected: isSelected && !isDimmed,
-        isHovered: node.id == state.hoveredNodeId && !isDimmed,
-        isConnectionStart: node.id == state.connectionStartNodeId,
-        isConnectionTarget:
-            state.connectionMode &&
-            state.connectionStartNodeId != null &&
-            node.id == state.hoveredNodeId &&
-            node.id != state.connectionStartNodeId &&
-            !isDimmed,
+        isHovered: isHovered,
+        isConnectionStart: isConnectionStart,
+        isConnectionTarget: isConnectionTarget,
         isConnectionMode: state.connectionMode,
         isDimmed: isDimmed,
         hasValidationIssue: problematicNodeIds.contains(node.id),
-        allConnections: state.connections,
+        hasOutgoing: nodeIdsWithOutgoing.contains(node.id),
         showDetails: showDetails,
+      );
+      canvas.drawPicture(
+        nodePictures.body(
+          node.id,
+          bodySignature,
+          (recorder) => nodeRenderer.drawNode(
+            recorder,
+            node,
+            isSelected: isSelected && !isDimmed,
+            isHovered: isHovered,
+            isConnectionStart: isConnectionStart,
+            isConnectionTarget: isConnectionTarget,
+            isConnectionMode: state.connectionMode,
+            isDimmed: isDimmed,
+            hasValidationIssue: problematicNodeIds.contains(node.id),
+            allConnections: state.connections,
+            showDetails: showDetails,
+          ),
+        ),
       );
 
       final bool isPriority =
@@ -233,14 +277,23 @@ class InfiniteCanvasPainter extends CustomPainter {
       }
     }
 
-    // Выбранные/наведённые/попавшие в поиск подписаны в первую очередь — при
-    // урезанном бюджете страдают остальные ноды, а не то, с чем автор работает.
-    var titlesLeft = frameCost.budgetFor(visibleNodes.length);
+    // Подписи — второй проход: они рисуются поверх всех тел. Каждая тоже
+    // записана в пикчу, поэтому «подписать все видимые» больше не стоит
+    // кадра: цена — только у нод, которые изменились.
     for (final titles in [priorityTitles, otherTitles]) {
       for (final title in titles) {
-        if (titlesLeft <= 0) break;
-        titlesLeft--;
-        nodeRenderer.drawNodeTitle(canvas, title.node, isDimmed: title.dimmed);
+        final signature = _titleSignature(title.node, title.dimmed);
+        canvas.drawPicture(
+          nodePictures.title(
+            title.node.id,
+            signature,
+            (recorder) => nodeRenderer.drawNodeTitle(
+              recorder,
+              title.node,
+              isDimmed: title.dimmed,
+            ),
+          ),
+        );
       }
     }
 
@@ -249,13 +302,16 @@ class InfiniteCanvasPainter extends CustomPainter {
       final r = comment.id == resizingCommentId && temporaryCommentSize != null
           ? (comment.position & temporaryCommentSize!)
           : comment.id == movingItemId && temporaryItemPosition != null
-              ? temporaryItemPosition! & comment.size
-              : comment.rect;
+          ? temporaryItemPosition! & comment.size
+          : comment.rect;
       if (!r.overlaps(expandedRect)) continue;
       if (comment.id == resizingCommentId && temporaryCommentSize != null) {
         _drawComment(canvas, comment.copyWith(size: temporaryCommentSize!));
       } else if (comment.id == movingItemId && temporaryItemPosition != null) {
-        _drawComment(canvas, comment.copyWith(position: temporaryItemPosition!));
+        _drawComment(
+          canvas,
+          comment.copyWith(position: temporaryItemPosition!),
+        );
       } else {
         _drawComment(canvas, comment);
       }
@@ -276,13 +332,62 @@ class InfiniteCanvasPainter extends CustomPainter {
       canvas.drawRect(state.selectionRect!, borderPaint);
     }
 
-    frameStopwatch?.stop();
-    if (frameStopwatch != null) {
-      frameCost.record(
-        frameStopwatch.elapsedMicroseconds / 1000.0,
-        visibleNodes: visibleNodes.length,
-      );
-    }
+    nodePictures.retainOnly(visibleNodeIds);
+  }
+
+  /// Подпись для кеша тела ноды. Всё, что влияет на пикчу, обязано сюда
+  /// попасть: иначе нода останется нарисованной со старым текстом.
+  static int _bodySignature(
+    Node node, {
+    required bool isSelected,
+    required bool isHovered,
+    required bool isConnectionStart,
+    required bool isConnectionTarget,
+    required bool isConnectionMode,
+    required bool isDimmed,
+    required bool hasValidationIssue,
+    required bool hasOutgoing,
+    required bool showDetails,
+  }) {
+    return Object.hash(
+      node.id,
+      node.rect,
+      node.color.value,
+      node.isStartNode,
+      node.timerDuration,
+      node.scriptCount,
+      node.backgroundAssetId,
+      node.hasImageItem,
+      node.hasAudioItem,
+      node.branchTotal,
+      node.replyCount,
+      Object.hashAll(node.textLines),
+      Object.hashAll(node.branchLabels),
+      hasOutgoing,
+      hasValidationIssue,
+      Object.hash(
+        isSelected,
+        isHovered,
+        isConnectionStart,
+        isConnectionTarget,
+        isConnectionMode,
+        isDimmed,
+        showDetails,
+      ),
+    );
+  }
+
+  /// Подпись для кеша заголовка: он рисуется со своей шириной (её задаёт
+  /// место под иконки в шапке) и своим цветом.
+  static int _titleSignature(Node node, bool isDimmed) {
+    return Object.hash(
+      node.id,
+      node.rect,
+      node.label,
+      node.headerRightInset,
+      node.color.value,
+      isDimmed,
+    );
   }
 
   void _drawAdaptiveGrid(Canvas canvas, Size size) {
@@ -468,8 +573,14 @@ class InfiniteCanvasPainter extends CustomPainter {
     final sz = size;
     const ang = math.pi / 6;
     arrowPath.moveTo(to.dx, to.dy);
-    arrowPath.lineTo(to.dx - sz * math.cos(angle - ang), to.dy - sz * math.sin(angle - ang));
-    arrowPath.lineTo(to.dx - sz * math.cos(angle + ang), to.dy - sz * math.sin(angle + ang));
+    arrowPath.lineTo(
+      to.dx - sz * math.cos(angle - ang),
+      to.dy - sz * math.sin(angle - ang),
+    );
+    arrowPath.lineTo(
+      to.dx - sz * math.cos(angle + ang),
+      to.dy - sz * math.sin(angle + ang),
+    );
     arrowPath.close();
   }
 

@@ -58,7 +58,6 @@ Future<Uint8List> _render(CanvasState state) async {
   final canvas = Canvas(recorder);
   InfiniteCanvasPainter(
     state,
-    measureFrame: false,
   ).paint(canvas, Size(_w.toDouble(), _h.toDouble()));
   final image = recorder.endRecording().toImageSync(_w, _h);
   final bytes = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;

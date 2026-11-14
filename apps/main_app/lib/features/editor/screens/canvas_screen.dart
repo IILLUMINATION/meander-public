@@ -3,6 +3,7 @@ import 'dart:async'; // Для ImageFilter
 
 import 'package:canvas_app/core/services/template_asset_installer.dart';
 import 'package:canvas_app/models/canvas_lod.dart';
+import 'package:canvas_app/models/canvas_picture_cache.dart';
 import 'package:canvas_app/models/canvas_models.dart';
 import 'package:canvas_app/models/template_model.dart';
 import 'package:canvas_app/features/editor/providers/canvas_provider.dart';
@@ -69,8 +70,10 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
   Set<String> _problemNodeIds = <String>{};
   Map<String, int> _problemNodeIssueCounts = <String, int>{};
 
-  /// Цена кадра канваса — переживает перестройку виджета, поэтому живёт в State.
-  final CanvasFrameCost _canvasFrameCost = CanvasFrameCost();
+  /// Детализация и записанные пикчи нод — переживают перестройку виджета,
+  /// поэтому живут в State, а не в художнике.
+  final CanvasLodState _canvasLod = CanvasLodState();
+  final CanvasNodePictureCache _nodePictures = CanvasNodePictureCache();
   bool _showOnlyProblematic = false;
   Set<ConnectionKind> _visibleConnectionKinds = ConnectionKind.values.toSet();
   List<String> _problemSearchResults = <String>[];
@@ -1538,7 +1541,8 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
                                 return CustomPaint(
                                   painter: InfiniteCanvasPainter(
                                     displayState,
-                                    frameCost: _canvasFrameCost,
+                                    lod: _canvasLod,
+                                    nodePictures: _nodePictures,
                                     problematicNodeIds: _problemNodeIds,
                                     showOnlyProblematic: _showOnlyProblematic,
                                     visibleConnectionKinds:

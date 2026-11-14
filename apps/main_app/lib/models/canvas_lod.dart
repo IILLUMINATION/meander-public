@@ -4,8 +4,14 @@
 // без тела, при `scale < 0.5` у связей пропадали кривые и стрелки. На
 // отдалении граф превращался в набор одинаковых плашек без направлений —
 // ориентироваться было нельзя. Теперь зум на детализацию не влияет: тело
-// карточки прячется только при большом числе нод в кадре или когда кадр
-// перестаёт влезать в бюджет по измеренному времени.
+// карточки прячется только при большом числе нод в кадре.
+//
+// Порог по числу нод, а не по измеренной цене кадра: решения «по времени»
+// принимались на данных того же кадра, поэтому на границе они гуляли —
+// замер давал 14 переключений за 120 кадров, тела карточек мигали. Число
+// видимых нод — вход, который не зависит от того, как быстро мы рисуем;
+// гистерезис (разные пороги на скрытие и возврат) убирает дребезг на
+// границе ровно там, где он и был.
 
 class CanvasLod {
   CanvasLod._();
@@ -15,79 +21,33 @@ class CanvasLod {
   /// не работа с графом, а обзор.
   static const int detailsMaxVisibleNodes = 250;
 
-  /// Сколько миллисекунд UI-потока на сборку списка отрисовки канваса мы
-  /// считаем нормой. Кадр 60 fps — 16.6 мс, половину оставляем остальному UI.
-  static const double frameBudgetMs = 8.0;
-
-  /// Порог по цене кадра для тела карточки: выше — прячем, ниже — возвращаем.
-  /// Между порогами решение не меняется (гистерезис).
-  static const double detailsDropAboveMs = 16.0;
-  static const double detailsRestoreBelowMs = 9.0;
-
-  /// Ниже этого числа подписей не опускаемся никогда: без единой подписи
-  /// канвас снова становится «миникартой», а это ровно то, на что жалуются.
-  static const int minTitleBudget = 8;
-
-  /// Детали (описание, индикаторы, якоря) рисовать при таком числе нод?
-  ///
-  /// Цена кадра проверяется отдельно — [CanvasFrameCost.detailsAllowed].
-  static bool showDetailsFor(int visibleNodes) =>
-      visibleNodes <= detailsMaxVisibleNodes;
+  /// Тело возвращается только когда нод в кадре заметно меньше порога
+  /// скрытия: между 220 и 250 решение не меняется.
+  static const int detailsRestoreBelowNodes = 220;
 }
 
-/// Скользящая цена кадра канваса и вытекающий бюджет подписей.
+/// Решение о детализации, переживающее перестройку виджета.
 ///
 /// Живёт в `State` экрана, а не в `CanvasState`: последний immutable и
-/// копируется на каждый жест, а здесь наоборот — mutating счётчик.
-class CanvasFrameCost {
-  double _emaMs = 0;
-
-  /// `null` = бюджета ещё нет, подписей рисуется столько, сколько влезло.
-  int? _budget;
-
-  /// Тело карточки на медленном кадре прячется первым: оно дороже подписи.
-  /// Гистерезис (порог отключения выше порога возврата) не даёт деталям
-  /// мигать на каждом кадре.
+/// копируется на каждый жест.
+class CanvasLodState {
   bool _details = true;
-
-  double get measuredMs => _emaMs;
 
   /// Можно ли сейчас рисовать тело карточки.
   bool get detailsAllowed => _details;
 
-  /// Сколько подписей разрешить в этом кадре при [visibleNodes] видимых нодах.
-  int budgetFor(int visibleNodes) {
-    final budget = _budget;
-    return budget == null ? visibleNodes : budget.clamp(0, visibleNodes);
-  }
-
-  /// [paintMs] — время сборки списка отрисовки (UI-поток), не растеризация.
-  /// Именно здесь дорог `TextPainter.layout` на каждую подпись.
-  void record(double paintMs, {required int visibleNodes}) {
-    _emaMs = _emaMs <= 0 ? paintMs : _emaMs * 0.6 + paintMs * 0.4;
-    final current = _budget ?? visibleNodes;
-    if (_emaMs > CanvasLod.detailsDropAboveMs) {
+  /// Решение для кадра с [visibleNodes] видимыми нодами.
+  ///
+  /// Гистерезис: на скрытие — строго выше [CanvasLod.detailsMaxVisibleNodes],
+  /// на возврат — строго ниже [CanvasLod.detailsRestoreBelowNodes].
+  bool detailsFor(int visibleNodes) {
+    if (visibleNodes > CanvasLod.detailsMaxVisibleNodes) {
       _details = false;
-    } else if (_emaMs < CanvasLod.detailsRestoreBelowMs) {
+    } else if (visibleNodes < CanvasLod.detailsRestoreBelowNodes) {
       _details = true;
     }
-    if (_emaMs > CanvasLod.frameBudgetMs) {
-      // Кадр не влезает: режем подписи, но оставляем запас для восстановления.
-      final shrunk = (current * 0.6).floor();
-      _budget = shrunk < CanvasLod.minTitleBudget
-          ? CanvasLod.minTitleBudget
-          : shrunk;
-    } else if (_emaMs < CanvasLod.frameBudgetMs * 0.6) {
-      // Явный запас по времени — отыгрываем обратно, но не рывком, чтобы
-      // бюджет не гулял вверх-вниз на каждом кадре.
-      final grown = (current * 1.5).ceil();
-      _budget = grown >= visibleNodes ? null : grown;
-    }
+    return _details;
   }
 
-  void reset() {
-    _emaMs = 0;
-    _budget = null;
-    _details = true;
-  }
+  void reset() => _details = true;
 }

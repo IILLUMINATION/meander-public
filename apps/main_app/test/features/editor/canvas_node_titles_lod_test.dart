@@ -1,13 +1,12 @@
-// Названия нод должны оставаться на канвасе при отдалении.
+// Детализация канваса и переиспользование кадра ноды.
 //
-// Раньше `scale < 0.35` переводил холст в режим «миникарты» и ноды рисовались
-// вообще без текста — большой граф превращался в набор одинаковых плашек.
-// Теперь текст живёт отдельно от остальной детализации: описание, пилюли и
-// якоря по-прежнему пропадают, а подписи режет только измеренная цена кадра
-// (`CanvasFrameCost`), и то не до нуля.
+// Тела карточек прячутся по числу видимых нод, а не по измеренной цене
+// кадра: решения «по времени того же кадра» гуляли на границе (замер давал
+// 14 переключений за 120 кадров). После скрытия тело возвращается только
+// когда нод в кадре стало заметно меньше — гистерезис.
 //
-// Негативный контроль: на старом коде тест «названия нод рисуются при
-// отдалении» даёт 0 подписей вместо 12.
+// Подписи рисуются всем видимым нодам: они записаны в пикчи, поэтому
+// «подписать всё» больше не стоит кадра.
 
 import 'dart:ui' as ui;
 
@@ -15,13 +14,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:canvas_app/models/canvas_lod.dart';
 import 'package:canvas_app/models/canvas_models.dart';
+import 'package:canvas_app/models/canvas_picture_cache.dart';
 import 'package:canvas_app/features/editor/providers/canvas_provider.dart';
 import 'package:canvas_app/shared/widgets/canvas_painter.dart';
 
-/// Перехватывает, что именно художник попросил нарисовать.
+/// Считает, что именно художник попросили нарисовать.
 class _SpyRenderer extends NodeRenderer {
   final List<String> titledNodeIds = [];
   final List<bool> showDetailsFlags = [];
+  int bodyCalls = 0;
+  int titleCalls = 0;
 
   @override
   void drawNode(
@@ -37,8 +39,8 @@ class _SpyRenderer extends NodeRenderer {
     bool hasValidationIssue = false,
     bool showDetails = true,
   }) {
+    bodyCalls++;
     showDetailsFlags.add(showDetails);
-    // Тело ноды рисуем по-настоящему, а вот подпись считаем отдельно.
     super.drawNode(
       canvas,
       node,
@@ -56,7 +58,9 @@ class _SpyRenderer extends NodeRenderer {
 
   @override
   void drawNodeTitle(Canvas canvas, Node node, {bool isDimmed = false}) {
+    titleCalls++;
     titledNodeIds.add(node.id);
+    super.drawNodeTitle(canvas, node, isDimmed: isDimmed);
   }
 }
 
@@ -92,41 +96,50 @@ CanvasState canvasWithNodes(
 
 void paintOnce(
   CanvasState state,
-  NodeRenderer renderer,
-  CanvasFrameCost frameCost,
-) {
+  NodeRenderer renderer, {
+  CanvasLodState? lod,
+  CanvasNodePictureCache? pictures,
+}) {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
   InfiniteCanvasPainter(
     state,
     nodeRenderer: renderer,
-    frameCost: frameCost,
-    measureFrame: false,
+    lod: lod,
+    nodePictures: pictures,
   ).paint(canvas, const Size(1200, 800));
   recorder.endRecording().dispose();
 }
 
-/// Прокручивает [frames] медленных кадров, чтобы бюджет подписей успел урезаться.
-CanvasFrameCost slowFrameCost(int visibleNodes, {int frames = 12}) {
-  final cost = CanvasFrameCost();
-  for (var i = 0; i < frames; i++) {
-    cost.record(30.0, visibleNodes: visibleNodes);
-  }
-  return cost;
-}
-
 void main() {
-  group('названия нод при отдалении', () {
+  group('детализация по числу нод', () {
+    test('решает по числу нод, а не по зуму', () {
+      final state = CanvasLodState();
+      expect(state.detailsFor(1), isTrue);
+      expect(state.detailsFor(CanvasLod.detailsMaxVisibleNodes), isTrue);
+      expect(state.detailsFor(CanvasLod.detailsMaxVisibleNodes + 1), isFalse);
+    });
+
+    test('тело возвращается только ниже порога возврата', () {
+      final state = CanvasLodState();
+      expect(state.detailsFor(CanvasLod.detailsMaxVisibleNodes + 10), isFalse);
+      // Мёртвая зона: между порогами решение не меняется, иначе на границе
+      // тела карточек мигали бы на каждом кадре.
+      expect(state.detailsFor(CanvasLod.detailsMaxVisibleNodes), isFalse);
+      expect(state.detailsFor(CanvasLod.detailsRestoreBelowNodes), isFalse);
+      expect(state.detailsFor(CanvasLod.detailsRestoreBelowNodes - 1), isTrue);
+    });
+
     testWidgets('подписи рисуются на мелком зуме', (tester) async {
       final spy = _SpyRenderer();
-      paintOnce(canvasWithNodes(12, scale: 0.2), spy, CanvasFrameCost());
+      paintOnce(canvasWithNodes(12, scale: 0.2), spy);
 
       expect(spy.titledNodeIds, hasLength(12));
     });
 
     testWidgets('детали остаются при отдалении', (tester) async {
       final spy = _SpyRenderer();
-      paintOnce(canvasWithNodes(4, scale: 0.2), spy, CanvasFrameCost());
+      paintOnce(canvasWithNodes(4, scale: 0.2), spy);
 
       expect(spy.showDetailsFlags, isNotEmpty);
       expect(
@@ -136,7 +149,9 @@ void main() {
       );
     });
 
-    testWidgets('тело прячется, когда в кадре слишком много нод', (tester) async {
+    testWidgets('тело прячется, когда в кадре слишком много нод', (
+      tester,
+    ) async {
       final spy = _SpyRenderer();
       paintOnce(
         canvasWithNodes(
@@ -145,175 +160,108 @@ void main() {
           columns: 30,
         ),
         spy,
-        CanvasFrameCost(),
       );
 
       expect(spy.showDetailsFlags, isNotEmpty);
       expect(spy.showDetailsFlags.every((flag) => flag == false), isTrue);
       expect(
         spy.titledNodeIds,
-        isNotEmpty,
-        reason: 'подписи при обзоре остаются',
+        hasLength(CanvasLod.detailsMaxVisibleNodes + 30),
+        reason: 'подписи при обзоре остаются у всех видимых нод',
+      );
+    });
+  });
+
+  group('пикчи нод', () {
+    testWidgets('второй кадр не перерисовывает ноды', (tester) async {
+      final spy = _SpyRenderer();
+      final pictures = CanvasNodePictureCache();
+      final state = canvasWithNodes(20, scale: 0.2);
+
+      paintOnce(state, spy, pictures: pictures);
+      final afterFirst = spy.bodyCalls;
+      final titlesAfterFirst = spy.titleCalls;
+      expect(afterFirst, 20);
+      expect(titlesAfterFirst, 20);
+
+      paintOnce(state, spy, pictures: pictures);
+      expect(spy.bodyCalls, afterFirst, reason: 'ноды не менялись');
+      expect(spy.titleCalls, titlesAfterFirst);
+    });
+
+    testWidgets('сдвиг ноды перерисовывает только её', (tester) async {
+      final spy = _SpyRenderer();
+      final pictures = CanvasNodePictureCache();
+      final state = canvasWithNodes(20, scale: 0.2);
+      paintOnce(state, spy, pictures: pictures);
+      final before = spy.bodyCalls;
+
+      state.nodes[7].position = state.nodes[7].position + const Offset(40, 0);
+      state.spatialHash.rebuild(state.nodes);
+      paintOnce(state, spy, pictures: pictures);
+
+      expect(spy.bodyCalls - before, 1);
+      expect(
+        spy.titledNodeIds.last,
+        'n7',
+        reason: 'подпись едет вместе с нодой',
       );
     });
 
-    testWidgets('медленный кадр убирает тело карточек', (tester) async {
+    testWidgets('выделение перерисовывает ноду', (tester) async {
       final spy = _SpyRenderer();
+      final pictures = CanvasNodePictureCache();
+      final base = canvasWithNodes(5, scale: 0.2);
+      paintOnce(base, spy, pictures: pictures);
+      final before = spy.bodyCalls;
+
       paintOnce(
-        canvasWithNodes(30, scale: 0.2),
+        canvasWithNodes(5, scale: 0.2, selectedNodeIds: {'n3'}),
         spy,
-        slowFrameCost(30),
+        pictures: pictures,
       );
 
-      expect(spy.showDetailsFlags.every((flag) => flag == false), isTrue);
+      expect(spy.bodyCalls - before, 1);
     });
 
-    testWidgets('при обычном зуме детали рисуются', (tester) async {
+    test('ревизия палитры растёт только при смене темы', () {
+      final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF00796B));
+      CanvasTheme.update(scheme);
+      final once = CanvasTheme.revision;
+      // Экран холста зовёт update на каждой перестройке: повтор с той же
+      // схемой не должен выбрасывать кеш пикч.
+      CanvasTheme.update(scheme);
+      CanvasTheme.update(scheme);
+      expect(CanvasTheme.revision, once);
+
+      CanvasTheme.update(
+        ColorScheme.fromSeed(seedColor: const Color(0xFFB00020)),
+      );
+      expect(CanvasTheme.revision, greaterThan(once));
+    });
+
+    test('кеш не растёт без границы', () {
+      final cache = CanvasNodePictureCache(maxEntries: 2);
+      for (var i = 0; i < 5; i++) {
+        cache.body('n$i', i, (canvas) {
+          canvas.drawRect(const Rect.fromLTWH(0, 0, 10, 10), Paint());
+        });
+        cache.retainOnly({'n$i'});
+      }
+      expect(cache.length, lessThanOrEqualTo(2));
+    });
+
+    testWidgets('смена темы выбрасывает кеш', (tester) async {
       final spy = _SpyRenderer();
-      paintOnce(canvasWithNodes(4, scale: 1.0), spy, CanvasFrameCost());
+      final pictures = CanvasNodePictureCache();
+      final state = canvasWithNodes(6, scale: 0.2);
+      paintOnce(state, spy, pictures: pictures);
+      final before = spy.bodyCalls;
 
-      expect(spy.showDetailsFlags.every((flag) => flag == true), isTrue);
-      expect(spy.titledNodeIds, hasLength(4));
-    });
+      CanvasTheme.revision++;
+      paintOnce(state, spy, pictures: pictures);
 
-    testWidgets('медленный кадр режет подписи, но щадит выбранные ноды', (
-      tester,
-    ) async {
-      const total = 60;
-      final cost = slowFrameCost(total);
-      final spy = _SpyRenderer();
-      paintOnce(
-        canvasWithNodes(total, scale: 0.2, selectedNodeIds: {'n59'}),
-        spy,
-        cost,
-      );
-
-      expect(
-        spy.titledNodeIds.length,
-        lessThan(total),
-        reason: 'медленный кадр обязан сократить число подписей',
-      );
-      expect(
-        spy.titledNodeIds.length,
-        greaterThanOrEqualTo(CanvasLod.minTitleBudget),
-      );
-      expect(spy.titledNodeIds.first, 'n59');
-    });
-
-    testWidgets('быстрые кадры возвращают подписи всем нодам', (tester) async {
-      const total = 30;
-      final cost = CanvasFrameCost();
-      for (var i = 0; i < 12; i++) {
-        cost.record(1.0, visibleNodes: total);
-      }
-      final spy = _SpyRenderer();
-      paintOnce(canvasWithNodes(total, scale: 0.2), spy, cost);
-
-      expect(spy.titledNodeIds, hasLength(total));
-    });
-  });
-
-  group('CanvasFrameCost', () {
-    test('пока кадр не измерен, подписей не ограничиваем', () {
-      final cost = CanvasFrameCost();
-      expect(cost.budgetFor(200), 200);
-    });
-
-    test('быстрый кадр не ограничивает', () {
-      final cost = CanvasFrameCost();
-      for (var i = 0; i < 10; i++) {
-        cost.record(2.0, visibleNodes: 200);
-      }
-      expect(cost.budgetFor(200), 200);
-    });
-
-    test('медленный кадр урезает, но не в ноль', () {
-      final cost = CanvasFrameCost();
-      for (var i = 0; i < 30; i++) {
-        cost.record(40.0, visibleNodes: 200);
-      }
-      expect(cost.budgetFor(200), lessThan(200));
-      expect(
-        cost.budgetFor(200),
-        greaterThanOrEqualTo(CanvasLod.minTitleBudget),
-      );
-    });
-
-    test('бюджет стабилен: не скачет при одинаковых кадрах', () {
-      final cost = CanvasFrameCost();
-      for (var i = 0; i < 20; i++) {
-        cost.record(20.0, visibleNodes: 500);
-      }
-      final before = cost.budgetFor(500);
-      for (var i = 0; i < 20; i++) {
-        cost.record(20.0, visibleNodes: 500);
-      }
-      expect(cost.budgetFor(500), before);
-    });
-
-    test('бюджет никогда не больше числа видимых нод', () {
-      final cost = CanvasFrameCost();
-      for (var i = 0; i < 10; i++) {
-        cost.record(40.0, visibleNodes: 300);
-      }
-      // Затем нодам стало тесно: бюджет обязан сжиматься под новый экран.
-      expect(cost.budgetFor(5), lessThanOrEqualTo(5));
-    });
-
-    test('после урезания запас по времени возвращает подписи постепенно', () {
-      final cost = CanvasFrameCost();
-      for (var i = 0; i < 20; i++) {
-        cost.record(30.0, visibleNodes: 400);
-      }
-      final clipped = cost.budgetFor(400);
-      // Один быстрый кадр ничего не возвращает — это гистерезис, а не баг:
-      // иначе бюджет гулял бы вверх-вниз на каждом кадре.
-      cost.record(1.0, visibleNodes: 400);
-      expect(cost.budgetFor(400), clipped);
-      for (var i = 0; i < 10; i++) {
-        cost.record(1.0, visibleNodes: 400);
-      }
-      expect(cost.budgetFor(400), greaterThan(clipped));
-      // И при стабильно лёгком канвасе ограничение снимается полностью.
-      for (var i = 0; i < 40; i++) {
-        cost.record(1.0, visibleNodes: 400);
-      }
-      expect(cost.budgetFor(400), 400);
-    });
-  });
-
-  group('CanvasLod.showDetailsFor', () {
-    test('решает по числу нод, а не по зуму', () {
-      expect(CanvasLod.showDetailsFor(1), isTrue);
-      expect(
-        CanvasLod.showDetailsFor(CanvasLod.detailsMaxVisibleNodes),
-        isTrue,
-      );
-      expect(
-        CanvasLod.showDetailsFor(CanvasLod.detailsMaxVisibleNodes + 1),
-        isFalse,
-      );
-    });
-  });
-
-  group('CanvasFrameCost.detailsAllowed', () {
-    test('прячет тело на медленном кадре и возвращает с гистерезисом', () {
-      final cost = CanvasFrameCost();
-      expect(cost.detailsAllowed, isTrue);
-
-      for (var i = 0; i < 12; i++) {
-        cost.record(CanvasLod.detailsDropAboveMs + 5, visibleNodes: 100);
-      }
-      expect(cost.detailsAllowed, isFalse);
-
-      // Один быстрый кадр не возвращает тело: между порогами решение держим.
-      cost.record(CanvasLod.detailsRestoreBelowMs + 2, visibleNodes: 100);
-      expect(cost.detailsAllowed, isFalse);
-
-      for (var i = 0; i < 12; i++) {
-        cost.record(2.0, visibleNodes: 100);
-      }
-      expect(cost.detailsAllowed, isTrue);
+      expect(spy.bodyCalls - before, 6);
     });
   });
 }

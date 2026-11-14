@@ -122,7 +122,28 @@ class CanvasTheme {
   static Color connectionTimer = const Color(0xFFE0C46C);
   static Color connectionScript = const Color(0xFFB39DDB);
 
+  /// Версия палитры: холст кеширует отрисованное в пикчи, и после смены
+  /// темы старые цвета надо выбросить.
+  static int revision = 0;
+  static int _signature = 0;
+
   static void update(ColorScheme scheme) {
+    // Экран холста зовёт `update` на каждой перестройке, а перетаскивание
+    // перестраивает его десятки раз в секунду. Без этой проверки ревизия
+    // росла бы каждый кадр и кеш пикч выбрасывался бы целиком.
+    final signature = Object.hash(
+      scheme.brightness,
+      scheme.primary,
+      scheme.surface,
+      scheme.surfaceContainerHigh,
+      scheme.outlineVariant,
+      scheme.onSurface,
+      scheme.onSurfaceVariant,
+      scheme.tertiary,
+    );
+    if (signature == _signature) return;
+    _signature = signature;
+    revision++;
     isDark = scheme.brightness == Brightness.dark;
     brightness = scheme.brightness;
     background = scheme.surface;
@@ -1101,8 +1122,8 @@ class NodeRenderer {
     );
   }
 
-  /// Заголовок ноды. Вызывается отдельно от тела ноды: художник решает, сколько
-  /// подписей влезает в кадр (`CanvasFrameCost.budgetFor`).
+  /// Заголовок ноды. Вызывается отдельно от тела ноды: подписи рисуются
+  /// вторым проходом, поверх всех тел.
   void drawNodeTitle(Canvas canvas, Node node, {bool isDimmed = false}) {
     final width = node.size.width - 2 * _bodyPadX - node.headerRightInset;
     if (width <= 0) return;
