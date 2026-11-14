@@ -10,6 +10,7 @@ import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/hang_watchdog.dart';
 import 'package:canvas_app/core/services/firebase_messaging_service.dart';
 import 'package:canvas_app/core/services/meander_core_bootstrap.dart';
+import 'package:canvas_app/core/net/blind_tunnel.dart';
 import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/services/rebuild_storm_observer.dart';
 import 'package:canvas_app/core/services/talker_service.dart';
@@ -173,6 +174,12 @@ Future<void> bootstrap() async {
   MeanderCoreBootstrap.initialize(debugLogs: kDebugMode);
   HangWatchdog.mark('bootstrap: deepLink');
   DeepLinkService().init();
+
+  // Слепой ретранслятор ставится до первого кадра: его HttpOverrides
+  // покрывают всех клиентов, созданных после (http-пакет, прямые dart:io
+  // запросы по экранам, websocket). Если ретранслятор не ответил, всё
+  // работает напрямую, как раньше.
+  await BlindTunnel.activate();
 
   // Адресная книга зеркал и сессии по серверам читаются до первого кадра:
   // экраны в initState читают `jwt_token`, и там должна лежать сессия

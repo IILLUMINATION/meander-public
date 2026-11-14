@@ -45,6 +45,24 @@ class AppConfig {
     'https://meander.hashai.cc.cd',
   ];
 
+  /// Слепые ретрансляторы TLS (`host:port`), через которые запросы к
+  /// основному домену идут, не раскрывая содержимого посреднику: TLS
+  /// терминирует сам клиент, сертификат проверяется по [vpsApiBaseUrl].
+  ///
+  /// Задаются на сборке, чтобы не тащить конкретный IP в код:
+  /// `--dart-define=MEANDER_RELAYS=1.2.3.4:8443,5.6.7.8:8443`.
+  static List<String> get relayUrls {
+    const raw = String.fromEnvironment(
+      'MEANDER_RELAYS',
+      defaultValue: '194.31.223.9:8443',
+    );
+    return raw
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
   /// Текущий базовый URL API. При следующей неудачной попытке подключения
   /// [MirrorRegistry] переключит зеркало, и последующие запросы пойдут
   /// уже на него.

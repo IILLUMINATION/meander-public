@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/net/blind_tunnel.dart';
 import 'package:canvas_app/core/l10n/l10n_provider.dart';
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -1094,6 +1095,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                         color: Theme.of(
                                           context,
                                         ).colorScheme.error,
+                                      ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  BlindTunnel.enabled
+                                      ? trf(
+                                          'Туннель: {p0} — трафик идёт через него зашифрованным',
+                                          {'p0': BlindTunnel.relay ?? ''},
+                                        )
+                                      : tr(
+                                          'Туннель недоступен: запросы идут напрямую или через зеркало',
+                                        ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: BlindTunnel.enabled
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.primary
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
                                       ),
                                 ),
                               ],

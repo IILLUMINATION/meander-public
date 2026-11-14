@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:canvas_app/core/net/blind_tunnel.dart';
 import 'package:canvas_app/core/services/mirror_registry.dart';
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
@@ -60,6 +61,7 @@ class ApiService {
       return await action();
     } on Exception catch (e) {
       if (e.toString().contains('SERVER_MAINTENANCE')) {
+        BlindTunnel.reportFailure();
         final ok = await MirrorRegistry.instance.ensureReachable();
         if (!ok) {
           throw Exception(MirrorRegistry.allMirrorsDownMarker);
@@ -69,7 +71,9 @@ class ApiService {
       rethrow;
     } catch (e) {
       // TimeoutException и транспортные ошибки — тоже кандидат на
-      // заблокированное зеркало.
+      // заблокированное зеркало. Если виноват ретранслятор, он сам
+      // выключится после нескольких отказов, и перебор пойдёт по зеркалам.
+      BlindTunnel.reportFailure();
       final ok = await MirrorRegistry.instance.ensureReachable();
       if (!ok) {
         throw Exception(MirrorRegistry.allMirrorsDownMarker);

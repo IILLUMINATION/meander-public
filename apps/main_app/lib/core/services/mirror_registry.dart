@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:canvas_app/core/config.dart';
+import 'package:canvas_app/core/net/blind_tunnel.dart';
 import 'package:canvas_app/core/services/session_store.dart';
 
 /// Перебор зеркал бэкенда.
@@ -242,6 +243,16 @@ class MirrorRegistry {
     try {
       await _ensureLoaded();
     } catch (_) {}
+    // Слепой ретранслятор делает основной домен достижимым, не раскрывая
+    // посреднику ни токен, ни переписку. В этом режиме нет причин уходить
+    // на зеркало-прокси: там трафик терминируется и виден целиком.
+    if (BlindTunnel.enabled) {
+      if (_activeUrl != AppConfig.vpsApiBaseUrl) {
+        await _persistActive(AppConfig.vpsApiBaseUrl);
+        debugPrint('[Mirror] tunnel active, staying on primary');
+      }
+      return true;
+    }
     if (await _probe(activeUrl) != null) return true;
     final next = await _findReachable();
     if (next == null) return false;

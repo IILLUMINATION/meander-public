@@ -1,0 +1,29 @@
+[Unit]
+Description=Meander blind TLS relay (TCP forwarder, sees only ciphertext)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/meander-tunnel
+Environment=RELAY_LISTEN_HOST=0.0.0.0
+Environment=RELAY_LISTEN_PORT=8443
+Environment=RELAY_TARGET_HOST=127.0.0.1
+Environment=RELAY_TARGET_PORT=443
+Environment=RELAY_MAX_CONN=1024
+Environment=RELAY_IDLE_MS=180000
+ExecStart=/usr/bin/node /opt/meander-tunnel/server.js
+Restart=always
+RestartSec=2
+User=nobody
+Group=nogroup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

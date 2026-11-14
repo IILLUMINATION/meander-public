@@ -62,6 +62,10 @@ final Map<String, String> enB2Settings = {
       'Meander is open-source: you can point it at your own quest servers or mirrors. Add several and switch between them.',
   'Свой сервер — это отдельный бэкенд: у него своя база и свой вход. Сессия основного сервера на него не передаётся, а сервер видит всё, что вы на нём размещаете.':
       'A custom server is a separate backend: its own database and its own sign-in. The primary server session is never sent to it, and the server sees everything you store there.',
+  'Туннель: {p0} — трафик идёт через него зашифрованным':
+      'Tunnel: {p0} — traffic is encrypted end to end',
+  'Туннель недоступен: запросы идут напрямую или через зеркало':
+      'Tunnel unavailable: requests go directly or through a mirror',
   'Тест пинга': 'Ping test',
   'Автовыбор': 'Auto-select',
   'Активное зеркало': 'Active mirror',
