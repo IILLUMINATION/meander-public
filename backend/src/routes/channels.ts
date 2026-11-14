@@ -3,6 +3,11 @@ import rateLimit from 'express-rate-limit';
 import { validate as uuidValidate } from 'uuid';
 
 import pool from '../config/database';
+import {
+  canCommentInChannel,
+  canManageChannel,
+  canReadChannel,
+} from '../services/channel_rules';
 import authMiddleware, { optionalAuthMiddleware, AuthRequest } from '../middleware/auth';
 import { createBulkNotifications, createNotification } from '../services/notifications';
 import { getIO } from '../services/socket';
@@ -152,7 +157,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Respons
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Канал не найден' });
     const channel = result.rows[0];
-    if (!channel.is_public && !channel.my_role) {
+    if (!canReadChannel(channel.is_public, channel.my_role)) {
       return res.status(404).json({ error: 'Канал не найден' });
     }
     res.json({ channel });
@@ -169,7 +174,7 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
 
   try {
     const role = await roleInChannel(id, me);
-    if (role !== 'owner' && role !== 'admin') {
+    if (!canManageChannel(role)) {
       return res.status(403).json({ error: 'Менять канал может только владелец' });
     }
     const title = req.body?.title === undefined ? null : text(req.body.title).trim();
@@ -301,7 +306,7 @@ router.get('/:id/posts', optionalAuthMiddleware, async (req: AuthRequest, res: R
     );
     if (channel.rows.length === 0) return res.status(404).json({ error: 'Канал не найден' });
     const role = await roleInChannel(id, req.user?.id);
-    if (!channel.rows[0].is_public && !role) {
+    if (!canReadChannel(channel.rows[0].is_public, role)) {
       return res.status(404).json({ error: 'Канал не найден' });
     }
 
@@ -347,7 +352,7 @@ router.post('/:id/posts', authMiddleware, limitWrite, async (req: AuthRequest, r
 
   try {
     const role = await roleInChannel(id, me);
-    if (role !== 'owner' && role !== 'admin') {
+    if (!canManageChannel(role)) {
       return res.status(403).json({ error: 'Писать в канал может только владелец' });
     }
     const channel = await pool.query(
@@ -423,7 +428,7 @@ router.delete('/:id/posts/:postId', authMiddleware, async (req: AuthRequest, res
   }
   try {
     const role = await roleInChannel(id, me);
-    if (role !== 'owner' && role !== 'admin') {
+    if (!canManageChannel(role)) {
       return res.status(403).json({ error: 'Удалять посты может только владелец' });
     }
     const deleted = await pool.query(
@@ -506,7 +511,7 @@ router.post('/posts/:postId/comments', authMiddleware, limitWrite, async (req: A
 
   try {
     const post = await pool.query(
-      `SELECT p.id, p.channel_id, c.comments_enabled, c.owner_id
+      `SELECT p.id, p.channel_id, c.comments_enabled, c.owner_id, c.is_public
          FROM channel_posts p JOIN channels c ON c.id = p.channel_id
         WHERE p.id = $1 AND p.deleted_at IS NULL`,
       [postId],
@@ -515,6 +520,12 @@ router.post('/posts/:postId/comments', authMiddleware, limitWrite, async (req: A
     const row = post.rows[0];
     if (!row.comments_enabled) {
       return res.status(403).json({ error: 'Комментарии в канале выключены' });
+    }
+    // В закрытом канале комментирует только участник: иначе, зная id поста,
+    // любой мог бы писать в канал, которого не видит.
+    const role = await roleInChannel(row.channel_id, me);
+    if (!row.is_public && !canCommentInChannel(role)) {
+      return res.status(404).json({ error: 'Пост не найден' });
     }
 
     const inserted = await pool.query(
@@ -538,7 +549,7 @@ router.post('/posts/:postId/comments', authMiddleware, limitWrite, async (req: A
           channel_id: row.channel_id,
           post_id: postId,
           preview: body.slice(0, 140),
-          link: `/channels/${row.channel_id}/posts/${postId}`,
+          link: `/channels/${row.channel_id}`,
         },
       }).catch(() => false);
     }

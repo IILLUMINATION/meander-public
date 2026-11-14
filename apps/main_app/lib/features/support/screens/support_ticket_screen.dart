@@ -27,6 +27,14 @@ class _SupportTicketScreenState extends ConsumerState<SupportTicketScreen> {
   final ScrollController _scroll = ScrollController();
   final List<DmAttachment> _draft = [];
 
+  /// Готовые ответы. Короткие: длинный текст всё равно правят под случай.
+  /// Геттер, а не таблица: подписи должны следовать активному языку.
+  static List<String> get _quickReplies => [
+    tr('Проверяем, вернёмся с ответом'),
+    tr('Попробуйте обновить приложение до последней версии'),
+    tr('Пришлите, пожалуйста, скриншот или фото проблемы'),
+  ];
+
   SupportTicket? _ticket;
   List<SupportMessage> _messages = const [];
   bool _loading = true;
@@ -256,6 +264,30 @@ class _SupportTicketScreenState extends ConsumerState<SupportTicketScreen> {
                     ),
                   )
                 else ...[
+                  // Быстрые ответы: одно и то же объяснение приходится
+                  // повторять десятки раз, а набирать его на телефоне долго.
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        for (final reply in _quickReplies)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ActionChip(
+                              key: ValueKey('quick-reply-${reply.hashCode}'),
+                              label: Text(
+                                reply,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onPressed: () => _input.text = reply,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                   AlbumDraftStrip(
                     previews: _draft,
                     isUploading: _uploading,

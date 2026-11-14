@@ -186,9 +186,11 @@ class SupportChatNotifier extends StateNotifier<SupportChatState> {
   /// Кнопки старого меню остаются в истории. Если человек уже ушёл дальше,
   /// жать их бессмысленно — прячем у всех, кроме последнего сообщения бота.
   Set<String> get liveButtonMessageIds {
-    final botMessages = state.messages.where((m) => m.buttons.isNotEmpty);
-    if (botMessages.isEmpty) return const {};
-    return {botMessages.last.id};
+    if (state.messages.isEmpty) return const {};
+    // Только самое свежее сообщение: нажатие на кнопку из середины истории
+    // отправляет бота по прошлой ветке и плодит второй тикет.
+    final last = state.messages.last;
+    return last.buttons.isEmpty ? const {} : {last.id};
   }
 
   void _onIncoming(Map<String, dynamic> payload) {

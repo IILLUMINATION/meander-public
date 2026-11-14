@@ -31,6 +31,11 @@ final Map<String, String> enB14Chats = {
   'Обращение закрыто. Открой его, чтобы ответить снова.':
       'The ticket is closed. Reopen it to reply again.',
   'Здесь пусто': 'Nothing here',
+  'Проверяем, вернёмся с ответом': 'Checking it, we will get back to you',
+  'Попробуйте обновить приложение до последней версии':
+      'Please update the app to the latest version',
+  'Пришлите, пожалуйста, скриншот или фото проблемы':
+      'Please send a screenshot or a photo of the issue',
 
   'Не получилось — попробуй ещё раз': 'That did not work — try again',
   'Ошибка в приложении': 'App bug',
