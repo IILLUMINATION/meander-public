@@ -150,20 +150,26 @@ void main() {
     );
   });
 
-  test('в доке нет ручной правки номера сборки', () {
-    // Номер берётся из pubspec.yaml; если появятся инструкции «поднять
-    // build number руками», сборки разъедутся с Android.
+  test('номер сборки для загрузки задаётся флагом, а не правкой pubspec', () {
+    // Маркетинговая версия одна на все платформы и привязана к тегу. Повторная
+    // загрузка в App Store Connect требует нового CFBundleVersion — это флаг
+    // `--build-number`, а не новая строка `version:` в pubspec.
     final pubspec = File('pubspec.yaml').readAsStringSync();
-    final version = RegExp(
-      r'^version:\s*(\S+)$',
-      multiLine: true,
-    ).firstMatch(pubspec)!.group(1)!;
+    expect(
+      RegExp(r'^version:\s*\S+$', multiLine: true).hasMatch(pubspec),
+      isTrue,
+      reason: 'версия должна остаться одной строкой в pubspec',
+    );
     final doc = File('../../docs/ios-release.md').readAsStringSync();
-    expect(doc, isNot(contains('--build-number')));
+    expect(
+      doc,
+      contains('--build-number'),
+      reason: 'иначе перезагрузку в TestFlight делать нечем',
+    );
     expect(
       doc,
       contains('version:'),
-      reason: 'дока обязана ссылаться на версию из pubspec ($version)',
+      reason: 'дока обязана ссылаться на версию из pubspec',
     );
   });
 

@@ -128,6 +128,10 @@ flutter build ipa --release \
 
 - `--dart-define` можно не указывать (это же значение по умолчанию), но так
   надёжнее: домен бэкенда зашивается на этапе сборки, см. `lib/core/config.dart`.
+- Если `CFBundleVersion` из `pubspec.yaml` уже занят в App Store Connect
+  (например, `263`), номер для загрузки задаётся флагом:
+  `flutter build ipa --release --build-number 264 …`. Версию (`2.8.17`) править
+  не надо — она одна на все платформы и привязана к тегу.
 - Результат: `build/ios/archive/Runner.xcarchive` и `build/ios/ipa/*.ipa`.
 - Время сборки ~10–15 минут, первый раз дольше (Flutter скачивает engine).
 
