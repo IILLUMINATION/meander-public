@@ -3,9 +3,10 @@
 iOS нельзя собрать ни на Linux, ни на Windows: нужны macOS, Xcode и подпись
 Apple. Здесь — весь путь от чистого клона до загруженного в App Store Connect
 архива. Для Android — `.github/workflows/build_android.yml`, для macOS —
-`build_macos.yml`; iOS-сборка в CI (`ci-ios.yml`) проверяет только то, что
-проект компилируется (`--no-codesign`), а подпись и загрузка остаются
-ручными.
+`build_macos.yml`; iOS-сборка в CI (`ci-ios.yml`) собирает оба среза
+(`--no-codesign`, симулятор и устройство) на каждом PR, который трогает
+клиент, ядро или iOS-проект: несовместимость Flutter/Swift, CocoaPods и Rust
+всплывает до TestFlight, а не после. Подпись и загрузка остаются ручными.
 
 Что уже лежит в репозитории и не требует секретов: Firebase
 `ios/Runner/GoogleService-Info.plist`, `PrivacyInfo.xcprivacy`, Xcode-фаза
@@ -20,6 +21,11 @@ Apple. Здесь — весь путь от чистого клона до за
 - Flutter **3.47.9** — ровно эта версия (та же, что в CI:
   `FLUTTER_VERSION` в `.github/workflows/build_android.yml`). Более новый Flutter
   может разойтись с `Podfile` и плагинами.
+  ⚠️ Если собираете не `main`, а старый тег — берите версию из workflow **того
+  среза** (`grep FLUTTER_VERSION .github/workflows/build_android.yml` после
+  `git checkout`): у `v2.8.17` это была 3.47.0. Swift-код подписан на API
+  движка (`FlutterSceneDelegate`), а плагин-регистранты генерируются под его
+  версию: чужой движок собирается, но приложение падает сразу после запуска.
 - melos **6.3.3** — 7 и 8 не читают `melos.yaml`, воркспейс на них не поднимается.
 - Доступ в Apple Developer (команда с правом подписи) и в App Store Connect.
 - Клон публичный, токен не нужен.
@@ -72,7 +78,14 @@ melos bootstrap              # воркспейс: apps/* + packages/*
 cd apps/main_app
 flutter pub get
 flutter test test/ios        # guard-тесты Info.plist / entitlements / Rust-фазы
+
+# Ещё раз версия движка — уже из этого среза: она обязана совпадать с §0.
+flutter --version
 ```
+
+`ios/Podfile.lock` в репозитории пока не лежит, поэтому первый `pod install`
+на каждой машине подбирает версии подов заново. После успешной сборки
+закоммитьте его — иначе два Мака соберут разные бинарники из одного коммита.
 
 ## 4. Нативное ядро (Rust)
 
@@ -153,6 +166,7 @@ Rust-ядро — первое, что отваливается при непр�
 | «No signing certificate» / «no profiles» | не выбран Team в Xcode (шаг 5) |
 | `MissingPluginException` на старте | не прогнан `pod install` → `cd ios && pod install` |
 | Падение сразу после сплэша | в `Frameworks/libmnd_ffi.framework` архив от другого среза → шаг 4 |
+| Собирается, падает на телефоне, а CI зелёный | версия Flutter/регистрантов не та, что в CI (§0, §2) или архив ядра собран другой фазой (§4); реальная iOS-сборка теперь гоняется на каждом PR (`ci-ios.yml`), сверьте её лог |
 
 ## 10. Чего не делать
 

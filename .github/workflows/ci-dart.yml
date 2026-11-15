@@ -8,6 +8,13 @@ concurrency:
   group: dart-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Одна версия на все сборки и проверки. `channel: stable` тянет новый
+  # Flutter в каждом прогоне, поэтому падение на PR не воспроизводится
+  # локально, а сгенерированные плагин-регистранты расходятся с коммитом.
+  # За равенством следит test/ios/flutter_version_pin_test.dart.
+  FLUTTER_VERSION: "3.47.9"
+
 jobs:
   analyze:
     name: analyze
@@ -17,11 +24,12 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
       - name: Install melos
-        run: dart pub global activate melos
+        run: dart pub global activate melos 6.3.3
 
       - name: Bootstrap workspace
         run: melos bootstrap
@@ -37,11 +45,12 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
       - name: Install melos
-        run: dart pub global activate melos
+        run: dart pub global activate melos 6.3.3
 
       - name: Bootstrap workspace
         run: melos bootstrap

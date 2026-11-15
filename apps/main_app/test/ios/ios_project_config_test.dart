@@ -191,6 +191,56 @@ void main() {
       );
       expect(File('../../scripts/ios_ffi_phase.sh').existsSync(), isTrue);
     });
+
+    test('статический архив вшит целиком, а не выброшен линковщиком', () {
+      // Символы FRB ищутся через dlsym, обычных ссылок на них нет. Без
+      // -force_load и с включённым dead-strip они вылетают из бинаря:
+      // приложение собирается, а на первом же вызове ядра падает.
+      final pbx = read('Runner.xcodeproj/project.pbxproj');
+      expect(
+        '-force_load'.allMatches(pbx).length,
+        3,
+        reason: 'Debug/Profile/Release — по одному на конфигурацию',
+      );
+      expect(
+        pbx,
+        contains(
+          '"\$(PROJECT_DIR)/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi"',
+        ),
+      );
+      expect(
+        'DEAD_CODE_STRIPPING = NO'.allMatches(pbx).length,
+        3,
+        reason: 'иначе Rust-функции без статических ссылок выкидываются',
+      );
+    });
+
+    test('фейз сборки ядра не пропускается в Release', () {
+      // Без alwaysOutOfDate Xcode считает фейз «уже выполненным» и пропускает
+      // его в архиве: framework остаётся от прошлой сборки или отсутствует.
+      final pbx = read('Runner.xcodeproj/project.pbxproj');
+      final phaseStart = pbx.indexOf(
+        'F9A8B7C60000000100000001 /* Build Rust core (mnd-ffi) */ = {',
+      );
+      expect(phaseStart, greaterThan(0), reason: 'фейз пропал из проекта');
+      final phase = pbx.substring(
+        phaseStart,
+        pbx.indexOf('};', phaseStart) + 2,
+      );
+      expect(phase, contains('alwaysOutOfDate = 1'));
+      expect(phase, contains('/bin/bash'));
+    });
+
+    test('путь к фреймворкам прописан в обеих конфигурациях', () {
+      for (final cfg in ['Debug.xcconfig', 'Release.xcconfig']) {
+        expect(
+          read('Flutter/$cfg'),
+          contains(r'FRAMEWORK_SEARCH_PATHS = $(inherited) '
+              r'"$(SRCROOT)/Runner/Frameworks"'),
+          reason: '$cfg без этого не найдёт линкуемый архив',
+        );
+      }
+    });
   });
 
   group('Старт на iPhone', () {
