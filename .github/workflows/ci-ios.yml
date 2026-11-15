@@ -12,13 +12,16 @@ name: CI iOS
 #     Симулятор и `--no-codesign` не требуют ни сертификатов, ни App Store
 #     Connect API, поэтому job работает без секретов вообще.
 #
-# macOS-раннеры считаются дороже Linux, а толку от них на каждом PR нет
-# (сборка ~10 минут). Поэтому Apple-сборки запускаются только вручную
-# (workflow_dispatch).
+# iOS-код нельзя скомпилировать на Linux: оба среза (симулятор и устройство)
+# обязательно собираются на каждом подходящем PR. Это ловит несовместимость
+# Flutter/Swift, CocoaPods и Rust FFI до TestFlight. Ручной запуск оставлен для
+# повторной сборки релизной ветки без создания PR.
 #
 # Чего CI НЕ доказывает: что приложение корректно ведёт себя на живом iPhone
 # (анимации, размытие фона, тапы по нижней кнопке шита). Это по-прежнему
 # руками на устройстве.
+#
+# Ручной релиз (подпись, архив, App Store Connect) — docs/ios-release.md.
 
 on:
   pull_request:
@@ -54,6 +57,12 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Та же версия, что в остальных сборках. `channel: stable` для iOS не
+  # годится: Swift-код подписывается на API движка (`FlutterSceneDelegate`,
+  # `FlutterImplicitEngineDelegate`), а плагин-регистранты генерируются под
+  # конкретную версию Flutter. Разъехавшаяся версия собирается и падает уже
+  # на устройстве.
+  FLUTTER_VERSION: "3.47.0"
 
 jobs:
   config:
@@ -67,6 +76,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
@@ -78,7 +88,6 @@ jobs:
 
   build-ios:
     name: сборка (${{ matrix.slice.name }})
-    if: github.event_name != 'pull_request'
     needs: config
     runs-on: macos-14
     strategy:
@@ -130,12 +139,15 @@ jobs:
       - uses: subosito/flutter-action@v2
         if: steps.gate.outputs.run == 'true'
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
+      # Ветка 6.x, а не latest: melos 7/8 не читают `melos.yaml` этого
+      # воркспейса и не поднимают его вовсе.
       - name: Install melos
         if: steps.gate.outputs.run == 'true'
-        run: dart pub global activate melos
+        run: dart pub global activate melos 6.3.3
 
       - name: Bootstrap workspace
         if: steps.gate.outputs.run == 'true'
