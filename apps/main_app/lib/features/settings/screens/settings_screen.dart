@@ -5,11 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/net/blind_tunnel.dart';
+import 'package:canvas_app/core/services/relay_registry.dart';
 import 'package:canvas_app/core/l10n/l10n_provider.dart';
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/core/services/onboarding_service.dart';
+import 'package:canvas_app/features/editor/workspace/script_editor_mode.dart';
 import 'package:canvas_app/core/services/session_service.dart';
 import 'package:canvas_app/features/app/screens/about_screen.dart';
 import 'package:canvas_app/features/app/screens/policy_screen.dart';
@@ -24,12 +27,13 @@ import 'package:canvas_app/features/messages/screens/chat_privacy_screen.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetics_repository.dart';
 import 'package:canvas_app/features/profile/providers/profile_provider.dart';
 import 'package:canvas_app/features/quests/screens/my_quests_screen.dart';
+import 'package:canvas_app/features/resources/services/resource_prefs.dart';
 import 'package:canvas_app/features/settings/providers/notifications_settings_provider.dart';
 import 'package:canvas_app/features/settings/screens/theme_settings_screen.dart';
 import 'package:canvas_app/features/settings/widgets/interface_language_dialog.dart';
 import 'package:canvas_app/features/settings/widgets/refresh_rate_card.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 import 'package:canvas_app/features/shell/screens/admin_screen.dart';
 import 'package:canvas_app/features/shell/screens/menu_screen.dart';
 
@@ -50,14 +54,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _currentUserId;
   bool _tabsEnabled = true;
   bool _autoOpenTab = false;
-  final _mirrorUrlController = TextEditingController();
-  String? _mirrorUrlError;
 
-  /// Список зеркал для секции «Подключение»: URL → пинг в мс
+  /// Какой редактор скриптов открывать: классический или канвас.
+  ScriptEditorMode _scriptEditorMode = ScriptEditorModeStore.instance.mode;
+
+  /// Библиотека ресурсов открывается с корня, а не там, где её закрыли.
+  bool _resourcesOpenAtRoot = ResourcesPrefs.instance.openAtRoot;
+  final _serverUrlController = TextEditingController();
+  String? _serverUrlError;
+
+  /// Серверы для секции «Подключение»: URL → пинг в мс
   /// (`null` — не отвечен, ещё не проверен).
-  List<String> _mirrorList = [];
-  Map<String, int?> _mirrorPings = {};
-  bool _mirrorProbing = false;
+  List<String> _serverList = [];
+  Map<String, int?> _serverPings = {};
+  bool _serverProbing = false;
+
+  /// Пользователь ещё не просил проверку: пустой пинг не означает отказ, и
+  /// секция не должна ходить в сеть сама по себе при открытии.
+  bool _serverProbed = false;
+
+  final _relayController = TextEditingController();
+  String? _relayError;
+
+  /// Ретрансляторы и их статус: `true` — TCP-коннект проходит.
+  List<String> _relayList = [];
+  Map<String, bool?> _relayStatuses = {};
 
   /// Удаление аккаунта уже запланировано — дата, когда строка уйдёт.
   DateTime? _deletionScheduledAt;
@@ -66,111 +87,180 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _loadUser();
-    _loadMirrorUrl();
-  }
-  /// Показать текущую адресную книгу зеркал; после загрузки сразу
-  /// пингануть все — пользователь видит статусы по открытии секции.
-  Future<void> _loadMirrorUrl() async {
-    await MirrorRegistry.instance.ensureLoaded();
-    if (!mounted) return;
-    setState(() {
-      _mirrorList = MirrorRegistry.instance.allUrls;
-      _mirrorUrlController.text =
-          MirrorRegistry.instance.customUrls.isEmpty
-          ? ''
-          : MirrorRegistry.instance.customUrls.last;
-    });
-    _probeMirrors();
+    _loadConnection();
   }
 
-  /// Померить пинги всех зеркал и перерисовать список.
-  Future<void> _probeMirrors() async {
-    setState(() => _mirrorProbing = true);
-    final pings = await MirrorRegistry.instance.probeAll();
+  /// Адресная книга: серверы и ретрансляторы. Без сетевых проб — они идут
+  /// только по кнопке, иначе открытие настроек ждёт таймаутов.
+  Future<void> _loadConnection() async {
+    await ServerRegistry.instance.ensureLoaded();
+    await RelayRegistry.instance.ensureLoaded();
     if (!mounted) return;
     setState(() {
-      _mirrorPings = pings;
-      _mirrorProbing = false;
+      _serverList = ServerRegistry.instance.allUrls;
+      _relayList = RelayRegistry.instance.all;
     });
   }
 
-  /// Добавить пользовательское зеркало/сервер. Некорректный адрес не
-  /// сохраняется; живость проверяем сразу и показываем пинг.
-  Future<void> _saveMirrorUrl() async {
-    final raw = _mirrorUrlController.text.trim();
+  /// Пинги серверов и TCP-статусы ретрансляторов.
+  Future<void> _probeConnection() async {
+    setState(() => _serverProbing = true);
+    final results = await Future.wait([
+      ServerRegistry.instance.probeAll(),
+      RelayRegistry.instance.probeAll(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _serverPings = results[0] as Map<String, int?>;
+      _relayStatuses = results[1] as Map<String, bool>;
+      _serverProbing = false;
+      _serverProbed = true;
+    });
+  }
+
+  /// Добавить свой сервер. Некорректный адрес не сохраняется; живость
+  /// проверяем сразу и показываем пинг.
+  Future<void> _saveServerUrl() async {
+    final raw = _serverUrlController.text.trim();
     if (raw.isEmpty) {
-      setState(() => _mirrorUrlError = null);
+      setState(() => _serverUrlError = null);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(tr('Поле пустое — зеркало не добавлено'))),
       );
       return;
     }
 
-    final normalized = MirrorRegistry.normalizeForPreview(raw);
+    final normalized = ServerRegistry.normalizeForPreview(raw);
     if (normalized == null) {
-      setState(() => _mirrorUrlError = tr('Некорректный адрес сервера'));
+      setState(() => _serverUrlError = tr('Некорректный адрес сервера'));
       return;
     }
 
-    await MirrorRegistry.instance.addCustomUrl(normalized);
-    final ping = await MirrorRegistry.instance.probeUrl(normalized);
+    await ServerRegistry.instance.addCustomUrl(normalized);
+    final ping = await ServerRegistry.instance.probeUrl(normalized);
     if (!mounted) return;
     setState(() {
-      _mirrorUrlError = ping == null ? tr('Сервер не отвечает') : null;
-      _mirrorUrlController.text = '';
-      _mirrorList = MirrorRegistry.instance.allUrls;
-      _mirrorPings[normalized] = ping;
+      _serverUrlError = ping == null ? tr('Сервер не отвечает') : null;
+      _serverUrlController.text = '';
+      _serverList = ServerRegistry.instance.allUrls;
+      _serverPings[normalized] = ping;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tr('Зеркало добавлено'))),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(tr('Зеркало добавлено'))));
   }
 
-  /// Снять пользовательское зеркало с книги.
-  Future<void> _removeMirror(String url) async {
-    await MirrorRegistry.instance.removeCustomUrl(url);
+  Future<void> _removeServer(String url) async {
+    await ServerRegistry.instance.removeCustomUrl(url);
     if (!mounted) return;
-    setState(() => _mirrorList = MirrorRegistry.instance.allUrls);
+    setState(() {
+      _serverList = ServerRegistry.instance.allUrls;
+      _serverPings.remove(url);
+    });
   }
 
-  /// Переключиться на зеркало по тапу строки.
-  Future<void> _selectMirror(String url) async {
-    await MirrorRegistry.instance.setActiveUrl(url);
+  /// Выбрать сервер. Переключение на свой сервер отменяет ретранслятор:
+  /// он прокладывает путь только к оригиналу.
+  Future<void> _selectServer(String url) async {
+    await ServerRegistry.instance.setActiveUrl(url);
     if (!mounted) return;
     setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tr('Подключение установлено'))),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(tr('Подключение установлено'))));
   }
 
-  /// Автовыбор: живое зеркало с минимальным пингом.
-  Future<void> _autoSelectMirror() async {
-    setState(() => _mirrorProbing = true);
-    final chosen = await MirrorRegistry.instance.autoSelectFastest();
+  /// Добавить свой ретранслятор (`host:port`).
+  Future<void> _saveRelay() async {
+    final raw = _relayController.text.trim();
+    if (raw.isEmpty) {
+      setState(() => _relayError = null);
+      return;
+    }
+    final normalized = await RelayRegistry.instance.addCustom(raw);
     if (!mounted) return;
-    setState(() => _mirrorProbing = false);
+    if (normalized == null) {
+      setState(() => _relayError = tr('Некорректный адрес ретранслятора'));
+      return;
+    }
+    final ok = await RelayRegistry.instance.probe(normalized);
+    if (!mounted) return;
+    setState(() {
+      _relayError = null;
+      _relayController.text = '';
+      _relayList = RelayRegistry.instance.all;
+      _relayStatuses[normalized] = ok;
+    });
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(tr('Ретранслятор добавлен'))));
+  }
+
+  Future<void> _removeRelay(String endpoint) async {
+    await RelayRegistry.instance.removeCustom(endpoint);
+    if (!mounted) return;
+    setState(() {
+      _relayList = RelayRegistry.instance.all;
+      _relayStatuses.remove(endpoint);
+    });
+  }
+
+  Future<void> _toggleRelay(String endpoint, bool value) async {
+    await RelayRegistry.instance.setEnabled(endpoint, value);
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// Текущий путь к API человеческим языком.
+  String _pathDescription() {
+    if (BlindTunnel.enabled) {
+      return trf('Сейчас: через ретранслятор {p0}', {
+        'p0': BlindTunnel.endpoint ?? '',
+      });
+    }
+    return tr('Сейчас: прямое соединение');
+  }
+
+  /// Проверить путь целиком: прямой, затем ретрансляторы. Прокси-зеркал в
+  /// этом выборе нет.
+  Future<void> _checkConnection() async {
+    setState(() => _serverProbing = true);
+    final ok = await ServerRegistry.instance.ensureReachable();
+    if (!mounted) return;
+    setState(() => _serverProbing = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          chosen == null ? tr('Все зеркала недоступны') : tr('Подключение установлено'),
+          ok
+              ? (BlindTunnel.enabled
+                    ? trf('Соединение через ретранслятор {p0}', {
+                        'p0': BlindTunnel.endpoint ?? '',
+                      })
+                    : tr('Прямое соединение работает'))
+              : tr('Все зеркала недоступны'),
         ),
       ),
     );
   }
 
+  @override
   void dispose() {
-    _mirrorUrlController.dispose();
+    _serverUrlController.dispose();
+    _relayController.dispose();
     super.dispose();
   }
 
-
   Future<void> _loadUser() async {
+    await ScriptEditorModeStore.instance.ensureLoaded();
+    await ResourcesPrefs.instance.ensureLoaded();
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
         _currentUserId = prefs.getString('user_id');
         _tabsEnabled = prefs.getBool('editor_tabs_enabled') ?? true;
         _autoOpenTab = prefs.getBool('editor_auto_open_tab') ?? false;
+        _scriptEditorMode = ScriptEditorModeStore.instance.mode;
+        _resourcesOpenAtRoot = ResourcesPrefs.instance.openAtRoot;
       });
     }
     _syncTimezone();
@@ -575,6 +665,87 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// @адрес: короткая ссылка вместо uuid. Формат проверяем здесь же, чтобы
+  /// не гонять запрос из-за «ab»; занятость знает только сервер.
+  Future<void> _editUsername() async {
+    if (_currentUserId == null) return;
+    final container = ProviderScope.containerOf(context, listen: false);
+    final profileAsync = ref.read(userProfileProvider(_currentUserId!));
+    final current = profileAsync.maybeWhen(
+      data: (p) => p.username,
+      orElse: () => null,
+    );
+    final controller = TextEditingController(text: current ?? '');
+    final entered = await showAppDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Юзернейм')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 32,
+          decoration: InputDecoration(
+            prefixText: '@',
+            hintText: 'meander',
+            helperText: tr('Латинские буквы, цифры и _, от 3 до 32 символов'),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(tr('Отмена')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(tr('Сохранить')),
+          ),
+        ],
+      ),
+    );
+    if (entered == null) return;
+    final username = entered.replaceFirst(RegExp(r'^@+'), '').toLowerCase();
+    if (username == (current ?? '')) return;
+    if (username.isNotEmpty &&
+        !RegExp(r'^[a-z][a-z0-9_]{2,31}$').hasMatch(username)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              tr('Латинские буквы, цифры и _, от 3 до 32 символов'),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+    try {
+      await container
+          .read(apiServiceProvider)
+          .post('profiles/me', body: {'username': username});
+      container.invalidate(userProfileProvider(_currentUserId!));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              username.isEmpty ? tr('Юзернейм убран') : tr('Юзернейм обновлён'),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trf('Ошибка: {p0}', {'p0': friendlyError(e)})),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleNsfw(bool current) async {
     if (_currentUserId == null) return;
     final container = ProviderScope.containerOf(context, listen: false);
@@ -814,6 +985,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           data: (p) => p.fullName,
                           orElse: () => null,
                         );
+                        final username = profileAsync.maybeWhen(
+                          data: (p) => p.username,
+                          orElse: () => null,
+                        );
                         final bio = profileAsync.maybeWhen(
                           data: (p) =>
                               (p.bio == null || p.bio!.isEmpty) ? null : p.bio,
@@ -831,6 +1006,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               title: tr('Редактировать имя'),
                               subtitle: name,
                               onTap: _editName,
+                            ),
+                            _SettingsTile(
+                              icon: Icons.alternate_email_rounded,
+                              title: tr('Юзернейм'),
+                              subtitle: username == null
+                                  ? tr('Не задан')
+                                  : '@$username',
+                              onTap: _editUsername,
                             ),
                             _SettingsTile(
                               icon: Icons.description_outlined,
@@ -973,6 +1156,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               if (mounted) setState(() => _autoOpenTab = v);
                             },
                           ),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            indent: 60,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.outlineVariant.withOpacity(0.4),
+                          ),
+                          _ScriptEditorModeTile(
+                            value: _scriptEditorMode,
+                            onChanged: (mode) async {
+                              await ScriptEditorModeStore.instance.set(mode);
+                              if (mounted) {
+                                setState(() => _scriptEditorMode = mode);
+                              }
+                            },
+                          ),
+                          Divider(
+                            height: 1,
+                            thickness: 1,
+                            indent: 60,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.outlineVariant.withOpacity(0.4),
+                          ),
+                          SwitchListTile(
+                            secondary: const _SettingsSwitchIcon(
+                              icon: Icons.folder_open_rounded,
+                            ),
+                            title: Text(tr('Библиотека ресурсов с корня')),
+                            subtitle: Text(
+                              tr(
+                                'Открывать на корневой папке, а не там, где библиотеку закрыли',
+                              ),
+                            ),
+                            value: _resourcesOpenAtRoot,
+                            onChanged: (v) async {
+                              await ResourcesPrefs.instance.setOpenAtRoot(v);
+                              if (mounted) {
+                                setState(() => _resourcesOpenAtRoot = v);
+                              }
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -982,9 +1208,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                     child: Material(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer,
+                      color: Theme.of(context).colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(20),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
@@ -1000,25 +1224,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             children: [
                               Icon(
                                 Icons.code_rounded,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       tr('Meander — open-source'),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleSmall?.copyWith(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                      ),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                          ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
@@ -1036,9 +1258,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               Icon(
                                 Icons.open_in_new_rounded,
                                 size: 18,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
                             ],
                           ),
@@ -1067,30 +1287,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  tr('Зеркала и серверы'),
+                                  tr('Серверы и ретрансляторы'),
                                   style: Theme.of(context).textTheme.titleSmall,
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  tr(
-                                    'Meander — open-source: можно указать свои серверы с квестами или зеркала. Можно добавить несколько и переключаться',
+                                  trf(
+                                    'Оригинальный сервер один — {p0}. Если провайдер его блокирует, доступ дают ретрансляторы: они передают трафик, не расшифровывая его, поэтому не видят ни токен, ни переписку.',
+                                    {'p0': AppConfig.siteHost},
                                   ),
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.bodySmall?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
                                   tr(
                                     'Свой сервер — это отдельный бэкенд: у него своя база и свой вход. Сессия основного сервера на него не передаётся, а сервер видит всё, что вы на нём размещаете.',
                                   ),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
+                                  style: Theme.of(context).textTheme.bodySmall
                                       ?.copyWith(
                                         color: Theme.of(
                                           context,
@@ -1099,17 +1317,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  BlindTunnel.enabled
-                                      ? trf(
-                                          'Туннель: {p0} — трафик идёт через него зашифрованным',
-                                          {'p0': BlindTunnel.relay ?? ''},
-                                        )
-                                      : tr(
-                                          'Туннель недоступен: запросы идут напрямую или через зеркало',
-                                        ),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
+                                  _pathDescription(),
+                                  style: Theme.of(context).textTheme.bodySmall
                                       ?.copyWith(
                                         color: BlindTunnel.enabled
                                             ? Theme.of(
@@ -1126,17 +1335,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                             child: TextField(
-                              controller: _mirrorUrlController,
+                              controller: _serverUrlController,
                               decoration: InputDecoration(
                                 hintText: 'https://example.com',
-                                errorText: _mirrorUrlError,
+                                errorText: _serverUrlError,
                                 isDense: true,
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                               keyboardType: TextInputType.url,
-                              onSubmitted: (_) => _saveMirrorUrl(),
+                              onSubmitted: (_) => _saveServerUrl(),
                             ),
                           ),
                           Padding(
@@ -1146,27 +1355,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               runSpacing: 4,
                               children: [
                                 FilledButton.tonal(
-                                  onPressed: _mirrorProbing
+                                  onPressed: _serverProbing
                                       ? null
-                                      : _saveMirrorUrl,
+                                      : _saveServerUrl,
                                   child: Text(tr('Добавить')),
                                 ),
                                 TextButton(
-                                  onPressed: _mirrorProbing
+                                  onPressed: _serverProbing
                                       ? null
-                                      : _probeMirrors,
+                                      : _probeConnection,
                                   child: Text(tr('Тест пинга')),
                                 ),
                                 TextButton(
-                                  onPressed: _mirrorProbing
+                                  onPressed: _serverProbing
                                       ? null
-                                      : _autoSelectMirror,
-                                  child: Text(tr('Автовыбор')),
+                                      : _checkConnection,
+                                  child: Text(tr('Проверить соединение')),
                                 ),
                               ],
                             ),
                           ),
-                          if (_mirrorProbing)
+                          if (_serverProbing)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: LinearProgressIndicator(minHeight: 2),
@@ -1175,19 +1384,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             padding: const EdgeInsets.only(bottom: 8),
-                            itemCount: _mirrorList.length,
+                            itemCount: _serverList.length,
                             itemBuilder: (context, index) {
-                              final url = _mirrorList[index];
-                              final ping = _mirrorPings[url];
+                              final url = _serverList[index];
+                              final ping = _serverPings[url];
                               final isActive =
-                                  url == MirrorRegistry.instance.activeUrl;
-                              final isCustom = MirrorRegistry
-                                  .instance
-                                  .customUrls
-                                  .contains(url);
+                                  url == ServerRegistry.instance.activeUrl;
+                              final isCustom = url != AppConfig.vpsApiBaseUrl;
                               return ListTile(
                                 dense: true,
-                                onTap: () => _selectMirror(url),
+                                onTap: () => _selectServer(url),
                                 leading: Icon(
                                   isActive
                                       ? Icons.check_circle_rounded
@@ -1199,15 +1405,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 title: Text(url),
                                 subtitle: Text(
                                   isActive
-                                      ? tr('Активное зеркало')
+                                      ? tr('Активный сервер')
                                       : (isCustom
                                             ? tr('Ваш сервер')
-                                            : tr('Встроенное зеркало')),
+                                            : tr('Основной сервер')),
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (_mirrorProbing)
+                                    if (_serverProbing)
                                       const SizedBox(
                                         width: 18,
                                         height: 18,
@@ -1215,16 +1421,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                           strokeWidth: 2,
                                         ),
                                       )
-                                    else if (ping == null)
-                                      Text(
-                                        tr('Нет ответа'),
-                                        style: TextStyle(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.error,
-                                        ),
-                                      )
-                                    else
+                                    else if (ping != null)
                                       Text(
                                         '$ping ms',
                                         style: TextStyle(
@@ -1234,6 +1431,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                                 ).colorScheme.primary
                                               : null,
                                         ),
+                                      )
+                                    else if (_serverProbed)
+                                      Text(
+                                        tr('Нет ответа'),
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                        ),
                                       ),
                                     if (isCustom)
                                       IconButton(
@@ -1242,7 +1448,124 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                           size: 18,
                                         ),
                                         tooltip: tr('Убрать'),
-                                        onPressed: () => _removeMirror(url),
+                                        onPressed: () => _removeServer(url),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          const Divider(height: 1),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tr('Ретрансляторы'),
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  tr(
+                                    'Впишите host:port ретранслятора. Он передаёт зашифрованный трафик и не видит ни токен, ни переписку; поднять свой — инструкция в relay/README.md.',
+                                  ),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                            child: TextField(
+                              controller: _relayController,
+                              decoration: InputDecoration(
+                                hintText: '1.2.3.4:8443',
+                                errorText: _relayError,
+                                isDense: true,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              keyboardType: TextInputType.url,
+                              onSubmitted: (_) => _saveRelay(),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                            child: Wrap(
+                              spacing: 8,
+                              children: [
+                                FilledButton.tonal(
+                                  onPressed: _saveRelay,
+                                  child: Text(tr('Добавить ретранслятор')),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(bottom: 8),
+                            itemCount: _relayList.length,
+                            itemBuilder: (context, index) {
+                              final endpoint = _relayList[index];
+                              final status = _relayStatuses[endpoint];
+                              final enabled = RelayRegistry.instance.isEnabled(
+                                endpoint,
+                              );
+                              final builtIn = RelayRegistry.instance.isBuiltIn(
+                                endpoint,
+                              );
+                              return SwitchListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                value: enabled,
+                                onChanged: (value) =>
+                                    _toggleRelay(endpoint, value),
+                                title: Text(endpoint),
+                                secondary: Icon(
+                                  status == null
+                                      ? Icons.lock_outline_rounded
+                                      : status
+                                      ? Icons.lock_rounded
+                                      : Icons.lock_open_rounded,
+                                  color: status == true
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
+                                ),
+                                // SwitchListTile без `trailing`: кнопка
+                                // удаления живёт в подзаголовке, иначе она
+                                // спорит с переключателем за тап.
+                                subtitle: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        [
+                                          builtIn
+                                              ? tr('Встроенный')
+                                              : tr('Свой'),
+                                          if (status == false) tr('Нет ответа'),
+                                        ].join(' · '),
+                                      ),
+                                    ),
+                                    if (!builtIn)
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          size: 18,
+                                        ),
+                                        tooltip: tr('Убрать'),
+                                        onPressed: () => _removeRelay(endpoint),
                                       ),
                                   ],
                                 ),
@@ -1648,6 +1971,67 @@ class _SettingsGroup extends StatelessWidget {
 // ============================================================================
 //  ПЛИТКА НАСТРОЙКИ
 // ============================================================================
+
+class _ScriptEditorModeTile extends StatelessWidget {
+  const _ScriptEditorModeTile({required this.value, required this.onChanged});
+
+  final ScriptEditorMode value;
+  final ValueChanged<ScriptEditorMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const _SettingsSwitchIcon(icon: Icons.account_tree_rounded),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr('Редактор скриптов'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(
+                      tr('Выберите способ редактирования визуальных скриптов'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<ScriptEditorMode>(
+            segments: [
+              ButtonSegment(
+                value: ScriptEditorMode.classic,
+                icon: const Icon(Icons.view_agenda_outlined),
+                label: Text(tr('Классический')),
+              ),
+              ButtonSegment(
+                value: ScriptEditorMode.canvas,
+                icon: const Icon(Icons.account_tree_outlined),
+                label: Text(tr('Канвас как в Scratch')),
+              ),
+            ],
+            selected: {value},
+            onSelectionChanged: (selected) {
+              if (selected.isNotEmpty) onChanged(selected.first);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SettingsSwitchIcon extends StatelessWidget {
   final IconData icon;

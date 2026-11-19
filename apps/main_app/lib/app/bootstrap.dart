@@ -6,14 +6,17 @@ import 'package:canvas_app/core/l10n/custom_language_store.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/l10n/l10n_provider.dart';
 import 'package:canvas_app/core/services/crash_log_service.dart';
+import 'package:canvas_app/core/services/session_recorder.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/hang_watchdog.dart';
 import 'package:canvas_app/core/services/firebase_messaging_service.dart';
 import 'package:canvas_app/core/services/meander_core_bootstrap.dart';
 import 'package:canvas_app/core/net/blind_tunnel.dart';
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 import 'package:canvas_app/core/services/rebuild_storm_observer.dart';
 import 'package:canvas_app/core/services/talker_service.dart';
+import 'package:canvas_app/features/editor/workspace/script_editor_mode.dart';
+import 'package:canvas_app/features/resources/services/resource_prefs.dart';
 import 'package:canvas_app/features/game/providers/game_screen_provider.dart'
     show appGameScreenHooksProvider;
 import 'package:mnd_player/providers/game_screen_provider.dart'
@@ -121,6 +124,11 @@ void _setupGlobalErrorHandlers() {
       }
     } catch (_) {}
     CrashLogService.handle(details.exception, details.stack, 'FlutterError');
+    SessionRecorder.instance.recordError(
+      details.exception,
+      details.stack,
+      context: 'FlutterError',
+    );
 
     if (kDebugMode) {
       final text = details.toString();
@@ -147,6 +155,11 @@ void _setupGlobalErrorHandlers() {
 
   PlatformDispatcher.instance.onError = (error, stack) {
     CrashLogService.handle(error, stack, 'PlatformError');
+    SessionRecorder.instance.recordError(
+      error,
+      stack,
+      context: 'PlatformError',
+    );
     if (kDebugMode) {
       debugPrint("🔴 UNCAUGHT ERROR: $error");
       debugPrintStack(stackTrace: stack);
@@ -175,16 +188,29 @@ Future<void> bootstrap() async {
   HangWatchdog.mark('bootstrap: deepLink');
   DeepLinkService().init();
 
+  // Режим редактора скриптов читается в лаунчере синхронно (вкладки и
+  // восстановление сессии строят экран без await), поэтому кэш греем здесь.
+  await ScriptEditorModeStore.instance.ensureLoaded();
+
+  // С какой папки открывать библиотеку ресурсов — та же причина: вкладка
+  // ресурсов строится синхронно, а настройка живёт в SharedPreferences.
+  await ResourcesPrefs.instance.ensureLoaded();
+
   // Слепой ретранслятор ставится до первого кадра: его HttpOverrides
   // покрывают всех клиентов, созданных после (http-пакет, прямые dart:io
-  // запросы по экранам, websocket). Если ретранслятор не ответил, всё
-  // работает напрямую, как раньше.
-  await BlindTunnel.activate();
+  // запросы по экранам, websocket). Включается он только если прямое
+  // соединение не работает — выбор пути делает ServerRegistry.
+  BlindTunnel.install();
+  BlindTunnel.onExhausted = ServerRegistry.instance.handleTunnelFailure;
 
-  // Адресная книга зеркал и сессии по серверам читаются до первого кадра:
-  // экраны в initState читают `jwt_token`, и там должна лежать сессия
-  // активного сервера, а не токен, оставшийся от прежнего.
-  await MirrorRegistry.instance.ensureLoaded();
+  // Серверы и сессии по ним читаются до первого кадра: экраны в initState
+  // читают `jwt_token`, и там должна лежать сессия активного сервера, а не
+  // токен, оставшийся от прежнего.
+  await ServerRegistry.instance.ensureLoaded();
+
+  // Сетевую пробу не держим на пути старта: первый запрос всё равно позовёт
+  // ensureReachable, а проба блокировала бы первый кадр на таймаут.
+  unawaited(ServerRegistry.instance.ensureReachable());
 
   // Кэш декодированных картинок ограничиваем по памяти устройства. Дефолт
   // Flutter — 100 МиБ и 1000 картинок: на 2 ГБ это заметная доля бюджета, а
