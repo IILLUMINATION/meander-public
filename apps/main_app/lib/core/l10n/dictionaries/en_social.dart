@@ -52,6 +52,7 @@ final Map<String, String> enSocial = {
   'Комментарий обновлён': 'Comment updated',
   'Комментарий опубликован': 'Comment posted',
   'Комментарий удалён': 'Comment deleted',
+  'Не удалось отправить комментарий': 'Could not send the comment',
   'Лента пуста': 'Feed is empty',
   'Лидеры сообщества': 'Community leaders',
   'Написать комментарий…': 'Write a comment…',

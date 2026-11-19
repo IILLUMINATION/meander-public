@@ -13,9 +13,6 @@ final Map<String, String> enB8Editor = {
   'Экспорт готов, пропущено текстур: {p0}':
       'Export is ready, textures skipped: {p0}',
   // features/editor/screens/canvas_screen.dart
-  'Нода «{p0}» вставлена': 'Node "{p0}" inserted',
-  'Нода «{p0}» вставлена (ресурсов: {p1}, пропущено: {p2})':
-      'Node "{p0}" inserted (resources: {p1}, skipped: {p2})',
   'Обычные': 'Regular',
   // features/editor/screens/node_content/button_editor_screen.dart
   'Выберите целевую ноду для перехода': 'Choose the node to go to',
@@ -62,10 +59,6 @@ final Map<String, String> enB8Editor = {
   'Попробуйте изменить запрос': 'Try a different search',
   // features/editor/screens/tags_screen.dart
   '{p0} (из шаблона)': '{p0} (from a template)',
-  'Глава «{p0}» вставлена (нод: {p1}, связей: {p2})':
-      'Chapter "{p0}" inserted (nodes: {p1}, links: {p2})',
-  'Глава «{p0}» вставлена (нод: {p1}, связей: {p2}, ресурсов: {p3}, пропущено: {p4})':
-      'Chapter "{p0}" inserted (nodes: {p1}, links: {p2}, resources: {p3}, skipped: {p4})',
   // features/editor/screens/visual_script_editor/action_picker_screen.dart
   'Заметки': 'Notes',
   'Сеть': 'Network',

@@ -30,7 +30,6 @@ final Map<String, String> enResources = {
   'Выбрать всё': 'Select all',
   'Выключить анимацию появления': 'Disable appearance animation',
   'Данные из таблицы': 'Data from the table',
-  'Два хранилища в одной таблице': 'Two storages in one table',
   'Добавить ключ': 'Add key',
   'Добавить столбец': 'Add column',
   'Добавлено из маркета': 'Added from Market',
@@ -51,7 +50,6 @@ final Map<String, String> enResources = {
       'Interface for working with quest variables. Supports numbers, strings, and boolean values.',
   'Исполнение скриптов строго изолировано в безопасной песочнице Rust-ядра:':
       'Script execution is strictly isolated in the safe sandbox of the Rust core:',
-  'Как достать значение': 'How to get a value',
   'Картинки': 'Images',
   'Ключи скриптов · {p0}': 'Script keys · {p0}',
   'Код Lua (inline)': 'Lua code (inline)',
@@ -76,7 +74,6 @@ final Map<String, String> enResources = {
   'Новый скрипт': 'New script',
   'Новый столбец': 'New column',
   'Нумерованный список': 'Numbered list',
-  'Операции блока «Данные»': 'Operations of the "Data" block',
   'Отменить изменение': 'Undo change',
   'Отступ Tab': 'Tab indent',
   'Оформление текста': 'Text formatting',
@@ -129,8 +126,8 @@ final Map<String, String> enResources = {
   'Частые промахи': 'Common mistakes',
   'Чего Lua пока не хватает': 'What Lua is still missing',
   'Шрифт выделенного текста': 'Selected text font',
-  'Эффекты и переменные доступны из скрипта полностью; темп сцены — пока нет.':
-      'Effects and variables are fully available from scripts; scene pacing — not yet.',
+  'Эффекты, переменные, сохранения и отладка доступны из скрипта; темп сцены — нет.':
+      'Effects, variables, saves and debugging are available from scripts; scene pacing is not.',
   'как его видит скрипт: gold, opened, items':
       'as the script sees it: gold, opened, items',
   'полный слепок: сетка и хранилище': 'full snapshot: grid and storage',
@@ -148,7 +145,6 @@ final Map<String, String> enResources = {
       'Replace the value with a nested table?',
   'В ячейке уже есть значение или формула. Оно будет заменено подтаблицей.':
       'This cell already has a value or formula. It will be replaced by a subtable.',
-  'Вложенная таблица удалена': 'Nested table deleted',
   'Ячейка {p0}': 'Cell {p0}',
   'Вложенная таблица {p0}×{p1}': 'Nested table {p0}×{p1}',
   'Формула или значение': 'Formula or value',
@@ -173,9 +169,8 @@ final Map<String, String> enResources = {
   'Например: меч': 'For example: sword',
   'Пустое имя — доступ по номеру строки, как раньше.':
       'An empty name keeps the numeric row address, as before.',
-  'Имя строки {p0} убрано': 'Row name {p0} removed',
-  'Строка {p0} теперь «{p1}»': 'Row {p0} is now “{p1}”',
-  'Файл ещё не скачан в библиотеку': 'The file has not been downloaded to the library yet',
+  'Файл ещё не скачан в библиотеку':
+      'The file has not been downloaded to the library yet',
   'Не удалось удалить сохранения: {p0}': 'Could not delete saves: {p0}',
   'Не удалось удалить сохранение: {p0}': 'Could not delete the save: {p0}',
 };

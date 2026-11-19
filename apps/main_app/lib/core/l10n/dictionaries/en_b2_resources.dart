@@ -15,7 +15,6 @@ final Map<String, String> enB2Resources = {
   'Забрать файл из песочницы приложения': 'Take a file from the app sandbox',
   'Ключ «{p0}»': 'Key "{p0}"',
   'Куда копировать скрипты': 'Where to copy scripts to',
-  'Нажмите на ячейку, чтобы вставить ссылку на неё в текст': 'Click a cell to insert a link to it into the text',
   'Нет столбцов': 'No columns',
   'Новый ключ': 'New key',
   'Папка содержит {p0} файлов.\nЧто с ними сделать?': 'The folder contains {p0} files.\nWhat to do with them?',

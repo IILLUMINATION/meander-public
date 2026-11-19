@@ -71,6 +71,7 @@ import 'en_misc.dart';
 import 'en_profile.dart';
 import 'en_quests.dart';
 import 'en_resources.dart';
+import 'en_scratch.dart';
 import 'en_shell.dart';
 import 'en_social.dart';
 import 'en_settings.dart';
@@ -154,6 +155,7 @@ final Map<String, String> enStrings = {
   ...enProfile,
   ...enQuests,
   ...enResources,
+  ...enScratch,
   ...enShell,
   ...enSocial,
   ...enSettings,

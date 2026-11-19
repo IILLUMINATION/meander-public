@@ -63,8 +63,6 @@ final Map<String, String> enB14Chats = {
   'Владелец': 'Owner',
   'Отписаться': 'Unsubscribe',
   'Пост для подписчиков…': 'Post for subscribers…',
-  'Пока никто не написал': 'No comments yet',
-  'Комментарий…': 'Comment…',
   'Канал не загружен': 'Channel is not loaded',
   'Писать может только владелец': 'Only the owner can post',
 

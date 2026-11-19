@@ -4,5 +4,4 @@
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enB4Plugins = {
   'Ошибка импорта: {e}': 'Import error: {e}',
-  'Плагин «{p0}» импортирован': 'Plugin "{p0}" imported',
 };

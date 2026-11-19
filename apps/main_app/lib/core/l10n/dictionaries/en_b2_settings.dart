@@ -3,6 +3,14 @@
 /// Ключ — русская строка ровно как в коде (регистр и знаки включно);
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enB2Settings = {
+  'Адрес канала': 'Channel address',
+  'Адрес обновлён': 'Address updated',
+  'Латинские буквы, цифры и _, от 3 до 32 символов':
+      'Latin letters, digits and _, 3 to 32 characters',
+  'Не задан': 'Not set',
+  'Юзернейм': 'Username',
+  'Юзернейм обновлён': 'Username updated',
+  'Юзернейм убран': 'Username removed',
   'А': 'A',
   'Аккаунт будет удалён {p0}. Если передумаете — вернитесь в приложение, войдите и отмените удаление здесь же.':
       'Your account will be deleted {p0}. If you change your mind — return to the app, sign in and cancel the deletion right here.',
@@ -54,30 +62,38 @@ final Map<String, String> enB2Settings = {
   'Первый запуск': 'First launch',
   'Экран, который видит новый пользователь': 'The screen a new user sees',
   'Подключение': 'Connection',
-  'Зеркала и серверы': 'Mirrors and servers',
   'Meander — open-source': 'Meander is open-source',
   'Исходный код открыт: github.com/IILLUMINATION/meander-public — бэкенд, конструктор квестов, плеер':
       'The source code is open: github.com/IILLUMINATION/meander-public — backend, quest builder, player',
-  'Meander — open-source: можно указать свои серверы с квестами или зеркала. Можно добавить несколько и переключаться':
-      'Meander is open-source: you can point it at your own quest servers or mirrors. Add several and switch between them.',
   'Свой сервер — это отдельный бэкенд: у него своя база и свой вход. Сессия основного сервера на него не передаётся, а сервер видит всё, что вы на нём размещаете.':
       'A custom server is a separate backend: its own database and its own sign-in. The primary server session is never sent to it, and the server sees everything you store there.',
-  'Туннель: {p0} — трафик идёт через него зашифрованным':
-      'Tunnel: {p0} — traffic is encrypted end to end',
-  'Туннель недоступен: запросы идут напрямую или через зеркало':
-      'Tunnel unavailable: requests go directly or through a mirror',
   'Тест пинга': 'Ping test',
-  'Автовыбор': 'Auto-select',
-  'Активное зеркало': 'Active mirror',
   'Ваш сервер': 'Your server',
-  'Встроенное зеркало': 'Built-in mirror',
   'Нет ответа': 'No response',
+  'Серверы и ретрансляторы': 'Servers and relays',
+  'Оригинальный сервер один — {p0}. Если провайдер его блокирует, доступ дают ретрансляторы: они передают трафик, не расшифровывая его, поэтому не видят ни токен, ни переписку.':
+      'There is one original server — {p0}. If your provider blocks it, relays give you access: they forward traffic without decrypting it, so they never see your token or messages.',
+  'Активный сервер': 'Active server',
+  'Основной сервер': 'Primary server',
+  'Проверить соединение': 'Check connection',
+  'Ретрансляторы': 'Relays',
+  'Впишите host:port ретранслятора. Он передаёт зашифрованный трафик и не видит ни токен, ни переписку; поднять свой — инструкция в relay/README.md.':
+      'Enter the relay host:port. It forwards encrypted traffic and sees neither your token nor your messages; relay/README.md explains how to run your own.',
+  'Добавить ретранслятор': 'Add relay',
+  'Встроенный': 'Built-in',
+  'Свой': 'Own',
+  'Некорректный адрес ретранслятора': 'Invalid relay address',
+  'Ретранслятор добавлен': 'Relay added',
+  'Сейчас: через ретранслятор {p0}': 'Now: via relay {p0}',
+  'Сейчас: прямое соединение': 'Now: direct connection',
+  'Соединение через ретранслятор {p0}': 'Connected via relay {p0}',
+  'Прямое соединение работает': 'The direct connection works',
   'Поле пустое — зеркало не добавлено': 'The field is empty — no mirror added',
   'Сервер не отвечает': 'Server not responding',
   'Зеркало добавлено': 'Mirror added',
   'Подключение установлено': 'Connection established',
   'Все зеркала недоступны': 'All mirrors are unreachable',
   'Некорректный адрес сервера': 'Invalid server address',
-  'Сервер недоступен: возможно, ваш интернет-провайдер ограничивает доступ. Включите «ускоритель интернета» (сервис для улучшения соединения) или задайте своё зеркало в настройках. Разработчик не виноват':
-      'Cannot reach the server: your internet provider may be restricting access. Turn on an internet accelerator (a service that improves connectivity) or set a custom mirror in Settings. The developer is not at fault.',
+  'Сервер недоступен: возможно, ваш интернет-провайдер ограничивает доступ. Включите «ускоритель интернета» (сервис для улучшения соединения) или включите ретранслятор в настройках. Разработчик не виноват':
+      'Cannot reach the server: your internet provider may be restricting access. Turn on an internet accelerator (a service that improves connectivity) or enable a relay in Settings. The developer is not at fault.',
 };

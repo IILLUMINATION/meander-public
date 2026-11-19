@@ -71,7 +71,6 @@ final Map<String, String> enB5Editor1 = {
   'upper(текст) — «привет» → «ПРИВЕТ», кириллицу тоже': 'upper(text) — "hello" → "HELLO", works on Cyrillic too',
   '«Сверху», «Центр», «Экран» — готовые позиции: тап по ним прижимает рамку к этой точке и сбрасывает вашу. «Рамка» — тот же самый режим, но без пресета: рамку задают поля позиции и размера либо перетаскивание прямо на канвасе, и никто её не перезаписывает. Окно «320×200 по центру» делают через «Рамку», а не через «Центр» с смещениями.': '"Top", "Center", "Screen" are ready-made positions: tapping one snaps the frame to that point and resets yours. "Frame" is the same mode without a preset: the frame is set by the position and size fields or by dragging right on the canvas, and nothing overwrites it. The "320×200 centered" window is built with "Frame", not with "Center" plus offsets.',
   'Без закрепления стек — обычный элемент контента: прокручивается вместе с нодой. С закреплением — слой над прокруткой: панель, шторка или окно.': 'Without pinning, the stack is an ordinary content element: it scrolls with the node. With pinning it becomes a layer above the scroll: a panel, a curtain or a window.',
-  'Блоки вставлены ({p0})': 'Blocks inserted ({p0})',
   'Буфер': 'Clipboard',
   'Буфер обмена пуст': 'Clipboard is empty',
   'В архиве нет пресетов': 'No presets in the archive',

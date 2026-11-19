@@ -3,6 +3,7 @@
 /// Ключ — русская строка ровно как в коде (регистр и знаки включно);
 /// перевод обязан сохранять плейсхолдеры `{...}`.
 final Map<String, String> enB5Editor4 = {
+  'Ячейка сетки: номер строки — с 1, имя — если оно задано. Нажмите, чтобы подставить путь.': 'Grid cell: the row number is 1-based, or a row name if one is set. Tap to insert the path.',
   'Ячейка функцией (table_cell)': 'Cell by function (table_cell)',
   'без прилипания: объект там, где палец': 'no snapping: the object goes where your finger is',
   'в потоке': 'in flow',
@@ -34,17 +35,17 @@ final Map<String, String> enB5Editor4 = {
   'здесь кадр обрежется': 'the frame gets cropped here',
   'зум к курсору': 'zoom to cursor',
   'зум с клавиатуры': 'keyboard zoom',
-  'имя ключа, например gold': 'key name, for example gold',
   'какой список пополняем: items': 'which list we\'re filling: items',
   'какой список: items': 'which list: items',
   'кладётся в переменную, если ключа нет': 'gets stored in a variable if the key is missing',
   'клик': 'click',
   'клик ещё раз': 'click again',
+  'ключ (gold) или ячейка сетки ["колонка"][1]': 'a key (gold) or a grid cell ["column"][1]',
   'ключ (bread) или элемент с нуля: items[1] — второй': 'a key (bread) or an element from zero: items[1] is the second',
   'ключ таблицы: {p0}': 'table key: {p0}',
   'колесо мыши': 'mouse wheel',
   'копировать / вырезать': 'copy / cut',
-  'куда пишем: gold или items[0]': 'where we write: gold or items[0]',
+  'куда пишем: gold, items[0] или ["колонка"][1]': 'where we write: gold, items[0] or ["column"][1]',
   'лавка[\'ключ\'] — то же хранилище, с которым работает блок «Данные»': 'shop[\'key\'] — the same storage the "Data" block works with',
   'массив значений — дальше в sum(), join(), length()': 'array of values — pass it on to sum(), join(), length()',
   'массив номеров; length(table_where(…)) — сколько их': 'array of row numbers; length(table_where(…)) — how many there are',

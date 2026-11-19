@@ -10,7 +10,6 @@ final Map<String, String> enHub = {
   'Вес': 'Weight',
   'Готовим превью...': 'Preparing preview...',
   'Для голосования необходимо войти в систему.': 'Sign in to vote.',
-  'Добавлено в библиотеку: {p0}': 'Added to library: {p0}',
   'Загрузить ресурс': 'Upload resource',
   'Из config.json ваших и скачанных квестов. Опубликованные версии лежат в Хабе, в разделе «Пресеты маркета».': 'From the config.json of your quests and downloaded ones. Published versions live in the Hub, under "Market presets".',
   'Интерфейсные и игровые эффекты': 'UI and in-game effects',

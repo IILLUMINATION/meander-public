@@ -7,8 +7,6 @@ final Map<String, String> enB11Holes = {
   'Ваш квест отправлен модераторам. Это может занять некоторое время.':
       'Your quest has been sent to the moderators. This may take a while.',
   // table_editor_screen.dart
-  'Импортировано: {p0} столбцов, {p1} строк':
-      'Imported: {p0} columns, {p1} rows',
   // lua_docs_screen.dart
   'Каждый вызов изолирован — локальные переменные вне функций не сохраняются между шагами.':
       'Every call is isolated — local variables outside functions are not kept between steps.',
@@ -42,20 +40,45 @@ final Map<String, String> enB11Holes = {
       'core.go_to(node name) — you do not have to return from the function after it.',
   'open_link вернёт false для локальных и приватных адресов, а также для схем кроме http/https.':
       'open_link returns false for local and private addresses, and for any scheme other than http/https.',
-  'Задержки (wait) и плавные переходы (crossfade) остаются за блоками: скрипт выполняется атомарно и не «спит» внутри.':
-      'Delays (wait) and crossfades stay with the blocks: a script runs atomically and never "sleeps" inside.',
+  'Задержки (wait) остаются за блоками: скрипт выполняется атомарно и не «спит» внутри. Плавный переход собирается из core.fade_out / core.fade_in.':
+      'Delays (wait) stay with the blocks: a script runs atomically and never "sleeps" inside. A crossfade is assembled from core.fade_out / core.fade_in.',
   'Сетевые запросы (http_request) и вызов другого скрипта (call_script) в Lua пока не прокинуты.':
       'Network requests (http_request) and calling another script (call_script) are not wired into Lua yet.',
   'Нужен тайминг — ставьте блоки вокруг вызова скрипта: call_lua отвечает за логику, блоки — за ритм.':
       'Need timing — put blocks around the script call: call_lua owns the logic, blocks own the rhythm.',
-  'Доступные библиотеки: math, string, table, utf8, coroutine, package/require (только чистый Lua).':
-      'Available libraries: math, string, table, utf8, coroutine, package/require (pure Lua only).',
-  'Заблокированы опасные вызовы: os.execute, os.exit, os.remove, os.rename, io.popen, debug.':
-      'Dangerous calls are blocked: os.execute, os.exit, os.remove, os.rename, io.popen, debug.',
-  'Таблицы и переменные автоматически валидируются при записи.':
-      'Tables and variables are validated automatically on write.',
-  'Внешний мир — только через core.*: прямого доступа к файлам, сети и состоянию движка у Lua нет.':
-      'The outside world is reachable only through core.*: Lua has no direct access to files, the network or the engine state.',
+  'Доступные библиотеки: math, string, table, utf8, coroutine и os только с time/clock/date/difftime.':
+      'Available libraries: math, string, table, utf8, coroutine, and os limited to time/clock/date/difftime.',
+  'Нет io, package, require, dofile, loadfile, debug; string.dump выключен, load принимает только текст, а не байткод.':
+      'No io, package, require, dofile, loadfile or debug; string.dump is off and load accepts text only, never bytecode.',
+  'Скачанный квест не читает файлы, не видит переменные окружения и не запускает процессы — даже если очень попросит.':
+      'A downloaded quest cannot read files, see environment variables or start processes — however hard it tries.',
+  'Запись в служебные каналы (_internal_*) запрещена: ссылки, звук и сохранения идут только через core.* с проверками движка.':
+      'Writing to engine channels (_internal_*) is forbidden: links, sound and saves go only through core.* with engine-side checks.',
+  'Потолки на вызов: 10 млн инструкций, 2 секунды, 32 МБ памяти, 256 команд в очередь; значения переменных и таблиц ограничены по размеру.':
+      'Per-call ceilings: 10M instructions, 2 seconds, 32 MB of memory, 256 queued commands; variable and table values are size-limited.',
+  'Верхняя панель и затухание (core.set_top_panel, fade_out, fade_in)':
+      'Top panel and fading (core.set_top_panel, fade_out, fade_in)',
+  'Панель игры и звук: те же служебные каналы, что у блоков set_top_panel и crossfade. Пишите половины затухания сами, если между ними должен идти код, а не вложенные блоки.':
+      'Game panel and sound: the same service channels as the set_top_panel and crossfade blocks. Write the fade halves yourself when code, not nested blocks, has to run in between.',
+  'Состояние панели попадает в сейв: спрятанная перед переходом останется спрятанной после загрузки.':
+      'The panel state is part of the save: hidden before a transition, it stays hidden after loading.',
+  'fade_out/fade_in принимают секунды (как поле duration у crossfade) и возвращают false, если очередь команд этого вызова уже полна.':
+      'fade_out/fade_in take seconds (like the duration field of crossfade) and return false when this call has filled its command queue.',
+  'Сохранения (core.save_game, open_saves, load_save, delete_save)':
+      'Saves (core.save_game, open_saves, load_save, delete_save)',
+  'Ручные точки сохранения из скрипта: движок кладёт ту же команду, что блок save_operation, а выполняет её клиент в открытой игровой сессии.':
+      'Manual save points from a script: the engine queues the same command as the save_operation block, and the client runs it inside the open game session.',
+  'load_save без имени открывает список, как блок save_operation; delete_save без имени ничего не делает и возвращает false.':
+      'load_save without a name opens the list, like the save_operation block; delete_save without a name does nothing and returns false.',
+  'В вебе сохранения выполняет клиент: у ядра нет доступа к файлам.':
+      'On the web the client performs the save: the core has no file access.',
+  'Отладка (core.log)': 'Debugging (core.log)',
+  'Строки core.log попадают в журнал движка рядом с логами блоков — это единственный способ увидеть значения внутри скрипта, не ломая сцену.':
+      'core.log lines land in the engine log next to block logs — the only way to see values inside a script without breaking the scene.',
+  'Аргументы разделяются табуляцией, таблицы печатаются JSON-ом.':
+      'Arguments are separated by tabs; tables are printed as JSON.',
+  'За вызов сохраняется до 100 строк по 500 символов: цикл с логом не забьёт журнал.':
+      'Up to 100 lines of 500 characters are kept per call, so a logging loop cannot flood the journal.',
   // action_picker_screen.dart
   'Блок «Данные» читает и пишет ключи хранилища скриптов — лавка[\'ключ\']. Ряды сетки он не трогает: для них ссылки {лавка["цена"][1]} и функции table_*.':
       'The "Data" block reads and writes the script storage keys of a table — shop[\'key\']. It never touches grid rows: for those use a shop["price"][1] link and the table_* functions.',
@@ -119,8 +142,6 @@ final Map<String, String> enB11Holes = {
   // forum_provider.dart: текст ошибки уходит в снакбар.
   'Сервер не вернул сообщество': 'The server did not return the community',
   // table_editor_screen.dart: отчёт об удалении с кнопкой undo.
-  'Столбец «{p0}» удалён': 'Column "{p0}" deleted',
-  'Строка {p0} удалена': 'Row {p0} deleted',
   // resources_screen.dart: снакбары операций над ресурсами.
   'Скопировано скриптов: {p0}': 'Scripts copied: {p0}',
   'Скопировано: {p0}, с ошибками: {p1}': 'Copied: {p0}, with errors: {p1}',

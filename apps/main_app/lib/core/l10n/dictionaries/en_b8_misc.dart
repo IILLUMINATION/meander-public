@@ -35,9 +35,6 @@ final Map<String, String> enB8Misc = {
   // features/editor/screens/chapter_folder_picker_screen.dart
   'Без папки': 'No folder',
   // features/editor/screens/node_content/container_editor_screen.dart
-  'Шаблон вставлен': 'Template inserted',
-  'Шаблон вставлен (ресурсов: {p0}, пропущено: {p1})':
-      'Template inserted (resources: {p0}, skipped: {p1})',
   // features/editor/screens/visual_script_editor/variable_selection_screen.dart
   'ключей скриптов: {p0}': 'script keys: {p0}',
   // features/forums/models/forum_models.dart

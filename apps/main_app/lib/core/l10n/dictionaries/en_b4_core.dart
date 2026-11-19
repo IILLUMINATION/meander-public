@@ -13,7 +13,6 @@ final Map<String, String> enB4Core = {
   'Завершено!': 'Done!',
   'Замена квеста "{questTitle}"...': 'Replacing quest "{questTitle}"...',
   'Импорт отменён': 'Import cancelled',
-  'Квест импортирован': 'Quest imported',
   'Не удалось получить доступ к файлу .mnd': 'Could not access the .mnd file',
   'Не удалось получить путь к файлу.': 'Could not get the file path.',
   'Обнаружен конфликт: "{questTitle}"': 'Conflict detected: "{questTitle}"',
