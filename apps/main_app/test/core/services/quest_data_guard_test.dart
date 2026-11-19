@@ -97,6 +97,35 @@ void main() {
       expect(broken, ['config.json']);
     });
 
+    test('Lua-скрипт scripts/имя.lua.json не считается битым JSON', () async {
+      final dir = await createQuest('q-lua');
+      await File(p.join(dir.path, 'scripts', 'Lua-скрипт 1.lua.json'))
+          .create(recursive: true)
+          .then(
+            (file) => file.writeAsString(
+              '-- Lua-скрипт 1\nfunction start() end\n',
+            ),
+          );
+      await File(p.join(dir.path, 'scripts', 'broken.json'))
+          .writeAsString('{"blocks":[');
+
+      final broken = await QuestDataGuard.findBrokenJsonFiles(dir);
+      expect(broken, ['scripts/broken.json']);
+    });
+
+    test('Lua .lua.json не запускает снимок повреждённого квеста', () async {
+      final questDir = await createQuest('q-lua-only');
+      await File(p.join(questDir.path, 'scripts', 'Lua-скрипт 1.lua.json'))
+          .create(recursive: true)
+          .then((file) => file.writeAsString('function start() end'));
+
+      final result = await QuestDataGuard.protect('q-lua-only', snapshot: false);
+
+      expect(result.health, QuestDataHealth.healthy);
+      expect(result.brokenFiles, isEmpty);
+      expect(historyFiles('q-lua-only'), isEmpty);
+    });
+
     test('битый nodes.json откатывается на последний целый снимок', () async {
       final dir = await createQuest('q-repair');
       final goodNodes = readFile(dir, 'nodes.json');
@@ -151,6 +180,18 @@ void main() {
       expect(result.brokenSnapshot, startsWith('broken_'));
       expect(historyFiles('q-corrupt'), contains(result.brokenSnapshot));
       expect(readFile(dir, 'config.json'), '{"title":');
+
+      // Следующая вкладка не пишет второй полный снимок того же состояния.
+      final second = await QuestDataGuard.protect(
+        'q-corrupt',
+        snapshot: false,
+      );
+      expect(second.health, QuestDataHealth.corrupt);
+      expect(second.brokenSnapshot, isNull);
+      expect(
+        historyFiles('q-corrupt').where((f) => f.startsWith('broken_')),
+        hasLength(1),
+      );
     });
 
     test('снимок с битым содержимым не используется для отката', () async {

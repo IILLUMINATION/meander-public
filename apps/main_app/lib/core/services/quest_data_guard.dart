@@ -79,6 +79,12 @@ class QuestDataGuard {
   /// Квесты, по которым пользователю уже показали сообщение об откате.
   static final Set<String> _notified = {};
 
+  /// Квесты, для которых снимок повреждённого состояния уже сделан в этой
+  /// сессии. Копия 70-МБ квеста пишется секундами, а проверка идёт на
+  /// открытии каждого документа: без этого флага каждая вкладка заново
+  /// писала полный `broken_*.zip`, хотя состояние файлов не изменилось.
+  static final Set<String> _brokenSnapshotTaken = {};
+
   /// Проверки в полёте: редактор и игра могут открыть один квест
   /// одновременно (вкладка игры из редактора) — откат обязан быть один.
   static final Map<String, Future<QuestDataGuardResult>> _inFlight = {};
@@ -87,6 +93,7 @@ class QuestDataGuard {
   static void resetSessionCache() {
     _validated.clear();
     _notified.clear();
+    _brokenSnapshotTaken.clear();
     _inFlight.clear();
   }
 
@@ -169,7 +176,11 @@ class QuestDataGuard {
       );
     }
 
-    final brokenSnapshot = await LocalHistoryService.snapshotBroken(questId);
+    final takeBrokenSnapshot = !_brokenSnapshotTaken.contains(questId);
+    final brokenSnapshot = takeBrokenSnapshot
+        ? await LocalHistoryService.snapshotBroken(questId)
+        : null;
+    if (takeBrokenSnapshot) _brokenSnapshotTaken.add(questId);
 
     for (final snapshot in await LocalHistoryService.listSnapshots(questId)) {
       if (snapshot.fileName == brokenSnapshot) continue;
@@ -238,7 +249,13 @@ class QuestDataGuard {
       if (relative.startsWith('${LocalHistoryService.historyFolder}/')) {
         continue;
       }
-      if (!relative.toLowerCase().endsWith('.json')) continue;
+      final lower = relative.toLowerCase();
+      if (!lower.endsWith('.json')) continue;
+      // Легаси-скрипты Lua лежат как `scripts/имя.lua.json`: `.json`
+      // дописывал старый `QuestPaths.scriptFile`, но внутри — исходник Lua,
+      // а не JSON. Проверка на JSON объявляла такой квест повреждённым на
+      // каждом открытии и снимала полную копию перед «откатом».
+      if (lower.endsWith('.lua.json')) continue;
       // `.backup` не заканчивается на `.json`, но легаси-копии конфига
       // (config.json.backup) не читаются загрузчиком — их не проверяем.
       if (!_jsonIsReadableSync(entity, relative)) broken.add(relative);

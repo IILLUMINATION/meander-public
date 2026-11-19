@@ -16,10 +16,11 @@ import 'package:canvas_app/plugin_host/plugin_host_provider.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/material.dart';
+
+import 'package:canvas_app/core/services/session_recorder.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/screens/game_screen.dart' as player;
-import 'package:mnd_core/utils/quest_paths.dart';
-import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/load_trace.dart';
 import 'package:mnd_player/utils/quest_nodes_store.dart';
 
 /// Игровой экран main_app — тонкая обёртка над единым [player.GameScreen].
@@ -63,6 +64,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       questId: widget.questId,
       docKey: document?.id.persistenceKey ?? 'route:${_routeSessionCounter++}',
     );
+    SessionRecorder.instance.record('game', {
+      'action': 'start',
+      'questId': widget.questId,
+      'doc': _sessionKey.docKey,
+      'nodeId': widget.startNodeId,
+      'isTesting': widget.isTesting,
+    });
     if (const bool.fromEnvironment('dart.vm.product') == false) {
       final st = StackTrace.current.toString().split('\n').take(10).join(' | ');
       // ignore: avoid_print
@@ -74,6 +82,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   void dispose() {
+    SessionRecorder.instance.record('game', {
+      'action': 'exit',
+      'questId': widget.questId,
+      'doc': _sessionKey.docKey,
+    });
     if (const bool.fromEnvironment('dart.vm.product') == false) {
       final st = StackTrace.current.toString().split('\n').take(14).join('\n');
       // ignore: avoid_print
@@ -93,8 +106,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     // расползается по сохранениям.
     try {
       final protection = await QuestDataGuard.protect(widget.questId);
+      LoadTrace.mark('preflight: guard done');
       if (!mounted) return false;
       await notifyQuestDataProtection(context, protection);
+      LoadTrace.mark('preflight: guard dialog done');
       if (!mounted) return false;
     } catch (error, stack) {
       debugPrint('[QuestGuard] проверка перед игрой пропущена: $error\n$stack');
@@ -104,10 +119,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     // запуск из редактора и debug-сессии не должны блокироваться модалками.
     if (!widget.isTesting) {
       final preflightStart = DateTime.now();
-      void stageLog(String stage) => debugPrint(
-            '[Perf][Preflight] $stage: '
-            '${DateTime.now().difference(preflightStart).inMilliseconds}ms',
-          );
+      void stageLog(String stage) {
+        debugPrint(
+          '[Perf][Preflight] $stage: '
+          '${DateTime.now().difference(preflightStart).inMilliseconds}ms',
+        );
+        LoadTrace.mark('preflight: $stage');
+      }
+
       try {
         final quest = await ref.read(questProvider(widget.questId).future);
         if (!mounted) return false;
@@ -131,11 +150,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     }
 
     final canStart = await _ensureQuestPluginDependencies();
+    LoadTrace.mark('preflight: plugin deps checked');
     if (!canStart || !mounted) return false;
     HangWatchdog.mark('game init: plugin deps ok');
     ref
         .read(pluginHostProvider)
         .onQuestStart(widget.questId, fromSave: widget.saveSlot != null);
+    LoadTrace.mark('preflight: plugin host started');
     HangWatchdog.mark('game init: plugin started');
     return true;
   }
@@ -259,16 +280,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   Future<Set<String>> _collectQuestPluginDependencies() async {
-    final configPath = QuestPaths.config(widget.questId);
-    if (await FileStorage.exists(configPath)) {
-      try {
-        final config = await FileStorage.readJsonFile(configPath);
-        final list = config['pluginDependencies'];
-        if (list is List && list.isNotEmpty) {
-          return list.map((e) => e.toString()).toSet();
-        }
-      } catch (_) {}
-    }
+    // Конфиг уже разобран `questProvider` в этом же preflight: не читаем те же
+    // 24 КБ с диска ещё раз (на старте сессии это лишний async-round-trip,
+    // который в debug-сборке стоил до секунды).
+    try {
+      final quest = await ref.read(questProvider(widget.questId).future);
+      if (quest != null) return quest.pluginDependencies.toSet();
+    } catch (_) {}
     return _collectDependenciesFromNodes();
   }
 
@@ -342,6 +360,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isActive = EditorDocumentContext.maybeOf(context)?.isActive ?? true;
     return player.GameScreen(
       questId: widget.questId,
       docKey: _sessionKey.docKey,
@@ -349,6 +368,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       isOnboarding: widget.isOnboarding,
       saveSlot: widget.saveSlot,
       isTesting: widget.isTesting,
+      isActive: isActive,
       preflight: _preflight,
       onEditNode: widget.isTesting ? _editCurrentNode : null,
       onExit: () async {

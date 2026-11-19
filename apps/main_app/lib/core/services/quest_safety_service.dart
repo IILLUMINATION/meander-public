@@ -1,11 +1,14 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
-
 
 import 'package:canvas_app/core/services/api_service.dart';
 import 'package:mnd_core/models/quest_descriptor.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/load_trace.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
+import 'package:path/path.dart' as p;
 
 /// Результат локальной проверки URL перед открытием ссылки или запросом.
 class NetworkUrlDecision {
@@ -160,6 +163,172 @@ class QuestSafetyReport {
   bool get shouldShowWarning => shouldWarnAboutInternet || isStale;
 }
 
+/// Результат фонового прохода по содержимому квеста.
+class _SafetyDocScan {
+  final int internetBlocks;
+  final int blockedUrls;
+  final String? configUpdatedRaw;
+  final int docCount;
+
+  const _SafetyDocScan({
+    required this.internetBlocks,
+    required this.blockedUrls,
+    required this.configUpdatedRaw,
+    required this.docCount,
+  });
+}
+
+/// Отпечаток состояния квеста синхронно — для [Isolate.run].
+///
+/// Только `stat`: на попадании в кэш сотни тел скриптов не читаются.
+String? _questFingerprintOnDisk(String rootPath) {
+  try {
+    final configFile = File(p.join(rootPath, 'config.json'));
+    if (!configFile.existsSync()) return null;
+    final stat = configFile.statSync();
+    final parts = <String>[
+      'config:${stat.modified.millisecondsSinceEpoch}:${stat.size}',
+    ];
+    for (final folder in const ['scripts', '_internal_scripts']) {
+      parts.add(
+        '$folder:${_dirFingerprint(Directory(p.join(rootPath, folder)))}',
+      );
+    }
+    return parts.join('|');
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Прочитать/проверить содержимое квеста синхронно — для [Isolate.run].
+///
+/// Синхронный I/O здесь намеренно: в фоновом изоляте нет кадров, и один
+/// проход по 450 файлам занимает десятки миллисекунд вместо десятков секунд
+/// на `await`-очереди UI-изолята.
+_SafetyDocScan _scanSafetyDocsOnDisk(String rootPath) {
+  final configFile = File(p.join(rootPath, 'config.json'));
+  var internetBlocks = 0;
+  var blockedUrls = 0;
+  var docCount = 0;
+
+  void inspectFile(String path) {
+    try {
+      final file = File(path);
+      if (!file.existsSync()) return;
+      final decoded = jsonDecode(file.readAsStringSync());
+      final counts = _inspectSafetyDocument(decoded);
+      internetBlocks += counts.$1;
+      blockedUrls += counts.$2;
+      docCount++;
+    } catch (_) {
+      // Битый файл — забота QuestDataGuard; аудит его просто пропускает.
+    }
+  }
+
+  inspectFile(p.join(rootPath, 'config.json'));
+  inspectFile(p.join(rootPath, 'nodes.json'));
+  inspectFile(p.join(rootPath, 'nodes', 'nodes.json'));
+  for (final folder in const ['scripts', '_internal_scripts']) {
+    try {
+      final files =
+          Directory(p.join(rootPath, folder))
+              .listSync()
+              .whereType<File>()
+              .where((file) => file.path.endsWith('.json'))
+              .map((file) => file.path)
+              .toList()
+            ..sort();
+      for (final path in files) {
+        inspectFile(path);
+      }
+    } catch (_) {
+      // Нет каталога — нет файлов.
+    }
+  }
+
+  String? configUpdatedRaw;
+  try {
+    if (configFile.existsSync()) {
+      final config = jsonDecode(configFile.readAsStringSync());
+      if (config is Map) {
+        final raw =
+            config['marketUpdatedAt'] ??
+            config['market_updated_at'] ??
+            config['updatedAt'] ??
+            config['updated_at'] ??
+            config['lastEditedAt'] ??
+            config['last_edited_at'] ??
+            config['updated'] ??
+            config['created'] ??
+            config['created_at'];
+        configUpdatedRaw = raw?.toString();
+      }
+    }
+  } catch (_) {}
+
+  return _SafetyDocScan(
+    internetBlocks: internetBlocks,
+    blockedUrls: blockedUrls,
+    configUpdatedRaw: configUpdatedRaw,
+    docCount: docCount,
+  );
+}
+
+/// mtime каталога + отсортированный (имя, mtime, size) его `.json`-файлов.
+String _dirFingerprint(Directory dir) {
+  try {
+    if (!dir.existsSync()) return 'missing';
+    final dirStat = dir.statSync();
+    final entries = <String>[];
+    for (final entity in dir.listSync()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      final stat = entity.statSync();
+      entries.add(
+        '${entity.uri.pathSegments.last}'
+        ':${stat.modified.millisecondsSinceEpoch}:${stat.size}',
+      );
+    }
+    entries.sort();
+    return '${dirStat.modified.millisecondsSinceEpoch};'
+        '${entries.length};${entries.join(',')}';
+  } catch (_) {
+    return 'error';
+  }
+}
+
+/// Сетевые блоки в произвольном JSON квеста.
+(int, int) _inspectSafetyDocument(dynamic value) {
+  var internetBlocks = 0;
+  var blockedUrls = 0;
+
+  void visit(dynamic current) {
+    if (current is List) {
+      for (final item in current) {
+        visit(item);
+      }
+      return;
+    }
+    if (current is! Map) return;
+
+    final type = current['type']?.toString().toLowerCase();
+    if (type == 'open_link' || type == 'http_request') {
+      internetBlocks++;
+      final rawUrl = current['url']?.toString().trim();
+      if (rawUrl != null &&
+          rawUrl.isNotEmpty &&
+          !QuestNetworkSafety.checkUrl(rawUrl).allowed) {
+        blockedUrls++;
+      }
+    }
+    for (final child in current.values) {
+      visit(child);
+    }
+  }
+
+  visit(value);
+  return (internetBlocks, blockedUrls);
+}
+
 /// Анализирует локальный квест до запуска игровой сессии.
 ///
 /// Отчёт кэшируется по отпечатку квеста (mtime `config.json` + mtime и
@@ -177,74 +346,45 @@ class QuestSafetyService {
     required ApiService api,
   }) async {
     final inspectStart = DateTime.now();
-    void stageLog(String stage) => debugPrint(
-          '[Perf][Safety] $stage: '
-          '${DateTime.now().difference(inspectStart).inMilliseconds}ms',
-        );
+    void stageLog(String stage) {
+      debugPrint(
+        '[Perf][Safety] $stage: '
+        '${DateTime.now().difference(inspectStart).inMilliseconds}ms',
+      );
+      LoadTrace.mark('safety: $stage');
+    }
 
-    final fingerprint = await _questFingerprint(quest.id);
+    // Чтение сотен файлов и `jsonDecode` — в отдельном изоляте. В UI-изоляте
+    // каждый `await` ждёт своей очереди между кадрами: на квесте с 450
+    // скриптами аудит занимал ~17 с, хотя синхронное чтение тех же файлов —
+    // десятки миллисекунд. Здесь это фоновый проход без завязки на кадры.
+    final rootPath = await FileStorage.getFilePath(
+      QuestPaths.questRoot(quest.id),
+    );
+    final fingerprint = await Isolate.run(
+      () => _questFingerprintOnDisk(rootPath),
+    );
+    stageLog('fingerprint');
     final cached = _reportCache[quest.id];
     if (cached != null && cached.$1 == fingerprint) {
       stageLog('cache hit');
       return cached.$2;
     }
 
-    final documents = <Map<String, dynamic>>[];
-    final config = await _readJsonIfExists(QuestPaths.config(quest.id));
-    stageLog('config');
-    if (config != null) documents.add(config);
+    final scan = await Isolate.run(() => _scanSafetyDocsOnDisk(rootPath));
+    stageLog('scan (${scan.docCount} docs)');
 
-    for (final path in [
-      QuestPaths.nodesLegacy(quest.id),
-      QuestPaths.nodesCanonical(quest.id),
-    ]) {
-      final nodes = await _readJsonIfExists(path);
-      if (nodes != null) documents.add(nodes);
-    }
-    stageLog('nodes');
-
-    for (final folder in const ['scripts', '_internal_scripts']) {
-      final files = await _listJsonFiles(
-        QuestPaths.questFile(quest.id, folder),
-      );
-      for (final file in files) {
-        final script = await _readJsonIfExists(
-          QuestPaths.questFile(quest.id, '$folder/$file'),
-        );
-        if (script != null) documents.add(script);
-      }
-    }
-    stageLog('scripts loaded (${documents.length} docs)');
-
-    var internetBlocks = 0;
-    var blockedUrls = 0;
-    for (final document in documents) {
-      final counts = _inspectValue(document);
-      internetBlocks += counts.$1;
-      blockedUrls += counts.$2;
-    }
-    stageLog('visited: internetBlocks=$internetBlocks');
-
+    final internetBlocks = scan.internetBlocks;
     final verified = internetBlocks > 0
         ? await _resolveAuthorVerification(quest, api)
         : false;
     stageLog('verification resolved: $verified');
 
-    final configDate = _parseDate(
-      config?['marketUpdatedAt'] ??
-          config?['market_updated_at'] ??
-          config?['updatedAt'] ??
-          config?['updated_at'] ??
-          config?['lastEditedAt'] ??
-          config?['last_edited_at'] ??
-          config?['updated'] ??
-          config?['created'] ??
-          config?['created_at'],
-    );
+    final configDate = _parseDate(scan.configUpdatedRaw);
 
     final report = QuestSafetyReport(
       internetBlockCount: internetBlocks,
-      blockedUrlCount: blockedUrls,
+      blockedUrlCount: scan.blockedUrls,
       // Для локальных квестов серверной даты нет: дата создания —
       // безопасный fallback, чтобы старый квест тоже получил предупреждение.
       lastEditedAt:
@@ -260,107 +400,6 @@ class QuestSafetyService {
       _reportCache[quest.id] = (fingerprint, report);
     }
     return report;
-  }
-
-  /// Отпечаток состояния квеста на диске: mtime/size `config.json`,
-  /// mtime/size/состав каталогов `scripts` и `_internal_scripts`.
-  /// `null` — если каталога квеста нет (кэш не используем).
-  Future<String?> _questFingerprint(String questId) async {
-    try {
-      final parts = <String>[];
-      final configPath = await FileStorage.getFilePath(
-        QuestPaths.config(questId),
-      );
-      final configFile = File(configPath);
-      if (await configFile.exists()) {
-        final stat = await configFile.stat();
-        parts.add('config:${stat.modified.millisecondsSinceEpoch}:${stat.size}');
-      } else {
-        return null;
-      }
-      for (final folder in const ['scripts', '_internal_scripts']) {
-        final folderStat =
-            await _dirStat(await FileStorage.getFilePath(
-          QuestPaths.questFile(questId, folder),
-        ));
-        parts.add('$folder:${folderStat ?? 'missing'}');
-      }
-      return parts.join('|');
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// mtime каталога + отсортированный (имя, mtime, size) его .json-файлов.
-  /// Точечные правки файлов видны без чтения содержимого.
-  Future<String?> _dirStat(String path) async {
-    try {
-      final dir = Directory(path);
-      if (!await dir.exists()) return null;
-      final dirStat = await dir.stat();
-      final entries = <String>[];
-      await for (final entity in dir.list()) {
-        if (entity is! File || !entity.path.endsWith('.json')) continue;
-        final stat = await entity.stat();
-        entries.add(
-          '${entity.uri.pathSegments.last}'
-          ':${stat.modified.millisecondsSinceEpoch}:${stat.size}',
-        );
-      }
-      return '${dirStat.modified.millisecondsSinceEpoch};'
-          '${entries.length};${entries.join(',')}';
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<Map<String, dynamic>?> _readJsonIfExists(String path) async {
-    try {
-      if (!await FileStorage.exists(path)) return null;
-      return await FileStorage.readJsonFile(path);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<List<String>> _listJsonFiles(String path) async {
-    try {
-      return await FileStorage.listFiles(path, extension: '.json');
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  (int, int) _inspectValue(dynamic value) {
-    var internetBlocks = 0;
-    var blockedUrls = 0;
-
-    void visit(dynamic current) {
-      if (current is List) {
-        for (final item in current) {
-          visit(item);
-        }
-        return;
-      }
-      if (current is! Map) return;
-
-      final type = current['type']?.toString().toLowerCase();
-      if (type == 'open_link' || type == 'http_request') {
-        internetBlocks++;
-        final rawUrl = current['url']?.toString().trim();
-        if (rawUrl != null &&
-            rawUrl.isNotEmpty &&
-            !QuestNetworkSafety.checkUrl(rawUrl).allowed) {
-          blockedUrls++;
-        }
-      }
-      for (final child in current.values) {
-        visit(child);
-      }
-    }
-
-    visit(value);
-    return (internetBlocks, blockedUrls);
   }
 
   Future<bool> _resolveAuthorVerification(Quest quest, ApiService api) async {

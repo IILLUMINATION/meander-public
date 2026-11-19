@@ -17,6 +17,7 @@ import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/features/plugins/providers/plugin_registry_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mnd_player/providers/game_screen_provider.dart';
+import 'package:mnd_player/utils/load_trace.dart';
 
 // Реэкспорт для обратной совместимости.
 export 'package:mnd_player/providers/game_screen_provider.dart'
@@ -28,7 +29,10 @@ export 'package:mnd_player/providers/game_screen_provider.dart'
 /// playtime-трекинг. Переопределяется в корневом ProviderScope.
 final appGameScreenHooksProvider = Provider<GameScreenHooks>((ref) {
   return GameScreenHooks(
-    onStep: (step) => HangWatchdog.mark(step),
+    onStep: (step) {
+      HangWatchdog.mark(step);
+      LoadTrace.mark(step);
+    },
     onError: (e, s, ctx) => CrashLogService.handle(e, s, ctx),
     listenContentChanges: (questId, cb) =>
         QuestContentChangeBus.instance.listen(questId, cb),
