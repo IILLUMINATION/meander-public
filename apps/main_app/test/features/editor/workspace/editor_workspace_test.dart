@@ -775,6 +775,67 @@ void main() {
       expect(controller.contains(canvas.id), isFalse);
     });
 
+    test('backTarget двигает указатель, а не выкидывает записи истории', () {
+      // Жалоба «попал в цикл экранов»: прежняя реализация снимала верхушку
+      // стека, поэтому после первого возврата история считалась исчерпанной
+      // и следующий «Назад» закрывал вкладку вместо второго шага назад.
+      final controller = EditorWorkspaceController('q1');
+      final chapters = EditorDocumentDescriptor.chapters('q1');
+      final canvas = EditorDocumentDescriptor.canvas('q1', 'tag1');
+      final node = EditorDocumentDescriptor.node('q1', 'node1');
+
+      controller.open(chapters);
+      controller.open(canvas);
+      controller.open(node);
+
+      expect(controller.historyBackSteps, 2);
+      expect(controller.backTarget()?.id, canvas.id);
+      expect(controller.historyBackSteps, 1);
+      // Возврат по истории не открывает документ сам — это делает шелл
+      // без записи визита, поэтому состояние не меняется.
+      expect(controller.activeId, node.id);
+      expect(controller.backTarget()?.id, chapters.id);
+      expect(controller.backTarget(), isNull);
+      expect(controller.activeId, node.id);
+    });
+
+    test('чередование A→B→A не цик лит: история кончается', () {
+      final controller = EditorWorkspaceController('q1');
+      final chapters = EditorDocumentDescriptor.chapters('q1');
+      final canvas = EditorDocumentDescriptor.canvas('q1', 'tag1');
+
+      controller.open(chapters);
+      controller.open(canvas);
+      controller.open(chapters);
+
+      // История [главы, канвас, главы]: три шага назад и выход.
+      expect(controller.goBack(), isTrue);
+      expect(controller.activeId, canvas.id);
+      expect(controller.goBack(), isTrue);
+      expect(controller.activeId, chapters.id);
+      expect(controller.goBack(), isFalse);
+    });
+
+    test('replace на уже открытый документ схлопывает дубликат', () {
+      // Режим без табов/подъём «вверх»: нода заменяется канвасом, который
+      // уже открыт вкладкой. Два документа с одним id ломают дерево вкладок
+      // и историю — «Назад» начинает прыгать между записями одного экрана.
+      final controller = EditorWorkspaceController('q1');
+      final canvas = EditorDocumentDescriptor.canvas('q1', 'tag1');
+      final node = EditorDocumentDescriptor.node('q1', 'node1');
+
+      controller.open(canvas);
+      controller.open(node);
+      expect(controller.state.documents.length, 2);
+
+      controller.replace(node.id, canvas);
+
+      final ids = controller.state.documents.map((d) => d.id).toList();
+      expect(ids, [canvas.id], reason: 'дубликат канваса не появился');
+      expect(controller.activeId, canvas.id);
+      expect(controller.contains(node.id), isFalse);
+    });
+
     test('goBack reopens documents through a replace chain', () {
       // Режим без табов: каждая навигация заменяет единственную вкладку.
       final controller = EditorWorkspaceController('q1');

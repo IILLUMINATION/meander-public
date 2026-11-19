@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_image_source.dart';
@@ -13,10 +14,14 @@ class ChatEditorScreen extends StatefulWidget {
   final String questId;
   final ContentItem existingItem;
 
+  /// Автосохранение в родительскую вкладку без закрытия экрана.
+  final ValueChanged<ContentItem>? onChanged;
+
   const ChatEditorScreen({
     super.key,
     required this.questId,
     required this.existingItem,
+    this.onChanged,
   });
 
   @override
@@ -24,6 +29,7 @@ class ChatEditorScreen extends StatefulWidget {
 }
 
 class _ChatEditorScreenState extends State<ChatEditorScreen> {
+  String? _lastAutosave;
   late TextEditingController _senderController;
   late TextEditingController _textController;
   late bool _isIncoming;
@@ -58,8 +64,43 @@ class _ChatEditorScreenState extends State<ChatEditorScreen> {
     _avatarPath = widget.existingItem.avatarPath;
     _avatarColor = widget.existingItem.avatarColor ?? 0xFF26C6DA;
     _animateIn = widget.existingItem.animateIn;
+    _lastAutosave = _snapshot(_buildItem());
+    _senderController.addListener(_scheduleAutosave);
+    _textController.addListener(_scheduleAutosave);
     _loadMetadataNames();
   }
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _scheduleAutosave();
+  }
+
+  void _scheduleAutosave() => _emitAutosave();
+
+  String _snapshot(ContentItem item) => item.toJson().toString();
+
+  void _emitAutosave() {
+    final onChanged = widget.onChanged;
+    if (onChanged == null) return;
+    final item = _buildItem();
+    final snapshot = _snapshot(item);
+    if (snapshot == _lastAutosave) return;
+    _lastAutosave = snapshot;
+    onChanged(item);
+  }
+
+  ContentItem _buildItem() => ContentItem(
+    id: widget.existingItem.id,
+    type: 'chat',
+    text: _textController.text,
+    senderName: _senderController.text.trim(),
+    isIncoming: _isIncoming,
+    avatarPath: _avatarPath,
+    avatarColor: _avatarColor,
+    animateIn: _animateIn,
+    flex: widget.existingItem.flex,
+  );
 
   @override
   void dispose() {
@@ -120,17 +161,7 @@ class _ChatEditorScreenState extends State<ChatEditorScreen> {
       return;
     }
 
-    final result = ContentItem(
-      id: widget.existingItem.id,
-      type: 'chat',
-      text: _textController.text,
-      senderName: sender,
-      isIncoming: _isIncoming,
-      avatarPath: _avatarPath,
-      avatarColor: _avatarColor,
-      animateIn: _animateIn,
-      flex: widget.existingItem.flex,
-    );
+    final result = _buildItem();
 
     if (!mounted) return;
     Navigator.pop(context, result);

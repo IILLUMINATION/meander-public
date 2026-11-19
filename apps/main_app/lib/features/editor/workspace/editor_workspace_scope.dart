@@ -27,6 +27,11 @@ class EditorDocumentContext extends InheritedWidget {
 }
 
 class EditorWorkspaceScope extends InheritedWidget {
+  /// Квест, в рабочей области которого открыт этот scope. Нужен экранам,
+  /// которые умеют становиться вкладками, но не знают id квеста (профиль,
+  /// каталог, настройки).
+  final String questId;
+
   final void Function(EditorDocumentDescriptor descriptor) openDocument;
   final void Function(EditorDocumentDescriptor descriptor) openForcedAsNewTab;
   final VoidCallback showNewTabSheet;
@@ -49,6 +54,7 @@ class EditorWorkspaceScope extends InheritedWidget {
 
   const EditorWorkspaceScope({
     super.key,
+    required this.questId,
     required this.openDocument,
     required this.openForcedAsNewTab,
     required this.showNewTabSheet,
@@ -75,6 +81,7 @@ class EditorWorkspaceScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(EditorWorkspaceScope oldWidget) =>
+      questId != oldWidget.questId ||
       openDocument != oldWidget.openDocument ||
       openForcedAsNewTab != oldWidget.openForcedAsNewTab ||
       showNewTabSheet != oldWidget.showNewTabSheet ||

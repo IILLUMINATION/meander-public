@@ -7,6 +7,7 @@ import 'package:canvas_app/models/content_item_model.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
 import 'package:canvas_app/features/editor/screens/node_selection_screen.dart';
 import 'package:canvas_app/features/editor/services/trigger_service.dart';
+import 'package:canvas_app/features/editor/workspace/editor_nested_documents.dart';
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
 import 'package:canvas_app/features/resources/services/resource_service.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_editor_screen.dart';
@@ -39,6 +40,13 @@ class ButtonEditorScreen extends StatefulWidget {
   final String? initialText;
   final String? initialTarget;
 
+  /// Стабильный id для новой кнопки: без него каждое автосохранение
+  /// создавало бы новый элемент в ноде.
+  final String? draftId;
+
+  /// Автосохранение в родительскую вкладку без закрытия экрана.
+  final ValueChanged<ContentItem>? onChanged;
+
   const ButtonEditorScreen({
     super.key,
     required this.questId,
@@ -46,6 +54,8 @@ class ButtonEditorScreen extends StatefulWidget {
     this.existingItem,
     this.initialText,
     this.initialTarget,
+    this.draftId,
+    this.onChanged,
   });
 
   @override
@@ -53,6 +63,7 @@ class ButtonEditorScreen extends StatefulWidget {
 }
 
 class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
+  String? _lastAutosave;
   final _textController = TextEditingController();
   _ButtonActionType _actionType = _ButtonActionType.goToNode;
   String? _targetNodeId;
@@ -95,9 +106,31 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
     if (_scriptPath != null && _scriptPath!.isNotEmpty) {
       _actionType = _ButtonActionType.runScript;
     }
+    _lastAutosave = _snapshot(_buildItem(validate: false));
+    _textController.addListener(_scheduleAutosave);
     _loadMetadataNames();
     _loadButtonPresets();
     _resolveTargetNodeTitle();
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _scheduleAutosave();
+  }
+
+  void _scheduleAutosave() => _emitAutosave();
+
+  String? _snapshot(ContentItem? item) => item?.toJson().toString();
+
+  void _emitAutosave() {
+    final onChanged = widget.onChanged;
+    if (onChanged == null) return;
+    final item = _buildItem(validate: false);
+    final snapshot = _snapshot(item);
+    if (snapshot == _lastAutosave) return;
+    _lastAutosave = snapshot;
+    if (item != null) onChanged(item);
   }
 
   @override
@@ -362,11 +395,13 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   }
 
   Future<void> _openPresetsEditor() async {
-    await Navigator.push(
+    await EditorNestedDocuments.open<void>(
       context,
-      MaterialPageRoute(
-        builder: (_) => ButtonStylePresetsScreen(questId: widget.questId),
-      ),
+      questId: widget.questId,
+      identity:
+          'button-presets:${widget.currentNodeId}:${widget.existingItem?.id ?? 'new'}',
+      title: tr('Кастомные кнопки'),
+      builder: (_) => ButtonStylePresetsScreen(questId: widget.questId),
     );
     await _loadButtonPresets();
     if (!mounted) return;
@@ -380,16 +415,27 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
   /// кнопки), и поверх пресета (копия пресета становится индивидуальным
   /// стилем кнопки).
   Future<void> _openStyleEditor() async {
-    final edited = await Navigator.push<ButtonStyleConfig>(
+    final edited = await EditorNestedDocuments.open<ButtonStyleConfig>(
       context,
-      MaterialPageRoute(
-        builder: (_) => ButtonStyleEditorScreen(
-          questId: widget.questId,
-          initialStyle: _buttonStyle,
-          sampleText: _textController.text.trim().isEmpty
-              ? null
-              : _textController.text.trim(),
-        ),
+      questId: widget.questId,
+      identity: 'button-style:${widget.currentNodeId}:${widget.existingItem?.id ?? 'new'}',
+      title: tr('Настройки кнопки'),
+      builder: (_) => ButtonStyleEditorScreen(
+        questId: widget.questId,
+        initialStyle: _buttonStyle,
+        sampleText: _textController.text.trim().isEmpty
+            ? null
+            : _textController.text.trim(),
+        onChanged: (style) {
+          if (!mounted) return;
+          setState(() {
+            _buttonStyle = style.copyWith(
+              presetId: 'custom',
+              presetName: null,
+            );
+            _styleChoice = 'custom';
+          });
+        },
       ),
     );
     // null = отмена или «не менял параметры» — стиль остаётся как был.
@@ -480,27 +526,34 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
     }
   }
 
-  Future<bool> _save() async {
+  /// Собирает кнопку из текущего состояния. [validate] — для кнопки
+  /// «Сохранить»: автосохранению незачем требовать выбранную ноду/скрипт,
+  /// иначе первые же набранные символы не попадали бы в ноду.
+  ContentItem? _buildItem({required bool validate}) {
     final text = _textController.text.trim();
     if (text.isEmpty) {
-      _showSnack(tr('Введите текст кнопки'));
-      return false;
+      if (validate) _showSnack(tr('Введите текст кнопки'));
+      return null;
     }
 
-    if (_actionType == _ButtonActionType.goToNode && _targetNodeId == null) {
+    if (validate &&
+        _actionType == _ButtonActionType.goToNode &&
+        _targetNodeId == null) {
       _showSnack(tr('Выберите ноду для перехода'));
-      return false;
+      return null;
     }
-    if (_actionType == _ButtonActionType.runScript && _scriptPath == null) {
+    if (validate &&
+        _actionType == _ButtonActionType.runScript &&
+        _scriptPath == null) {
       _showSnack(tr('Выберите или создайте скрипт'));
-      return false;
+      return null;
     }
 
     Map<String, String>? triggers = widget.existingItem?.scriptTriggers != null
         ? Map.from(widget.existingItem!.scriptTriggers!)
         : null;
 
-    if (_actionType == _ButtonActionType.runScript) {
+    if (_actionType == _ButtonActionType.runScript && _scriptPath != null) {
       triggers ??= {};
       triggers['onPress'] = _scriptPath!;
     } else {
@@ -508,8 +561,11 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
       if (triggers != null && triggers.isEmpty) triggers = null;
     }
 
-    final result = ContentItem(
-      id: widget.existingItem?.id ?? const Uuid().v4(),
+    return ContentItem(
+      id:
+          widget.existingItem?.id ??
+          widget.draftId ??
+          const Uuid().v4(),
       type: 'button',
       text: text,
       targetNodeId: _actionType == _ButtonActionType.goToNode
@@ -521,7 +577,11 @@ class _ButtonEditorScreenState extends State<ButtonEditorScreen> {
       wrapTextOverride: _wrapTextOverride,
       buttonStyle: _buttonStyle,
     );
+  }
 
+  Future<bool> _save() async {
+    final result = _buildItem(validate: true);
+    if (result == null) return false;
     Navigator.pop(context, result);
     return true;
   }

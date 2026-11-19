@@ -284,14 +284,6 @@ class _TemplateManagerScreenState extends ConsumerState<TemplateManagerScreen>
     } else {
       await actions.saveToQuest(widget.questId!, imported.template);
     }
-    if (mounted) {
-      final hasAssets = imported.template.assets.isNotEmpty;
-      _showSnack(
-        hasAssets
-            ? trf('Шаблон импортирован ({p0} ресурсов)', {'p0': imported.template.assets.length})
-            : tr('Шаблон импортирован'),
-      );
-    }
   }
 
   Future<String?> _askName(String initial) {

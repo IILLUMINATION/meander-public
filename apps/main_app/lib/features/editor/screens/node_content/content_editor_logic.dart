@@ -16,6 +16,7 @@ import 'package:uuid/uuid.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_launcher.dart';
+import 'package:canvas_app/features/editor/workspace/editor_nested_documents.dart';
 
 class ContentEditorLogic {
   final BuildContext context;
@@ -28,7 +29,10 @@ class ContentEditorLogic {
     required this.currentNodeId,
   });
 
-  Future<ContentItem?> createItemByType(String type) async {
+  Future<ContentItem?> createItemByType(
+    String type, {
+    void Function(ContentItem item)? onDraft,
+  }) async {
     switch (type) {
       case 'row':
         return ContentItem(id: const Uuid().v4(), type: 'row', children: []);
@@ -45,16 +49,16 @@ class ContentEditorLogic {
           borderRadius: 12,
         );
       case 'text':
-        return addText();
+        return addText(onDraft: onDraft);
       case 'image':
         return addResource('image');
       case 'audio':
         return addResource('audio');
       case 'video':
-        return addVideo();
+        return addVideo(onDraft: onDraft);
       case 'button':
       case 'button_jump':
-        return addButton();
+        return addButton(onDraft: onDraft);
       case 'input':
         return addInput();
       case 'delay':
@@ -63,7 +67,7 @@ class ContentEditorLogic {
       case 'wait_input':
         return addWaitInput();
       case 'modal':
-        return addModal();
+        return addModal(onDraft: onDraft);
       case 'chat':
         return ContentItem(id: const Uuid().v4(), type: 'chat');
       case 'spacer':
@@ -79,33 +83,41 @@ class ContentEditorLogic {
     }
   }
 
-  Future<ContentItem?> addText({String? initialText}) async {
-    final result = await Navigator.push<MarkdownEditorResult>(
+  ContentItem _textItem(String id, MarkdownEditorResult result) => ContentItem(
+    id: id,
+    type: 'text',
+    text: result.text,
+    fontFamily: result.fontFamily,
+    textSize: result.textSize,
+    // Режим появления выбран в этом же редакторе — раньше сюда не доезжал,
+    // и «Печать» умирала на первом выходе; со второго раза настройку
+    // сохранял путь редактирования готового айтема.
+    textReveal: result.textReveal,
+    revealSpeed: result.revealSpeed,
+    textOutlineColor: result.textOutlineColor,
+    textOutlineWidth: result.textOutlineWidth,
+    flex: 1,
+  );
+
+  Future<ContentItem?> addText({
+    String? initialText,
+    void Function(ContentItem item)? onDraft,
+  }) async {
+    final draftId = const Uuid().v4();
+    final result = await EditorNestedDocuments.open<MarkdownEditorResult>(
       context,
-      MaterialPageRoute(
-        builder: (_) => MarkdownEditorScreen(
-          initialText: initialText ?? '',
-          questId: questId,
-        ),
+      questId: questId,
+      identity: 'text:$currentNodeId:$draftId',
+      title: tr('Текст'),
+      builder: (_) => MarkdownEditorScreen(
+        initialText: initialText ?? '',
+        questId: questId,
+        onChanged: onDraft == null
+            ? null
+            : (result) => onDraft(_textItem(draftId, result)),
       ),
     );
-    if (result != null) {
-      return ContentItem(
-        id: const Uuid().v4(),
-        type: 'text',
-        text: result.text,
-        fontFamily: result.fontFamily,
-        textSize: result.textSize,
-        // Режим появления выбран в этом же редакторе — раньше сюда не доезжал,
-        // и «Печать» умирала на первом выходе; со второго раза настройку
-        // сохранял путь редактирования готового айтема.
-        textReveal: result.textReveal,
-        revealSpeed: result.revealSpeed,
-        textOutlineColor: result.textOutlineColor,
-        textOutlineWidth: result.textOutlineWidth,
-        flex: 1,
-      );
-    }
+    if (result != null) return _textItem(draftId, result);
     return null;
   }
 
@@ -133,17 +145,22 @@ class ContentEditorLogic {
     String? initialText,
     String? initialTarget,
     ContentItem? existingItem,
+    void Function(ContentItem item)? onDraft,
   }) async {
-    final result = await Navigator.push<ContentItem>(
+    final draftId = existingItem?.id ?? const Uuid().v4();
+    final result = await EditorNestedDocuments.open<ContentItem>(
       context,
-      MaterialPageRoute(
-        builder: (_) => ButtonEditorScreen(
-          questId: questId,
-          currentNodeId: currentNodeId,
-          existingItem: existingItem,
-          initialText: initialText,
-          initialTarget: initialTarget,
-        ),
+      questId: questId,
+      identity: 'button:$currentNodeId:$draftId',
+      title: tr('Кнопка'),
+      builder: (_) => ButtonEditorScreen(
+        questId: questId,
+        currentNodeId: currentNodeId,
+        existingItem: existingItem,
+        initialText: initialText,
+        initialTarget: initialTarget,
+        draftId: draftId,
+        onChanged: onDraft,
       ),
     );
     return result;
@@ -522,31 +539,57 @@ class ContentEditorLogic {
     return null;
   }
 
-  Future<ContentItem?> addModal() async {
-    final result = await Navigator.push<ContentItem>(
+  Future<ContentItem?> addModal({
+    void Function(ContentItem item)? onDraft,
+  }) async {
+    final draftId = const Uuid().v4();
+    final result = await EditorNestedDocuments.open<ContentItem>(
       context,
-      MaterialPageRoute(builder: (_) => ModalEditorScreen(questId: questId)),
-    );
-    return result;
-  }
-
-  Future<ContentItem?> editModal({required ContentItem existing}) async {
-    final result = await Navigator.push<ContentItem>(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            ModalEditorScreen(questId: questId, existingItem: existing),
+      questId: questId,
+      identity: 'modal:$currentNodeId:$draftId',
+      title: tr('Модальное окно'),
+      builder: (_) => ModalEditorScreen(
+        questId: questId,
+        draftId: draftId,
+        onChanged: onDraft,
       ),
     );
     return result;
   }
 
-  Future<ContentItem?> addVideo({ContentItem? existing}) async {
-    final result = await Navigator.push<ContentItem>(
+  Future<ContentItem?> editModal({
+    required ContentItem existing,
+    void Function(ContentItem item)? onChanged,
+  }) async {
+    final result = await EditorNestedDocuments.open<ContentItem>(
       context,
-      MaterialPageRoute(
-        builder: (_) =>
-            VideoEditorScreen(questId: questId, existingItem: existing),
+      questId: questId,
+      identity: 'modal:$currentNodeId:${existing.id}',
+      title: tr('Модальное окно'),
+      builder: (_) => ModalEditorScreen(
+        questId: questId,
+        existingItem: existing,
+        onChanged: onChanged,
+      ),
+    );
+    return result;
+  }
+
+  Future<ContentItem?> addVideo({
+    ContentItem? existing,
+    void Function(ContentItem item)? onDraft,
+  }) async {
+    final draftId = existing?.id ?? const Uuid().v4();
+    final result = await EditorNestedDocuments.open<ContentItem>(
+      context,
+      questId: questId,
+      identity: 'video:$currentNodeId:$draftId',
+      title: tr('Видео'),
+      builder: (_) => VideoEditorScreen(
+        questId: questId,
+        existingItem: existing,
+        draftId: draftId,
+        onChanged: onDraft,
       ),
     );
     return result;

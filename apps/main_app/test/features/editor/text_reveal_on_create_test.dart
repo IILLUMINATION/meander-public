@@ -59,6 +59,45 @@ void main() {
     return created;
   }
 
+  testWidgets('новый текст попадает в ноду до закрытия вкладки', (
+    WidgetTester tester,
+  ) async {
+    final drafts = <ContentItem>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    await ContentEditorLogic(
+                      context: context,
+                      questId: 'quest-1',
+                      currentNodeId: 'n1',
+                    ).createItemByType('text', onDraft: drafts.add);
+                  },
+                  child: const Text('создать текст'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('создать текст'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'черновик');
+    await tester.pump();
+
+    expect(drafts, isNotEmpty, reason: 'правка уходит без «Назад»');
+    expect(drafts.last.text, 'черновик');
+
+    await tester.tap(find.byTooltip('Закрыть и сохранить'));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('«Печать» при создании текста не теряется', (
     WidgetTester tester,
   ) async {

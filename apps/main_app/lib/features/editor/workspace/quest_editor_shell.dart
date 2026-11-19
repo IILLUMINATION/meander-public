@@ -13,11 +13,20 @@ import 'package:canvas_app/core/services/hang_watchdog.dart';
 
 import 'editor_back_handler.dart';
 import 'editor_document.dart';
+import 'editor_nested_documents.dart';
 import 'editor_document_launcher.dart';
 import 'editor_tabs_bar.dart';
 import 'editor_tabs_overview.dart';
 import 'editor_workspace_controller.dart';
 import 'editor_workspace_scope.dart';
+import '../../../core/services/session_recorder.dart';
+import '../../community/screens/community_screen.dart';
+import '../../market/screens/market_screen.dart';
+import '../../messages/screens/chats_screen.dart';
+import '../../profile/screens/profile_screen.dart';
+import '../../quests/screens/my_quests_screen.dart';
+import '../../quests/screens/quest_details_screen.dart';
+import '../../settings/screens/settings_screen.dart';
 import 'editor_workspace_session.dart';
 
 class QuestEditorShell extends ConsumerStatefulWidget {
@@ -30,11 +39,17 @@ class QuestEditorShell extends ConsumerStatefulWidget {
   @visibleForTesting
   final Widget Function(EditorDocumentDescriptor document)? documentBuilder;
 
+  /// Подмена содержимого вкладки «Меню квеста» для тестов: настоящий экран
+  /// тянет сеть и файлы квеста, а проверяется здесь только сам факт вкладки.
+  @visibleForTesting
+  final WidgetBuilder? questMenuBuilder;
+
   const QuestEditorShell({
     super.key,
     required this.questId,
     this.initialDocument,
     this.documentBuilder,
+    this.questMenuBuilder,
   });
 
   @override
@@ -44,20 +59,56 @@ class QuestEditorShell extends ConsumerStatefulWidget {
 class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
     with WidgetsBindingObserver {
   late final Map<ShortcutActivator, VoidCallback> _shortcuts;
+
   /// Реестр back-обработчиков документов. Живёт в State, чтобы пересборки
   /// шелла не теряли регистрации вкладок.
   late final EditorBackHandlers _backHandlers = EditorBackHandlers();
   bool _tabsEnabled = true;
   bool _autoOpenTab = false;
+  String? _userId;
   final Set<EditorDocumentId> _pinnedIds = {};
+
   /// Маршрут редактора уже снимают — повторный pop закрыл бы и экран под
   /// ним (см. [_popEditorRoute]).
   bool _routeExitRequested = false;
   Timer? _persistDebounce;
+
+  /// Пульс состояния редактора для журнала диагностики: вкладки, активный
+  /// документ, грязные буферы. Пока запись не идёт — таймер спит.
+  Timer? _diagnosticsPulse;
   final GlobalKey<_EditorDocumentSurfaceState> _surfaceKey =
       GlobalKey<_EditorDocumentSurfaceState>();
   EditorWorkspaceController get controller =>
       ref.read(editorWorkspaceControllerProvider(widget.questId).notifier);
+
+  /// Контекст ниже [EditorWorkspaceScope]: у контекста самого State scope
+  /// ещё нет, поэтому `EditorNestedDocuments.open` из него уходил бы в
+  /// обычный маршрут вместо вкладки.
+  BuildContext get _workspaceContext => _surfaceKey.currentContext ?? context;
+
+  /// Журнал диагностики: действие в редакторе и текущее состояние вкладок.
+  /// Пишется только во время записи сессии тестировщика.
+  void _recordEditor(
+    String action, {
+    String? doc,
+    Map<String, Object?> extra = const {},
+  }) {
+    final recorder = SessionRecorder.instance;
+    if (!recorder.isActive) return;
+    final state = ref.read(editorWorkspaceControllerProvider(widget.questId));
+    recorder.record('editor', {
+      'action': action,
+      'doc': ?doc,
+      'active': state.activeId?.persistenceKey,
+      'tabs': [
+        for (final document in state.documents) document.id.persistenceKey,
+      ],
+      'backSteps': controller.historyBackSteps,
+      'tabsEnabled': _tabsEnabled,
+      'autoOpenTab': _autoOpenTab,
+      ...extra,
+    });
+  }
 
   @override
   void initState() {
@@ -90,6 +141,19 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
             _focusTabIndex(index),
     };
     _loadEditorSettings();
+    _diagnosticsPulse = Timer.periodic(const Duration(seconds: 5), (_) {
+      final recorder = SessionRecorder.instance;
+      if (!mounted || !recorder.isActive) return;
+      final state = ref.read(editorWorkspaceControllerProvider(widget.questId));
+      recorder.record('state', {
+        'active': state.activeId?.persistenceKey,
+        'tabs': [
+          for (final document in state.documents)
+            {'id': document.id.persistenceKey, 'dirty': document.isDirty},
+        ],
+        'backSteps': controller.historyBackSteps,
+      });
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_restoreSession());
@@ -99,12 +163,14 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
   @override
   void dispose() {
     _persistDebounce?.cancel();
+    _diagnosticsPulse?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    SessionRecorder.instance.record('lifecycle', {'state': state.name});
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       unawaited(controller.flushDirtyDocuments());
@@ -117,6 +183,7 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       setState(() {
         _tabsEnabled = prefs.getBool('editor_tabs_enabled') ?? true;
         _autoOpenTab = prefs.getBool('editor_auto_open_tab') ?? false;
+        _userId = prefs.getString('user_id');
       });
     }
   }
@@ -149,8 +216,7 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       controller.restore(restored);
     }
     HangWatchdog.mark('restore session: restored');
-    final docs = ref
-        .read(editorWorkspaceControllerProvider(widget.questId));
+    final docs = ref.read(editorWorkspaceControllerProvider(widget.questId));
     if (docs.documents.isEmpty) {
       await _open(
         widget.initialDocument ??
@@ -165,8 +231,9 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
     await _persistSession();
   }
 
-  Future<void> _persistSession() =>
-      ref.read(editorWorkspaceSessionStoreProvider).save(
+  Future<void> _persistSession() => ref
+      .read(editorWorkspaceSessionStoreProvider)
+      .save(
         widget.questId,
         ref.read(editorWorkspaceControllerProvider(widget.questId)),
       );
@@ -179,10 +246,13 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
     });
   }
 
-  Future<void> _open(EditorDocumentDescriptor descriptor) async {
+  Future<void> _open(
+    EditorDocumentDescriptor descriptor, {
+    bool record = true,
+  }) async {
     // Уже открыта — просто фокус (не зависит от настроек, защита от дублей).
     if (controller.contains(descriptor.id)) {
-      _focus(descriptor.id);
+      _focus(descriptor.id, record: record);
       return;
     }
     if (!_tabsEnabled) {
@@ -193,12 +263,12 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       if (currentId != null) {
         if (_pinnedIds.contains(currentId)) {
           _captureLeaving(controller.activeId);
-          controller.open(descriptor);
+          controller.open(descriptor, record: record);
           _schedulePersist();
           return;
         }
         await controller.flushIfDirty(currentId);
-        controller.replace(currentId, descriptor);
+        controller.replace(currentId, descriptor, record: record);
         _schedulePersist();
         return;
       }
@@ -210,18 +280,23 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       if (currentId != null) {
         if (_pinnedIds.contains(currentId)) {
           _captureLeaving(controller.activeId);
-          controller.open(descriptor);
+          controller.open(descriptor, record: record);
           _schedulePersist();
           return;
         }
         await controller.flushIfDirty(currentId);
-        controller.replace(currentId, descriptor);
+        controller.replace(currentId, descriptor, record: record);
         _schedulePersist();
         return;
       }
     }
     _captureLeaving(controller.activeId);
-    controller.open(descriptor);
+    controller.open(descriptor, record: record);
+    _recordEditor(
+      'open',
+      doc: descriptor.id.persistenceKey,
+      extra: {'record': record},
+    );
     _schedulePersist();
   }
 
@@ -249,10 +324,14 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
     });
   }
 
-  void _focus(EditorDocumentId id) {
+  /// Переключение на вкладку. `record: false` — переход по истории «Назад»:
+  /// визит уже есть в истории, повторная запись сдвинула бы указатель и
+  /// «Назад» начал бы ходить по кругу между двумя экранами.
+  void _focus(EditorDocumentId id, {bool record = true}) {
     // capturePreview убран с hot path — только для обзора вкладок.
     // Раньше каждый свитч делал boundary.toImage (GPU readback) и лагал.
-    controller.focus(id);
+    controller.focus(id, record: record);
+    _recordEditor('focus', doc: id.persistenceKey, extra: {'record': record});
     _schedulePersist();
   }
 
@@ -292,7 +371,9 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
 
   Future<void> _closeRight(EditorDocumentId anchorId) async {
     // Удаляем пины справа от якоря
-    final docs = ref.read(editorWorkspaceControllerProvider(widget.questId)).documents;
+    final docs = ref
+        .read(editorWorkspaceControllerProvider(widget.questId))
+        .documents;
     final idx = docs.indexWhere((d) => d.id == anchorId);
     if (idx >= 0) {
       final toRemove = docs.skip(idx + 1).map((d) => d.id).toSet();
@@ -414,7 +495,10 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
 
   /// Конвертирует persistenceKey обратно в EditorDocumentId.
   EditorDocumentId? _docIdFromKey(String key) {
-    for (final doc in ref.read(editorWorkspaceControllerProvider(widget.questId)).documents) {
+    for (final doc
+        in ref
+            .read(editorWorkspaceControllerProvider(widget.questId))
+            .documents) {
       if (doc.id.persistenceKey == key) return doc.id;
     }
     return null;
@@ -427,6 +511,8 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       EditorDocumentKind.visualScript => scheme.secondary,
       EditorDocumentKind.lua => scheme.secondary,
       EditorDocumentKind.resources => scheme.tertiary,
+      EditorDocumentKind.questMenu => scheme.primary,
+      EditorDocumentKind.screen => scheme.primary,
       _ => null,
     };
   }
@@ -446,11 +532,13 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
         top: false,
         child: _NewTabSheet(
           questId: widget.questId,
+          userId: _userId,
           onOpen: (descriptor) {
             Navigator.of(sheetContext).pop();
             // Явное действие пользователя «Новая вкладка» — всегда принудительно.
             _openForcedAsNewTab(descriptor);
           },
+          onOpenScreen: _openScreenTab,
         ),
       ),
     );
@@ -486,6 +574,7 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
   Future<bool> _close(EditorDocumentId id) async {
     _pinnedIds.remove(id);
     final result = await controller.close(id);
+    _recordEditor('close', doc: id.persistenceKey, extra: {'closed': result});
     _surfaceKey.currentState?.prunePreviews(_liveIds());
     if (result) {
       await _persistSession();
@@ -498,7 +587,8 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
   /// чтобы пользователь не увидел пустой экран шелла.
   Future<void> _exitWhenEmpty() async {
     if (!mounted) return;
-    if (ref.read(editorWorkspaceControllerProvider(widget.questId))
+    if (ref
+        .read(editorWorkspaceControllerProvider(widget.questId))
         .documents
         .isNotEmpty) {
       return;
@@ -527,11 +617,48 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       await controller.flushDirtyDocuments();
     } catch (_) {}
     await _persistSession();
-    _popEditorRoute();
+    if (!mounted) return;
+    // Меню квеста — такая же вкладка, как главы или ресурсы. Повторное
+    // нажатие «домика» фокусирует уже открытую вкладку, а не плодит копии.
+    unawaited(
+      EditorNestedDocuments.open<void>(
+        _workspaceContext,
+        questId: widget.questId,
+        identity: 'quest-menu',
+        title: tr('Меню квеста'),
+        kind: EditorDocumentKind.questMenu,
+        builder:
+            widget.questMenuBuilder ??
+            (_) => QuestDetailsScreen(questId: widget.questId),
+      ),
+    );
+  }
+
+  /// Открыть произвольный экран приложения вкладкой воркспейса.
+  void _openScreenTab(
+    String identity,
+    String title,
+    IconData icon,
+    WidgetBuilder builder,
+  ) {
+    unawaited(
+      EditorNestedDocuments.open<void>(
+        _workspaceContext,
+        questId: widget.questId,
+        identity: identity,
+        title: title,
+        kind: EditorDocumentKind.screen,
+        icon: icon,
+        builder: builder,
+      ),
+    );
   }
 
   /// Единая точка «Назад» на маршруте редактора.
   ///
+  /// 0. Документ со своей глубиной (библиотека ресурсов: папки) получает
+  ///    «Назад» первым: внутри папки это выход на уровень выше, а не прыжок
+  ///    в предыдущую вкладку. `false` — глубина кончилась, дальше по списку.
   /// 1. Пустой воркспейс → выход.
   /// 2. Браузерная история: возврат к предыдущей посещённой вкладке,
   ///    текущая остаётся открытой.
@@ -549,29 +676,54 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
       _popEditorRoute();
       return;
     }
-    final backTarget = controller.popBackTarget();
-    if (backTarget != null) {
-      await _open(backTarget);
+    final activeId = state.activeId ?? state.documents.last.id;
+    // У вкладки-инструмента собственный навигатор. Системная «Назад» приходит
+    // корневому, поэтому сначала снимаем её верхний маршрут (пикер, вложенный
+    // редактор), иначе закрыли бы вкладку вместе с черновиком.
+    if (activeId.kind.isNested &&
+        await EditorNestedDocuments.maybePop(activeId)) {
       return;
     }
+    final backTarget = controller.backTarget();
+    _recordEditor(
+      'back',
+      doc: state.activeId?.persistenceKey,
+      extra: {'target': backTarget?.id.persistenceKey},
+    );
 
-    final activeId = state.activeId ?? state.documents.last.id;
+    // Внутренняя глубина документа (папки библиотеки) — раньше истории.
+    if (_backHandlers.takesBackBeforeHistory(activeId)) {
+      final handled = await _backHandlers.handlerFor(activeId)!();
+      if (!mounted) return;
+      if (handled) {
+        _schedulePersistIfClosed(activeId);
+        return;
+      }
+    }
+
+    if (backTarget != null) {
+      await _open(backTarget, record: false);
+      return;
+    }
 
     if (state.documents.length > 1) {
       final handler = _backHandlers.handlerFor(activeId);
       if (handler == null) {
-        // Документ «Назад» не перехватывает (Ресурсы) — вкладку закрывает
-        // шелл; runtime-вето в controller.close остаётся в силе.
+        // Документ «Назад» не перехватывает — вкладку закрывает шелл;
+        // runtime-вето в controller.close остаётся в силе.
         await _close(activeId);
         return;
       }
-      await handler();
+      final handled = await handler();
       if (!mounted) return;
+      if (!handled) {
+        // Глубины у документа не осталось — «Назад» закрывает вкладку.
+        await _close(activeId);
+        return;
+      }
       // Veto: документ не закрылся (остались в диалоге несохранённых
       // изменений) — ничего не делаем.
-      final after = ref.read(editorWorkspaceControllerProvider(widget.questId));
-      final closed = !after.documents.any((d) => d.id == activeId);
-      if (closed) _schedulePersist();
+      _schedulePersistIfClosed(activeId);
       return;
     }
 
@@ -593,10 +745,17 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
     _popEditorRoute();
   }
 
+  /// Документ закрыл себя обработчиком «Назад» — сессию пора сохранить.
+  void _schedulePersistIfClosed(EditorDocumentId activeId) {
+    final after = ref.read(editorWorkspaceControllerProvider(widget.questId));
+    if (!after.documents.any((d) => d.id == activeId)) _schedulePersist();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(editorWorkspaceControllerProvider(widget.questId));
     final scope = EditorWorkspaceScope(
+      questId: widget.questId,
       openDocument: _open,
       openForcedAsNewTab: _openForcedAsNewTab,
       showNewTabSheet: _openNewTabMenu,
@@ -618,77 +777,83 @@ class _QuestEditorShellState extends ConsumerState<QuestEditorShell>
         child: EditorBackRegistry(
           holder: _backHandlers,
           child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        body: CallbackShortcuts(
-          bindings: _shortcuts,
-          child: Focus(
-            autofocus: true,
-            child: Column(
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final compact = constraints.maxWidth < constraints.maxHeight;
-                    if (!_tabsEnabled) return const SizedBox.shrink();
-                  return EditorTabsBar(
-                      tabs: _buildTabData(state),
-                      activeTabId: state.activeId?.persistenceKey,
-                      onSelect: (id) {
-                        final docId = _docIdFromKey(id);
-                        if (docId != null) _focus(docId);
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            body: CallbackShortcuts(
+              bindings: _shortcuts,
+              child: Focus(
+                autofocus: true,
+                child: Column(
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final compact =
+                            constraints.maxWidth < constraints.maxHeight;
+                        if (!_tabsEnabled) return const SizedBox.shrink();
+                        return EditorTabsBar(
+                          tabs: _buildTabData(state),
+                          activeTabId: state.activeId?.persistenceKey,
+                          onSelect: (id) {
+                            final docId = _docIdFromKey(id);
+                            if (docId != null) _focus(docId);
+                          },
+                          onClose: (id) async {
+                            final docId = _docIdFromKey(id);
+                            if (docId != null) await _close(docId);
+                          },
+                          onNewTab: _openNewTabMenu,
+                          onGuides: _openGuides,
+                          onExitToMenu: _exitToQuestMenu,
+                          onShowOverview: _openTabsOverview,
+                          onTogglePin: state.activeId == null
+                              ? null
+                              : () => _togglePin(state.activeId!),
+                          isPinnedActive:
+                              state.activeId != null &&
+                              _pinnedIds.contains(state.activeId),
+                          onCollapsePanes: compact ? null : _collapsePanes,
+                          onContextAction: (tabId, action) {
+                            final docId = _docIdFromKey(tabId);
+                            if (docId == null) return;
+                            switch (action) {
+                              case TabContextAction.close:
+                                _close(docId);
+                              case TabContextAction.closeOthers:
+                                _closeOthers(docId);
+                              case TabContextAction.closeToRight:
+                                _closeRight(docId);
+                              case TabContextAction.closeAll:
+                                _closeAll();
+                              case TabContextAction.splitRight:
+                                if (!compact) _splitRight(docId);
+                              case TabContextAction.splitDown:
+                                if (!compact) _splitDown(docId);
+                              case TabContextAction.pinAsNewTab:
+                                _openNewTabMenu();
+                              case TabContextAction.togglePin:
+                                _togglePin(docId);
+                            }
+                          },
+                        );
                       },
-                      onClose: (id) async {
-                        final docId = _docIdFromKey(id);
-                        if (docId != null) await _close(docId);
-                      },
-                      onNewTab: _openNewTabMenu,
-                      onGuides: _openGuides,
-                      onExitToMenu: _exitToQuestMenu,
-                      onShowOverview: _openTabsOverview,
-                      onTogglePin: state.activeId == null ? null : () => _togglePin(state.activeId!),
-                      isPinnedActive: state.activeId != null && _pinnedIds.contains(state.activeId),
-                      onCollapsePanes: compact ? null : _collapsePanes,
-                      onContextAction: (tabId, action) {
-                        final docId = _docIdFromKey(tabId);
-                        if (docId == null) return;
-                        switch (action) {
-                          case TabContextAction.close:
-                            _close(docId);
-                          case TabContextAction.closeOthers:
-                            _closeOthers(docId);
-                          case TabContextAction.closeToRight:
-                            _closeRight(docId);
-                          case TabContextAction.closeAll:
-                            _closeAll();
-                          case TabContextAction.splitRight:
-                            if (!compact) _splitRight(docId);
-                          case TabContextAction.splitDown:
-                            if (!compact) _splitDown(docId);
-                          case TabContextAction.pinAsNewTab:
-                            _openNewTabMenu();
-                          case TabContextAction.togglePin:
-                            _togglePin(docId);
-                          }
-                      },
-                    );
-                  },
+                    ),
+                    Expanded(
+                      child: _EditorDocumentSurface(
+                        key: _surfaceKey,
+                        workspace: state,
+                        questId: widget.questId,
+                        documentBuilder:
+                            widget.documentBuilder ??
+                            EditorDocumentLauncher.buildDocument,
+                        onFocusDocument: _focus,
+                        onClosePane: _closePane,
+                        onResizeSplit: _resizeSplit,
+                        onEvictDocument: (id) => unawaited(controller.save(id)),
+                      ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: _EditorDocumentSurface(
-                    key: _surfaceKey,
-                    workspace: state,
-                    questId: widget.questId,
-                    documentBuilder:
-                        widget.documentBuilder ??
-                        EditorDocumentLauncher.buildDocument,
-                    onFocusDocument: _focus,
-                    onClosePane: _closePane,
-                    onResizeSplit: _resizeSplit,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
           ),
         ),
       ),
@@ -705,6 +870,13 @@ class _EditorDocumentSurface extends StatefulWidget {
   final ValueChanged<EditorDocumentId> onClosePane;
   final void Function(List<bool> path, double ratio) onResizeSplit;
 
+  /// Вытеснение вкладки из LRU-кэша поверхностей: документ сейчас
+  /// размонтируется. Вызывается ДО сборки новых детей — экран успевает
+  /// поставить запись в очередь хранилища раньше, чем пересозданный экземпляр
+  /// прочитает файл, иначе тот показывал устаревшее содержимое и следующим
+  /// автосейвом затирал свежую правку.
+  final ValueChanged<EditorDocumentId>? onEvictDocument;
+
   const _EditorDocumentSurface({
     super.key,
     required this.workspace,
@@ -713,6 +885,7 @@ class _EditorDocumentSurface extends StatefulWidget {
     required this.onFocusDocument,
     required this.onClosePane,
     required this.onResizeSplit,
+    this.onEvictDocument,
   });
 
   @override
@@ -772,9 +945,8 @@ class _EditorDocumentSurfaceState extends State<_EditorDocumentSurface> {
 
   /// Чистит превью (с dispose нативной памяти) для закрытых вкладок.
   void prunePreviews(Set<EditorDocumentId> liveIds) {
-    for (final id in previews.keys
-        .where((id) => !liveIds.contains(id))
-        .toList()) {
+    for (final id
+        in previews.keys.where((id) => !liveIds.contains(id)).toList()) {
       previews.remove(id)?.dispose();
     }
     _boundaryKeys.removeWhere((id, _) => !liveIds.contains(id));
@@ -794,12 +966,29 @@ class _EditorDocumentSurfaceState extends State<_EditorDocumentSurface> {
     super.didUpdateWidget(oldWidget);
     final ws = widget.workspace;
     final oldWs = oldWidget.workspace;
+    // Вкладки, которые сейчас уйдут из кэша поверхностей: их экраны будут
+    // размонтированы, а `dispose` экрана ставит запись в очередь ПОЗЖЕ, чем
+    // новый экземпляр успевает прочитать файл (дети собираются раньше, чем
+    // Flutter снимает старые элементы). Поэтому сохраняем их здесь, до
+    // сборки: хранилище сериализует запись и последующее чтение.
+    final evicting = _keepSet(oldWs).difference(_keepSet(ws));
+    if (evicting.isNotEmpty) {
+      for (final id in evicting) {
+        if (ws.documents.any((document) => document.id == id)) {
+          widget.onEvictDocument?.call(id);
+        }
+      }
+    }
     if (ws.activeId != oldWs.activeId && ws.activeId != null) {
       _lastUsed[ws.activeId!] = ++_tick;
     }
-    final visible = ws.layout.paneTree?.documentIds.toSet() ?? const <EditorDocumentId>{};
-    final oldVisible = oldWs.layout.paneTree?.documentIds.toSet() ?? const <EditorDocumentId>{};
-    if (visible.length != oldVisible.length || !visible.containsAll(oldVisible)) {
+    final visible =
+        ws.layout.paneTree?.documentIds.toSet() ?? const <EditorDocumentId>{};
+    final oldVisible =
+        oldWs.layout.paneTree?.documentIds.toSet() ??
+        const <EditorDocumentId>{};
+    if (visible.length != oldVisible.length ||
+        !visible.containsAll(oldVisible)) {
       for (final id in visible) {
         _lastUsed[id] = ++_tick;
       }
@@ -815,11 +1004,25 @@ class _EditorDocumentSurfaceState extends State<_EditorDocumentSurface> {
       return ws.documents.map((d) => d.id).toSet();
     }
     final active = ws.activeId;
-    final visible = ws.layout.paneTree?.documentIds.toSet() ?? const <EditorDocumentId>{};
+    final visible =
+        ws.layout.paneTree?.documentIds.toSet() ?? const <EditorDocumentId>{};
     // Include active + visible first (без мутации _lastUsed — она в didUpdateWidget)
     final keep = <EditorDocumentId>{};
     if (active != null) keep.add(active);
     keep.addAll(visible);
+    // Документ с несброшенным буфером не размонтируем: размонтирование
+    // уничтожает состояние экрана, и правка доезжает до диска только
+    // асинхронным флешем из `dispose`.
+    keep.addAll(ws.documents.where((d) => d.isDirty).map((d) => d.id));
+    // Вложенные редакторы держат в памяти builder и состояние, а их колбэки
+    // пишут в родительскую вкладку. Поэтому не вытесняем ни сам инструмент,
+    // ни родителя, пока инструмент открыт.
+    for (final document in ws.documents) {
+      if (!document.id.kind.isNested) continue;
+      keep.add(document.id);
+      final parent = document.parentId;
+      if (parent != null) keep.add(parent);
+    }
     // Most recent by tick
     final sorted = _lastUsed.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -855,10 +1058,7 @@ class _EditorDocumentSurfaceState extends State<_EditorDocumentSurface> {
             : _computePaneLayout(tree, surfaceRect);
         final paneWidgets = _buildPaneWidgets(workspace, layout, surfaceRect);
 
-        return Stack(
-          fit: StackFit.expand,
-          children: paneWidgets,
-        );
+        return Stack(fit: StackFit.expand, children: paneWidgets);
       },
     );
   }
@@ -943,7 +1143,9 @@ class _EditorDocumentSurfaceState extends State<_EditorDocumentSurface> {
     // размонтируются. Раньше все оставались смонтированными.
     final keep = _keepSet(workspace);
     final visibleIds = layout.rects.keys.toSet();
-    final docsToBuild = documents.where((d) => keep.contains(d.id) || visibleIds.contains(d.id)).toList();
+    final docsToBuild = documents
+        .where((d) => keep.contains(d.id) || visibleIds.contains(d.id))
+        .toList();
     return [
       for (final document in docsToBuild)
         KeyedSubtree(
@@ -1025,9 +1227,9 @@ class _EmptyWorkspacePlaceholder extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               tr('Открытых вкладок нет'),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -1296,9 +1498,22 @@ _PaneLayoutResult _computePaneLayout(EditorDockNode node, Rect area) {
 /// открыть сразу. Canvas/ноды открываются контекстно из этих экранов.
 class _NewTabSheet extends StatelessWidget {
   final String questId;
+  final String? userId;
   final ValueChanged<EditorDocumentDescriptor> onOpen;
+  final void Function(
+    String identity,
+    String title,
+    IconData icon,
+    WidgetBuilder builder,
+  )
+  onOpenScreen;
 
-  const _NewTabSheet({required this.questId, required this.onOpen});
+  const _NewTabSheet({
+    required this.questId,
+    required this.userId,
+    required this.onOpen,
+    required this.onOpenScreen,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1353,6 +1568,52 @@ class _NewTabSheet extends StatelessWidget {
         EditorDocumentDescriptor.questHistory(questId),
       ),
     ];
+    final screenEntries = <(IconData, String, String, String, WidgetBuilder)>[
+      (
+        Icons.auto_stories_rounded,
+        tr('Мои квесты'),
+        tr('Библиотека квестов'),
+        'library',
+        (_) => MyQuestsScreen(isRoot: true),
+      ),
+      (
+        Icons.explore_rounded,
+        tr('Каталог'),
+        tr('Маркет квестов и ассетов'),
+        'market',
+        (_) => MarketScreen(isRoot: true),
+      ),
+      (
+        Icons.public_rounded,
+        tr('Сообщество'),
+        tr('Лента авторов и обсуждения'),
+        'community',
+        (_) => CommunityScreen(),
+      ),
+      if (userId != null)
+        (
+          Icons.forum_rounded,
+          tr('Чаты'),
+          tr('Личные сообщения'),
+          'chats',
+          (_) => ChatsScreen(),
+        ),
+      if (userId != null)
+        (
+          Icons.person_rounded,
+          tr('Профиль'),
+          tr('Профиль и публикации'),
+          'profile',
+          (_) => ProfileScreen(userId: userId!),
+        ),
+      (
+        Icons.settings_rounded,
+        tr('Настройки'),
+        tr('Настройки приложения'),
+        'settings',
+        (_) => SettingsScreen(),
+      ),
+    ];
 
     return SafeArea(
       top: false,
@@ -1390,6 +1651,41 @@ class _NewTabSheet extends StatelessWidget {
                 ),
                 subtitle: Text(subtitle),
                 onTap: () => onOpen(descriptor),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+              child: Text(
+                tr('Экраны приложения'),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            for (final (icon, title, subtitle, identity, builder)
+                in screenEntries)
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: scheme.onSecondaryContainer,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(subtitle),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onOpenScreen(identity, title, icon, builder);
+                },
               ),
             const SizedBox(height: 12),
           ],

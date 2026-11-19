@@ -27,12 +27,13 @@ class EditorDocumentRuntime {
 }
 
 final editorWorkspaceControllerProvider = StateNotifierProvider.autoDispose
-    .family<EditorWorkspaceController, EditorWorkspaceState, String>(
-      (ref, questId) {
-        ref.keepAlive();
-        return EditorWorkspaceController(questId);
-      },
-    );
+    .family<EditorWorkspaceController, EditorWorkspaceState, String>((
+      ref,
+      questId,
+    ) {
+      ref.keepAlive();
+      return EditorWorkspaceController(questId);
+    });
 
 class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   /// Сколько последних закрытых вкладок помнить для Ctrl+Shift+T.
@@ -51,6 +52,14 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   /// не сериализуется и пересобирается в [restore].
   final List<EditorDocumentDescriptor> _navStack = [];
 
+  /// Позиция текущего экрана в [_navStack]. «Назад» двигает указатель, а не
+  /// удаляет записи: прежняя реализация снимала верхушку стека, поэтому после
+  /// первого возврата история считалась исчерпанной и следующий «Назад»
+  /// закрывал вкладку или выкидывал из редактора — снаружи это выглядело
+  /// циклом экранов. Указатель ведёт себя как браузерный: новая навигация
+  /// отрезает «будущее».
+  int _navCursor = -1;
+
   EditorWorkspaceController(this.questId) : super(const EditorWorkspaceState());
 
   /// Последние закрытые вкладки (runtime-only, не сериализуются).
@@ -63,10 +72,40 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   EditorDocumentId? get activeId => state.activeId;
 
   void _pushNav(EditorDocumentDescriptor descriptor) {
-    _navStack.removeWhere((entry) => entry.id == descriptor.id);
+    if (descriptor.id.questId != questId) return;
+    // Новая навигация переписывает «будущее» истории.
+    if (_navCursor + 1 < _navStack.length) {
+      _navStack.removeRange(_navCursor + 1, _navStack.length);
+    }
+    if (_navCursor >= 0 && _navStack[_navCursor].id == descriptor.id) {
+      // Тот же экран: обновляем дескриптор (имя, подзаголовок), визит не
+      // дублируем.
+      _navStack[_navCursor] = descriptor;
+      return;
+    }
     _navStack.add(descriptor);
     if (_navStack.length > _navStackLimit) {
       _navStack.removeRange(0, _navStack.length - _navStackLimit);
+    }
+    _navCursor = _navStack.length - 1;
+  }
+
+  /// Убрать визиты документа из истории (закрытие вкладки, подъём «вверх»).
+  ///
+  /// Указатель сдвигается на число удалённых записей ДО него — он остаётся
+  /// на экране, с которого пользователь уходил, а не на удалённом визите.
+  void _removeNavWhere(bool Function(EditorDocumentDescriptor entry) test) {
+    var removedThroughCursor = 0;
+    for (var i = _navStack.length - 1; i >= 0; i--) {
+      if (!test(_navStack[i])) continue;
+      _navStack.removeAt(i);
+      if (i <= _navCursor) removedThroughCursor++;
+    }
+    if (removedThroughCursor > 0) {
+      _navCursor = (_navCursor - removedThroughCursor).clamp(
+        -1,
+        _navStack.length - 1,
+      );
     }
   }
 
@@ -81,25 +120,26 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   /// Возвращает false, если стек исчерпан — вызывающий может закрыть
   /// активную вкладку.
   bool goBack() {
-    final target = popBackTarget();
+    final target = backTarget();
     if (target == null) return false;
-    open(target); // существует → фокус, нет → переоткрытие
+    // Возврат — это НЕ новый визит: указатель уже сдвинут, запись истории
+    // не добавляем (иначе «Назад» ходил бы по кругу между двумя экранами).
+    open(target, record: false);
     return true;
   }
 
-  /// Архитектурно чистый вариант: возвращает дескриптор для навигации
-  /// без открытия. Shell решает как открывать (через _open с учётом
-  /// _autoOpenTab/_tabsEnabled). Удаляет текущую запись и возвращает
-  /// предыдущую валидную, либо null если стек исчерпан.
-  EditorDocumentDescriptor? popBackTarget() {
-    while (_navStack.length >= 2) {
-      _navStack.removeLast(); // уходим с текущей
-      final target = _navStack.last;
-      if (target.id.questId != questId) {
-        _navStack.removeLast(); // чужая/протухшая запись
-        continue;
-      }
-      return target;
+  /// Предыдущий экран истории без навигации: шелл сам решает, как его
+  /// показать (через `_open` с учётом `_autoOpenTab`/`_tabsEnabled`).
+  /// `null` — история исчерпана.
+  ///
+  /// Указатель сдвигается здесь, записи остаются: повторный «Назад»
+  /// продолжит путь, а новая навигация отрежет «будущее».
+  EditorDocumentDescriptor? backTarget() {
+    for (var i = _navCursor - 1; i >= 0; i--) {
+      final entry = _navStack[i];
+      if (entry.id.questId != questId) continue;
+      _navCursor = i;
+      return entry;
     }
     return null;
   }
@@ -110,7 +150,14 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
     // keys / multiple heroes / каскад ассертов).
     final safe = restored.sanitized();
     final documents = safe.documents
-        .where((document) => document.id.questId == questId)
+        .where(
+          (document) =>
+              document.id.questId == questId &&
+              // Вложенные редакторы и экраны живут только в памяти: их
+              // builder зарегистрирован EditorNestedDocuments и после
+              // перезапуска отсутствует, поэтому восстанавливать нечем.
+              !document.id.kind.isNested,
+        )
         .toList();
     if (documents.isEmpty) return;
     assert(() {
@@ -145,7 +192,9 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
       documents: List.unmodifiable(documents),
       activeId: active,
       layout: EditorDockLayout(
-        rootTabs: safe.layout.rootTabs,
+        rootTabs: safe.layout.rootTabs
+            .where((id) => documents.any((document) => document.id == id))
+            .toList(),
         paneTree: tree,
       ),
     );
@@ -154,9 +203,13 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
     // (initialDocument / первое открытие), иначе «Назад» уводит на
     // протухшие вкладки прошлой сессии вместо выхода из редактора.
     _navStack.clear();
+    _navCursor = -1;
   }
 
-  EditorDocumentId open(EditorDocumentDescriptor descriptor) {
+  EditorDocumentId open(
+    EditorDocumentDescriptor descriptor, {
+    bool record = true,
+  }) {
     if (descriptor.id.questId != questId) {
       throw ArgumentError('Document belongs to another quest');
     }
@@ -165,7 +218,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
       (document) => document.id == descriptor.id,
     );
     if (existingIndex >= 0) {
-      focus(descriptor.id);
+      focus(descriptor.id, record: record);
       return descriptor.id;
     }
 
@@ -178,7 +231,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
         rootTabs: documents.map((document) => document.id).toList(),
       ),
     );
-    _pushNav(descriptor);
+    if (record) _pushNav(descriptor);
     // В режиме панелей новый документ тайлится в новую панель рядом с
     // активной (ориентация чередуется с родителем активного листа), чтобы
     // количество панелей могло расти вместе с открытыми вкладками.
@@ -193,9 +246,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
       // Если якорь оказался не листом (рассинхрон стейта), сплит молча
       // вернул дерево без нового документа — активная вкладка осталась бы
       // невидимой («пустой экран»). Схлопываем панели в обычный режим.
-      final safeTree = split.documentIds.contains(descriptor.id)
-          ? split
-          : null;
+      final safeTree = split.documentIds.contains(descriptor.id) ? split : null;
       state = state.copyWith(
         layout: state.layout.copyWith(
           paneTree: safeTree,
@@ -259,6 +310,10 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
     state = state.copyWith(documents: documents);
   }
 
+  /// Глубина истории «Назад» (сколько шагов назад доступно) — для журнала
+  /// диагностики: по нему видно, где именно история оборвалась.
+  int get historyBackSteps => _navCursor < 0 ? 0 : _navCursor;
+
   void registerRuntime(EditorDocumentId id, EditorDocumentRuntime runtime) {
     _runtimes[id] = runtime;
   }
@@ -276,7 +331,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   /// из которой «Назад» вернул на канвас, не должна всплывать следующим
   /// «Назад» — иначе кнопка цик лит между двумя экранами и выйти нельзя.
   void forgetNav(EditorDocumentId id) {
-    _navStack.removeWhere((entry) => entry.id == id);
+    _removeNavWhere((entry) => entry.id == id);
   }
 
   Future<bool> save(EditorDocumentId id) async {
@@ -289,15 +344,32 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   /// сохранения → запущенная игра из слота). Возвращает id нового документа.
   EditorDocumentId replace(
     EditorDocumentId oldId,
-    EditorDocumentDescriptor newDescriptor,
-  ) {
+    EditorDocumentDescriptor newDescriptor, {
+    bool record = true,
+  }) {
     if (newDescriptor.id.questId != questId) {
       throw ArgumentError('Document belongs to another quest');
     }
     final index = state.documents.indexWhere(
       (document) => document.id == oldId,
     );
-    if (index < 0) return open(newDescriptor);
+    if (index < 0) return open(newDescriptor, record: record);
+
+    // Замена на документ, который уже открыт другой вкладкой, оставила бы
+    // ДВА документа с одним id: дерево вкладок и IndexedStack схлопывают
+    // дубликат, а история и активная вкладка начинают указывать на разные
+    // записи одного экрана. Такой документ просто закрываем и фокусируем.
+    if (newDescriptor.id != oldId && contains(newDescriptor.id)) {
+      final remaining = [
+        for (final document in state.documents)
+          if (document.id != oldId) document,
+      ];
+      _runtimes.remove(oldId);
+      _removeNavWhere((entry) => entry.id == oldId);
+      state = _withPrunedPaneTree(remaining, newDescriptor.id);
+      focus(newDescriptor.id, record: record);
+      return newDescriptor.id;
+    }
 
     final documents = [...state.documents];
     documents[index] = newDescriptor;
@@ -313,7 +385,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
         rootTabs: documents.map((document) => document.id).toList(),
       ),
     );
-    _pushNav(newDescriptor);
+    if (record) _pushNav(newDescriptor);
     final tree = state.layout.paneTree;
     if (tree != null && tree.documentIds.contains(oldId)) {
       state = state.copyWith(
@@ -326,6 +398,12 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   }
 
   Future<bool> close(EditorDocumentId id) async {
+    // Вложенный редактор живёт на состоянии родительской вкладки: закрыть
+    // родителя и оставить инструмент — значит оставить колбэки на мёртвом
+    // State. Закрываем детей первыми.
+    for (final child in _toolChildrenOf(id)) {
+      if (!await close(child)) return false;
+    }
     final runtime = _runtimes[id];
     if (runtime?.onBeforeClose != null) {
       final allowed = await runtime!.onBeforeClose!();
@@ -343,7 +421,7 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
     // попадал в цикл «Назад → закрытая вкладка → Назад → та же вкладка».
     // Вернуть закрытую вкладку можно осознанно — Ctrl+Shift+T
     // ([reopenLastClosed]), а не кнопкой «Назад».
-    _navStack.removeWhere((entry) => entry.id == id);
+    _removeNavWhere((entry) => entry.id == id);
     final remaining = [...state.documents]..removeAt(index);
     final nextActive = remaining.isEmpty
         ? null
@@ -357,10 +435,13 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
 
   /// Synchronous close for tests and clean descriptors. UI should prefer [close].
   void closeImmediately(EditorDocumentId id) {
+    for (final child in _toolChildrenOf(id).toList()) {
+      closeImmediately(child);
+    }
     final index = state.documents.indexWhere((document) => document.id == id);
     if (index < 0) return;
     _rememberClosed(state.documents[index]);
-    _navStack.removeWhere((entry) => entry.id == id);
+    _removeNavWhere((entry) => entry.id == id);
     final remaining = state.documents
         .where((document) => document.id != id)
         .toList();
@@ -370,6 +451,12 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
     _runtimes.remove(id);
     state = _withPrunedPaneTree(remaining, nextActive);
   }
+
+  Iterable<EditorDocumentId> _toolChildrenOf(EditorDocumentId id) => state
+      .documents
+      .where((document) => document.id.kind.isNested && document.parentId == id)
+      .map((document) => document.id)
+      .toList();
 
   /// Закрывает все вкладки, кроме [keepId] (с учётом runtime-вето).
   Future<void> closeOthers(EditorDocumentId keepId) async {
@@ -601,6 +688,9 @@ class EditorWorkspaceController extends StateNotifier<EditorWorkspaceState> {
   }
 
   void _rememberClosed(EditorDocumentDescriptor document) {
+    // Вложенный редактор нельзя вернуть Ctrl+Shift+T: его builder живёт
+    // только в памяти и уже освобождён вместе с вкладкой.
+    if (document.id.kind.isNested) return;
     _recentlyClosed.removeWhere((d) => d.id == document.id);
     _recentlyClosed.insert(0, document);
     if (_recentlyClosed.length > recentlyClosedLimit) {

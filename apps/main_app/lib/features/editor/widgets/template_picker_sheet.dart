@@ -185,19 +185,6 @@ class _TemplatePickerSheetState extends ConsumerState<TemplatePickerSheet> {
                           .read(templateActionsProvider)
                           .saveToQuest(widget.questId!, imported.template);
                     }
-                    if (context.mounted) {
-                      final hasAssets = imported.template.assets.isNotEmpty;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            hasAssets
-                                ? trf('Шаблон импортирован ({p0} ресурсов)', {'p0': imported.template.assets.length})
-                                : tr('Шаблон импортирован'),
-                          ),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
                   },
                   icon: const Icon(
                     Icons.file_download_outlined,

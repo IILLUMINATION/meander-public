@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -92,6 +93,10 @@ class NodeSettingsScreen extends ConsumerStatefulWidget {
   final String initialTimerDurationText;
   final String? initialDefaultActionNodeId;
   final String initialDefaultActionNodeName;
+
+  /// Автосохранение: правки сразу уходят ноде, без выхода из вкладки.
+  final ValueChanged<NodeSettingsResult>? onChanged;
+
   const NodeSettingsScreen({
     super.key,
     required this.questId,
@@ -116,6 +121,7 @@ class NodeSettingsScreen extends ConsumerStatefulWidget {
     required this.initialTimerDurationText,
     required this.initialDefaultActionNodeId,
     required this.initialDefaultActionNodeName,
+    this.onChanged,
   });
 
   @override
@@ -145,6 +151,7 @@ class _NodeSettingsScreenState extends ConsumerState<NodeSettingsScreen> {
   late String _defaultNodeName;
 
   bool _isDirty = false;
+  String? _lastAutosave;
 
   @override
   void initState() {
@@ -169,9 +176,56 @@ class _NodeSettingsScreenState extends ConsumerState<NodeSettingsScreen> {
     _timerController = TextEditingController(
       text: widget.initialTimerDurationText,
     );
-    _timerController.addListener(() => _markDirty());
+    _timerController.addListener(_onTimerTextChanged);
     _defaultNodeId = widget.initialDefaultActionNodeId;
     _defaultNodeName = widget.initialDefaultActionNodeName;
+    _lastAutosave = _snapshot(_buildResult());
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _scheduleAutosave();
+  }
+
+  void _onTimerTextChanged() {
+    _markDirty();
+    _scheduleAutosave();
+  }
+
+  void _scheduleAutosave() => _emitAutosave();
+
+  String _snapshot(NodeSettingsResult result) => [
+    result.backgroundAssetId,
+    result.backgroundAssetName,
+    result.backgroundVideoAssetId,
+    result.backgroundVideoAssetName,
+    result.videoVolume,
+    result.videoLoop,
+    result.videoMuted,
+    result.videoFit,
+    result.backgroundBlur,
+    result.backgroundAudioId,
+    result.backgroundAudioName,
+    result.audioVolume,
+    result.itemSpacing,
+    result.imageRoundedCorners,
+    result.transitionMode,
+    result.timerEnabled,
+    result.timerHidden,
+    result.timerDurationText,
+    result.defaultActionNodeId,
+    result.defaultActionNodeName,
+  ].join('\u0000');
+
+  void _emitAutosave() {
+    final onChanged = widget.onChanged;
+    if (onChanged == null || !_isDirty) return;
+    final result = _buildResult();
+    final snapshot = _snapshot(result);
+    if (snapshot == _lastAutosave) return;
+    _lastAutosave = snapshot;
+    onChanged(result);
   }
 
   @override
@@ -184,31 +238,32 @@ class _NodeSettingsScreenState extends ConsumerState<NodeSettingsScreen> {
     if (!_isDirty) setState(() => _isDirty = true);
   }
 
+  NodeSettingsResult _buildResult() => NodeSettingsResult(
+    backgroundAssetId: _bgId,
+    backgroundAssetName: _bgName,
+    backgroundVideoAssetId: _bgVideoId,
+    backgroundVideoAssetName: _bgVideoName,
+    videoVolume: _videoVolume,
+    videoLoop: _videoLoop,
+    videoMuted: _videoMuted,
+    videoFit: _videoFit,
+    backgroundBlur: _blur,
+    backgroundAudioId: _audioId,
+    backgroundAudioName: _audioName,
+    audioVolume: _audioVolume,
+    itemSpacing: _itemSpacing,
+    imageRoundedCorners: _rounded,
+    transitionMode: _transitionMode,
+    timerEnabled: _timerEnabled,
+    timerHidden: _timerHidden,
+    timerDurationText: _timerController.text,
+    defaultActionNodeId: _defaultNodeId,
+    defaultActionNodeName: _defaultNodeName,
+  );
+
   Future<void> _popWithResult() async {
     // Всегда возвращаем результат — автосохранение на выходе
-    final result = NodeSettingsResult(
-      backgroundAssetId: _bgId,
-      backgroundAssetName: _bgName,
-      backgroundVideoAssetId: _bgVideoId,
-      backgroundVideoAssetName: _bgVideoName,
-      videoVolume: _videoVolume,
-      videoLoop: _videoLoop,
-      videoMuted: _videoMuted,
-      videoFit: _videoFit,
-      backgroundBlur: _blur,
-      backgroundAudioId: _audioId,
-      backgroundAudioName: _audioName,
-      audioVolume: _audioVolume,
-      itemSpacing: _itemSpacing,
-      imageRoundedCorners: _rounded,
-      transitionMode: _transitionMode,
-      timerEnabled: _timerEnabled,
-      timerHidden: _timerHidden,
-      timerDurationText: _timerController.text,
-      defaultActionNodeId: _defaultNodeId,
-      defaultActionNodeName: _defaultNodeName,
-    );
-    Navigator.pop(context, result);
+    Navigator.pop(context, _buildResult());
   }
 
   Future<void> _pickBackground() async {

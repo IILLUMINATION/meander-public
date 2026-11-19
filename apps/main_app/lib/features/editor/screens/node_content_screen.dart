@@ -28,6 +28,7 @@ import 'package:canvas_app/features/editor/screens/node_settings_screen.dart';
 import 'package:canvas_app/features/editor/workspace/editor_back_handler.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_launcher.dart';
+import 'package:canvas_app/features/editor/workspace/editor_nested_documents.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_lifecycle.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
@@ -361,6 +362,21 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     result = result.replaceAll(regExp, newName);
     result = result.replaceAll('{$placeholder}', '{$newName}');
     return result;
+  }
+
+  /// Вставка/замена элемента по id. Автосохранение вложенного редактора
+  /// присылает черновик сразу после первой правки, а финальный результат —
+  /// ещё раз при закрытии; дубликат по id не появляется.
+  void _upsertContentItem(ContentItem item) {
+    if (!mounted) return;
+    final index = _contentItems.indexWhere((existing) => existing.id == item.id);
+    if (index >= 0) {
+      setState(() => _contentItems[index] = item);
+    } else {
+      setState(() => _contentItems.add(item));
+      _scrollToEnd();
+    }
+    _markDirtyAndSave();
   }
 
   void _markDirtyAndSave() {
@@ -871,36 +887,43 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
 
   Future<void> _openNodeSettings() async {
     if (_initialNode == null) return;
-    final result = await Navigator.push<NodeSettingsResult>(
+    final result = await EditorNestedDocuments.open<NodeSettingsResult>(
       context,
-      MaterialPageRoute(
-        builder: (context) => NodeSettingsScreen(
-          questId: widget.questId,
-          nodeId: widget.nodeId,
-          initialBackgroundId: _selectedBackgroundId,
-          initialBackgroundName: _selectedBackgroundName,
-          initialBackgroundVideoId: _selectedBackgroundVideoId,
-          initialBackgroundVideoName: _selectedBackgroundVideoName,
-          initialVideoVolume: _videoVolume,
-          initialVideoLoop: _videoLoop,
-          initialVideoMuted: _videoMuted,
-          initialVideoFit: _videoFit,
-          initialBackgroundBlur: _backgroundBlur,
-          initialAudioId: _selectedAudioId,
-          initialAudioName: _selectedAudioName,
-          initialAudioVolume: _audioVolume,
-          initialItemSpacing: _nodeItemSpacing,
-          initialImageRoundedCorners: _nodeImageRoundedCorners,
-          initialTransitionMode: _nodeTransitionMode,
-          initialTimerEnabled: _timerEnabled,
-          initialTimerHidden: _timerHidden,
-          initialTimerDurationText: _timerController.text,
-          initialDefaultActionNodeId: _defaultActionNodeId,
-          initialDefaultActionNodeName: _defaultActionNodeName,
-        ),
+      questId: widget.questId,
+      identity: 'node-settings:${widget.nodeId}',
+      title: tr('Настройки ноды'),
+      builder: (context) => NodeSettingsScreen(
+        questId: widget.questId,
+        nodeId: widget.nodeId,
+        initialBackgroundId: _selectedBackgroundId,
+        initialBackgroundName: _selectedBackgroundName,
+        initialBackgroundVideoId: _selectedBackgroundVideoId,
+        initialBackgroundVideoName: _selectedBackgroundVideoName,
+        initialVideoVolume: _videoVolume,
+        initialVideoLoop: _videoLoop,
+        initialVideoMuted: _videoMuted,
+        initialVideoFit: _videoFit,
+        initialBackgroundBlur: _backgroundBlur,
+        initialAudioId: _selectedAudioId,
+        initialAudioName: _selectedAudioName,
+        initialAudioVolume: _audioVolume,
+        initialItemSpacing: _nodeItemSpacing,
+        initialImageRoundedCorners: _nodeImageRoundedCorners,
+        initialTransitionMode: _nodeTransitionMode,
+        initialTimerEnabled: _timerEnabled,
+        initialTimerHidden: _timerHidden,
+        initialTimerDurationText: _timerController.text,
+        initialDefaultActionNodeId: _defaultActionNodeId,
+        initialDefaultActionNodeName: _defaultActionNodeName,
+        onChanged: _applyNodeSettings,
       ),
     );
     if (result == null || !mounted) return;
+    _applyNodeSettings(result, forceSave: true);
+  }
+
+  void _applyNodeSettings(NodeSettingsResult result, {bool forceSave = false}) {
+    if (!mounted) return;
     setState(() {
       _selectedBackgroundId = result.backgroundAssetId;
       _selectedBackgroundName = result.backgroundAssetName;
@@ -923,8 +946,12 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       _defaultActionNodeId = result.defaultActionNodeId;
       _defaultActionNodeName = result.defaultActionNodeName;
     });
-    // Автосохранение при выходе из экрана настроек — сразу форсируем
-    await _saveNode(force: true);
+    if (forceSave) {
+      // Автосохранение при выходе из экрана настроек — сразу форсируем.
+      unawaited(_saveNode(force: true));
+    } else {
+      _markDirtyAndSave();
+    }
   }
 
   void _copyNodeId() {
@@ -1050,9 +1077,6 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     _markDirtyAndSave();
     _scrollToEnd();
     unawaited(_refreshOnAppearIssues());
-
-    if (!mounted) return;
-    showEditorNotice(context, tr('Элемент вставлен'), color: Colors.green);
   }
 
   // ============================================================
@@ -1313,15 +1337,6 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       _markDirtyAndSave();
       _scrollToEnd();
       unawaited(_refreshOnAppearIssues());
-
-      if (!mounted) return;
-      showEditorNotice(
-        context,
-        trf('Шаблон вставлен как связанный: {p0}', {
-          'p0': masterInQuest.name,
-        }),
-        color: Colors.cyan,
-      );
       return;
     }
 
@@ -1377,16 +1392,6 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     _markDirtyAndSave();
     _scrollToEnd();
     unawaited(_refreshOnAppearIssues());
-
-    if (!mounted) return;
-    final report = installed.assetsReport;
-    final msg = report.copied > 0
-        ? trf('Шаблон вставлен (ресурсов: {p0}, пропущено: {p1})', {
-            'p0': report.copied,
-            'p1': report.skippedExisting,
-          })
-        : tr('Шаблон вставлен');
-    showEditorNotice(context, msg, color: Colors.blue);
   }
 
   // ============================================================
@@ -1765,13 +1770,6 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
       _contentItems[index] = container.copyWith(children: children);
     });
     _markDirtyAndSave();
-
-    if (!mounted) return;
-    showEditorNotice(
-      context,
-      tr('Элемент вставлен внутрь контейнера'),
-      color: Colors.green,
-    );
   }
 
   void _deleteItem(int index) async {
@@ -2143,12 +2141,11 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
                   final pType = _findPluginType(pluginTypeId);
                   if (pType != null) _addPluginContentType(pType);
                 } else {
-                  final newItem = await _logic.createItemByType(type);
-                  if (newItem != null) {
-                    setState(() => _contentItems.add(newItem));
-                    _markDirtyAndSave();
-                    _scrollToEnd();
-                  }
+                  final newItem = await _logic.createItemByType(
+                    type,
+                    onDraft: _upsertContentItem,
+                  );
+                  if (newItem != null) _upsertContentItem(newItem);
                 }
               },
               onPaste: _pasteItem,

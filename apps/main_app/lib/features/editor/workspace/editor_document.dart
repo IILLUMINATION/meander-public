@@ -21,6 +21,29 @@ enum EditorDocumentKind {
   gameLoad,
   guide,
   questHistory,
+
+  /// Вложенный редактор (стек, контейнер, текст, кнопка…), открытый как
+  /// вкладка. Живёт только в текущей сессии: builder лежит в
+  /// `EditorNestedDocuments`, поэтому после перезапуска такие вкладки
+  /// отбрасываются.
+  tool,
+
+  /// Меню квеста (экран деталей) как вкладка, а не маршрут поверх воркспейса.
+  questMenu,
+
+  /// Любой экран приложения (каталог, профиль, настройки…), открытый
+  /// вкладкой. Как и [tool], живёт только в текущей сессии: его builder
+  /// зарегистрирован в `EditorNestedDocuments`.
+  screen,
+}
+
+extension EditorDocumentKindNesting on EditorDocumentKind {
+  /// Вкладки с собственным `Navigator`: «Назад» снимает их верхний маршрут,
+  /// а не закрывает весь воркспейс.
+  bool get isNested =>
+      this == EditorDocumentKind.tool ||
+      this == EditorDocumentKind.screen ||
+      this == EditorDocumentKind.questMenu;
 }
 
 extension EditorDocumentKindX on EditorDocumentKind {
@@ -37,6 +60,9 @@ extension EditorDocumentKindX on EditorDocumentKind {
     EditorDocumentKind.gameLoad => 'game_load',
     EditorDocumentKind.guide => 'guide',
     EditorDocumentKind.questHistory => 'quest_history',
+    EditorDocumentKind.tool => 'tool',
+    EditorDocumentKind.questMenu => 'quest_menu',
+    EditorDocumentKind.screen => 'screen',
   };
 
   static EditorDocumentKind? fromWireName(String? value) {
@@ -59,6 +85,9 @@ extension EditorDocumentKindX on EditorDocumentKind {
     EditorDocumentKind.gameLoad => Icons.restore_rounded,
     EditorDocumentKind.guide => Icons.menu_book_rounded,
     EditorDocumentKind.questHistory => Icons.history_rounded,
+    EditorDocumentKind.tool => Icons.build_rounded,
+    EditorDocumentKind.questMenu => Icons.home_rounded,
+    EditorDocumentKind.screen => Icons.tab_rounded,
   };
 
   /// Короткая человекочитаемая метка типа документа (для обзора вкладок).
@@ -75,6 +104,9 @@ extension EditorDocumentKindX on EditorDocumentKind {
     EditorDocumentKind.gameLoad => tr('Симуляция из сейва'),
     EditorDocumentKind.guide => tr('Гайды'),
     EditorDocumentKind.questHistory => tr('История версий'),
+    EditorDocumentKind.tool => tr('Редактор'),
+    EditorDocumentKind.questMenu => tr('Меню квеста'),
+    EditorDocumentKind.screen => tr('Экран'),
   };
 }
 
@@ -134,14 +166,25 @@ class EditorDocumentDescriptor {
   /// Runtime/file key used to build the screen; it is not document identity.
   final String? routeKey;
 
+  /// Для [EditorDocumentKind.tool] — вкладка, из которой редактор открыли.
+  /// Она остаётся смонтированной, пока инструмент открыт: колбэки
+  /// автосохранения пишут в её состояние, а не в устаревшую копию.
+  final EditorDocumentId? parentId;
+
+  /// Иконка конкретного экрана, если тип документа её не выражает
+  /// (каталог, профиль, настройки — все они [EditorDocumentKind.screen]).
+  final IconData? customIcon;
+
   const EditorDocumentDescriptor({
     required this.id,
     required this.title,
     this.subtitle,
     this.routeKey,
+    this.parentId,
+    this.customIcon,
   });
 
-  IconData get icon => id.kind.icon;
+  IconData get icon => customIcon ?? id.kind.icon;
 
   /// Dirty state is represented in the persisted descriptor without adding a
   /// second mutable flag to the workspace model. `kDirtyDocumentMarker` —
@@ -163,12 +206,16 @@ class EditorDocumentDescriptor {
     String? title,
     String? subtitle,
     String? routeKey,
+    EditorDocumentId? parentId,
+    IconData? customIcon,
     bool clearSubtitle = false,
   }) => EditorDocumentDescriptor(
     id: id,
     title: title ?? this.title,
     subtitle: clearSubtitle ? null : (subtitle ?? this.subtitle),
     routeKey: routeKey ?? this.routeKey,
+    parentId: parentId ?? this.parentId,
+    customIcon: customIcon ?? this.customIcon,
   );
 
   Map<String, dynamic> toJson() => {
@@ -176,6 +223,7 @@ class EditorDocumentDescriptor {
     'title': title,
     if (subtitle != null) 'subtitle': subtitle,
     if (routeKey != null) 'routeKey': routeKey,
+    if (parentId != null) 'parentId': parentId!.toJson(),
   };
 
   factory EditorDocumentDescriptor.fromJson(Map<String, dynamic> json) {
@@ -184,6 +232,11 @@ class EditorDocumentDescriptor {
       title: json['title']?.toString() ?? tr('Документ'),
       subtitle: json['subtitle']?.toString(),
       routeKey: json['routeKey']?.toString(),
+      parentId: json['parentId'] is Map
+          ? EditorDocumentId.fromJson(
+              Map<String, dynamic>.from(json['parentId'] as Map),
+            )
+          : null,
     );
   }
 

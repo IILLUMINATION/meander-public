@@ -26,11 +26,15 @@ class ButtonStyleEditorScreen extends StatefulWidget {
   final ButtonStyleConfig? initialStyle;
   final String? sampleText;
 
+  /// Автосохранение: каждая правка сразу уходит родительской вкладке.
+  final ValueChanged<ButtonStyleConfig>? onChanged;
+
   const ButtonStyleEditorScreen({
     super.key,
     required this.questId,
     this.initialStyle,
     this.sampleText,
+    this.onChanged,
   });
 
   @override
@@ -78,6 +82,8 @@ class _ButtonStyleEditorScreenState extends State<ButtonStyleEditorScreen> {
       final base = _draft ?? _glassBase();
       _draft = change(base);
     });
+    final draft = _draft;
+    if (draft != null) widget.onChanged?.call(draft);
   }
 
   void _update(ButtonStyleConfig next) => _mutate((_) => next);

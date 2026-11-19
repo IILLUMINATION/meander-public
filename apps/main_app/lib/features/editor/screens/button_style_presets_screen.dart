@@ -44,6 +44,7 @@ class _ButtonStylePresetsScreenState extends State<ButtonStylePresetsScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isDirty = false;
+  Timer? _autosaveTimer;
 
   String? _presetCornerAsset;
   String? _presetHAsset;
@@ -90,7 +91,18 @@ class _ButtonStylePresetsScreenState extends State<ButtonStylePresetsScreen> {
   }
 
   @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _autosaveTimer?.cancel();
+    _autosaveTimer = Timer(
+      const Duration(milliseconds: 600),
+      () => _saveChanges(silent: true),
+    );
+  }
+
+  @override
   void dispose() {
+    _autosaveTimer?.cancel();
     _presetNameController.dispose();
     super.dispose();
   }
@@ -407,7 +419,7 @@ class _ButtonStylePresetsScreenState extends State<ButtonStylePresetsScreen> {
     });
   }
 
-  Future<void> _saveChanges() async {
+  Future<void> _saveChanges({bool silent = false}) async {
     if (_isSaving || !_isDirty) return;
     setState(() => _isSaving = true);
     try {
@@ -418,7 +430,7 @@ class _ButtonStylePresetsScreenState extends State<ButtonStylePresetsScreen> {
       await (await _qs()).writeJson(_configPath, config);
       if (mounted) {
         setState(() => _isDirty = false);
-        _showSnack(tr('Пресеты сохранены'));
+        if (!silent) _showSnack(tr('Пресеты сохранены'));
       }
     } catch (e) {
       _showSnack(trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)}));
@@ -774,40 +786,46 @@ class _ButtonStylePresetsScreenState extends State<ButtonStylePresetsScreen> {
   /// Открывает полный редактор параметров (цвета/текст/форма/тень/отступы)
   /// и переносит результат в черновик пресета, сохраняя модульные ассеты.
   Future<void> _openStyleParams() async {
+    void apply(ButtonStyleConfig edited) {
+      if (!mounted) return;
+      setState(() {
+        _presetFillColorValue = edited.fillColorValue;
+        _presetBorderColorValue = edited.borderColorValue;
+        _presetTextColorValue = edited.textColorValue;
+        _presetTextSize = edited.textSize;
+        _presetTextWeight = edited.textWeight;
+        _presetLetterSpacing = edited.letterSpacing;
+        _presetFontFamily = edited.fontFamily;
+        _presetBorderRadius = edited.borderRadius;
+        _presetBorderWidth = edited.borderWidth;
+        _presetFillOpacity = edited.fillOpacity;
+        _presetUseGradient = edited.useGradient;
+        _presetGradientStartColorValue = edited.gradientStartColorValue;
+        _presetGradientEndColorValue = edited.gradientEndColorValue;
+        _presetGradientDirection = edited.gradientDirection;
+        _presetShadowColorValue = edited.shadowColorValue;
+        _presetShadowOpacity = edited.shadowOpacity;
+        _presetShadowBlur = edited.shadowBlur;
+        _presetShadowOffsetX = edited.shadowOffsetX;
+        _presetShadowOffsetY = edited.shadowOffsetY;
+        _presetPaddingH = edited.paddingH;
+        _presetPaddingV = edited.paddingV;
+        _isDirty = true;
+      });
+    }
+
     final edited = await Navigator.push<ButtonStyleConfig>(
       context,
       MaterialPageRoute(
         builder: (_) => ButtonStyleEditorScreen(
           questId: widget.questId,
           initialStyle: _buildDraftStyle(),
+          onChanged: apply,
         ),
       ),
     );
     if (edited == null || !mounted) return;
-    setState(() {
-      _presetFillColorValue = edited.fillColorValue;
-      _presetBorderColorValue = edited.borderColorValue;
-      _presetTextColorValue = edited.textColorValue;
-      _presetTextSize = edited.textSize;
-      _presetTextWeight = edited.textWeight;
-      _presetLetterSpacing = edited.letterSpacing;
-      _presetFontFamily = edited.fontFamily;
-      _presetBorderRadius = edited.borderRadius;
-      _presetBorderWidth = edited.borderWidth;
-      _presetFillOpacity = edited.fillOpacity;
-      _presetUseGradient = edited.useGradient;
-      _presetGradientStartColorValue = edited.gradientStartColorValue;
-      _presetGradientEndColorValue = edited.gradientEndColorValue;
-      _presetGradientDirection = edited.gradientDirection;
-      _presetShadowColorValue = edited.shadowColorValue;
-      _presetShadowOpacity = edited.shadowOpacity;
-      _presetShadowBlur = edited.shadowBlur;
-      _presetShadowOffsetX = edited.shadowOffsetX;
-      _presetShadowOffsetY = edited.shadowOffsetY;
-      _presetPaddingH = edited.paddingH;
-      _presetPaddingV = edited.paddingV;
-      _isDirty = true;
-    });
+    apply(edited);
     // Грузим шрифт, чтобы превью пресета показывало его сразу.
     final font = edited.fontFamily;
     if (font != null && font.trim().isNotEmpty) {

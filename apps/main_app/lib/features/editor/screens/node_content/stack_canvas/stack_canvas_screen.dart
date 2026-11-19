@@ -3819,6 +3819,36 @@ class _StackCanvasScreenState extends ConsumerState<StackCanvasScreen> {
     _commitChildren(children, kind: StackEditKind.add);
   }
 
+  /// Черновик/финал из вложенного редактора: заменяем слой по id или
+  /// добавляем новый на месте вызова; закрывать вкладку ради сохранения
+  /// не нужно.
+  void _upsertLayer(ContentItem item, {Offset? at}) {
+    if (!mounted) return;
+    final index = _children.indexWhere((existing) => existing.id == item.id);
+    if (index >= 0) {
+      final children = List<ContentItem>.from(_children);
+      final previous = children[index];
+      children[index] = item.copyWith(
+        anchorLeft: previous.anchorLeft,
+        anchorTop: previous.anchorTop,
+        anchorRight: previous.anchorRight,
+        anchorBottom: previous.anchorBottom,
+        offsetLeft: previous.offsetLeft,
+        offsetTop: previous.offsetTop,
+        offsetRight: previous.offsetRight,
+        offsetBottom: previous.offsetBottom,
+      );
+      _commitChildren(
+        children,
+        kind: item.type == 'text' ? StackEditKind.text : StackEditKind.style,
+        label: tr('Автосохранение'),
+        coalesce: true,
+      );
+    } else {
+      _placeNewChild(item, at: at);
+    }
+  }
+
   /// Добавить слой: тот же выбор типа, что у элемента ноды. Раньше «+» на
   /// канвасе создавала только текст, и за картинку или кнопку приходилось
   /// уходить в список детей. [at] — точка двойного тапа: слой появляется там,
@@ -3841,10 +3871,13 @@ class _StackCanvasScreenState extends ConsumerState<StackCanvasScreen> {
                   questId: widget.questId,
                 );
         } else {
-          created = await _logic.createItemByType(type);
+          created = await _logic.createItemByType(
+            type,
+            onDraft: (item) => _upsertLayer(item, at: at),
+          );
         }
         if (created == null || !mounted) return;
-        _placeNewChild(created, at: at);
+        _upsertLayer(created, at: at);
       },
       // Буфер у канваса свой (Ctrl+C/V по слоям) — «вставить» ведёт туда же.
       onPaste: _paste,

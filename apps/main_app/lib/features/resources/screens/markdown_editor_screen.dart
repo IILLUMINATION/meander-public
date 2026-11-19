@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:canvas_app/core/services/refactoring_service.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/variable_selection_screen.dart';
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
@@ -45,6 +46,10 @@ class MarkdownEditorScreen extends ConsumerStatefulWidget {
   final Color? initialTextOutlineColor;
   final double? initialTextOutlineWidth;
 
+  /// Автосохранение: экран — вкладка, и закрывать его ради сохранения
+  /// неудобно. Колбэк получает текущий результат после каждой правки.
+  final ValueChanged<MarkdownEditorResult>? onChanged;
+
   /// Модальный редактор хранит только строку текста, ему ни размер, ни
   /// анимация появления применяться некуда — скрываем эти контролы.
   final bool supportsTextSize;
@@ -60,6 +65,7 @@ class MarkdownEditorScreen extends ConsumerStatefulWidget {
     this.initialTextOutlineColor,
     this.initialTextOutlineWidth,
     this.supportsTextSize = true,
+    this.onChanged,
   });
 
   @override
@@ -92,6 +98,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
   // Флаг, чтобы изменения, выполненные самим undo/redo, не попадали обратно
   // в историю.
   bool _isApplyingHistory = false;
+  String? _lastAutosave;
   // Момент последнего снимка — чтобы не плодить снимок на каждый символ.
   DateTime _lastSnapshotAt = DateTime.fromMillisecondsSinceEpoch(0);
   // Уведомитель состояния кнопок undo/redo (доступность).
@@ -99,7 +106,6 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
   static const Duration _snapshotInterval = Duration(milliseconds: 600);
   static const int _maxHistory = 200;
 
-  Timer? _debounce;
   StreamSubscription<RefactorRenameEvent>? _renameSub;
 
   /// Шрифт всего айтема (путь ресурса res/fonts/...). null = как в квесте.
@@ -131,6 +137,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     _textOutlineColor = widget.initialTextOutlineColor;
     _textOutlineWidth = widget.initialTextOutlineWidth;
     _tabController = TabController(length: 2, vsync: this);
+    _lastAutosave = _snapshot(_result());
 
     // Начальный снимок — чтобы можно было «отменить» первое же действие
     // до исходного состояния.
@@ -139,8 +146,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     _controller.addListener(() {
       _textNotifier.value = _controller.text;
       _captureSnapshotIfNeeded();
-      if (_debounce?.isActive ?? false) _debounce!.cancel();
-      _debounce = Timer(const Duration(seconds: 2), _saveChanges);
+      _emitAutosave();
     });
 
     _renameSub = RefactoringService.renameEvents.listen((event) {
@@ -168,7 +174,6 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
   @override
   void dispose() {
     _renameSub?.cancel();
-    _debounce?.cancel();
     _controller.dispose();
     _tabController.dispose();
     _focusNode.dispose();
@@ -178,8 +183,27 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     super.dispose();
   }
 
-  void _saveChanges() {
-    // Логика автосохранения (если нужно)
+  String _snapshot(MarkdownEditorResult result) => jsonEncode({
+    'text': result.text,
+    'font': result.fontFamily,
+    'size': result.textSize,
+    'reveal': result.textReveal,
+    'speed': result.revealSpeed,
+    'outline': result.textOutlineColor?.toARGB32(),
+    'outlineWidth': result.textOutlineWidth,
+  });
+
+  /// Отдать родительской вкладке текущее состояние без закрытия экрана.
+  /// Повторный тот же снимок не отправляем — иначе курсор в тексте дёргал бы
+  /// перерисовку ноды на каждое движение.
+  void _emitAutosave() {
+    final onChanged = widget.onChanged;
+    if (onChanged == null) return;
+    final result = _result();
+    final snapshot = _snapshot(result);
+    if (snapshot == _lastAutosave) return;
+    _lastAutosave = snapshot;
+    onChanged(result);
   }
 
   // ============================================================
@@ -550,6 +574,7 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
       mutate();
       _styleVersion.value++;
     });
+    _emitAutosave();
   }
 
   /// Хоть одна настройка оформления отличается от движковой — по ней шапка

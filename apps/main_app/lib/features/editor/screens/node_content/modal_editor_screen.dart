@@ -30,10 +30,19 @@ class ModalEditorScreen extends ConsumerStatefulWidget {
   final String questId;
   final ContentItem? existingItem;
 
+  /// Стабильный id для новой модалки: без него каждый вызов автосохранения
+  /// создавал бы новый элемент в ноде.
+  final String? draftId;
+
+  /// Автосохранение в родительскую вкладку без закрытия экрана.
+  final ValueChanged<ContentItem>? onChanged;
+
   const ModalEditorScreen({
     super.key,
     required this.questId,
     this.existingItem,
+    this.draftId,
+    this.onChanged,
   });
 
   @override
@@ -41,6 +50,7 @@ class ModalEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
+  String? _lastAutosave;
   late TextEditingController _titleController;
   late TextEditingController _contentController;
   late TextEditingController _buttonTextController;
@@ -89,7 +99,36 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
 
     // Загружаем ID скрипта если есть
     _scriptAssetId = widget.existingItem?.scriptAssetId;
+    _lastAutosave = _snapshot(_buildContentItem());
+    for (final controller in [
+      _titleController,
+      _contentController,
+      _buttonTextController,
+      _autoCloseDelayController,
+    ]) {
+      controller.addListener(_scheduleAutosave);
+    }
     _loadMetadataNames();
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _scheduleAutosave();
+  }
+
+  void _scheduleAutosave() => _emitAutosave();
+
+  String _snapshot(ContentItem item) => item.toJson().toString();
+
+  void _emitAutosave() {
+    final onChanged = widget.onChanged;
+    if (onChanged == null) return;
+    final item = _buildContentItem();
+    final snapshot = _snapshot(item);
+    if (snapshot == _lastAutosave) return;
+    _lastAutosave = snapshot;
+    onChanged(item);
   }
 
   @override
@@ -308,6 +347,10 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
       MaterialPageRoute(
         builder: (context) => MarkdownEditorScreen(
           initialText: _contentController.text,
+          onChanged: (result) {
+            if (!mounted) return;
+            setState(() => _contentController.text = result.text);
+          },
           questId: widget.questId,
           supportsTextSize: false,
         ),
@@ -443,7 +486,10 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
     }
 
     return ContentItem(
-      id: widget.existingItem?.id ?? const Uuid().v4(),
+      id:
+          widget.existingItem?.id ??
+          widget.draftId ??
+          const Uuid().v4(),
       type: 'modal',
       text: text,
       contentMarkdown: contentMarkdown,

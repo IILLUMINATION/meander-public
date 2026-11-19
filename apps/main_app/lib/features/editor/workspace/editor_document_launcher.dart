@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/quest_data_guard.dart';
 import 'editor_document.dart';
+import 'script_editor_mode.dart';
+import 'editor_nested_documents.dart';
 import 'editor_workspace_scope.dart';
 import 'quest_editor_shell.dart';
 import '../screens/canvas_screen.dart';
 import '../screens/node_content_screen.dart';
 import '../screens/tags_screen.dart';
 import '../screens/template_manager_screen.dart';
+import '../screens/scratch_script_editor/scratch_script_editor_screen.dart';
 import '../screens/visual_script_editor/visual_script_editor_screen.dart';
 import '../../quests/screens/edit_quest_screen.dart';
 import '../../game/screens/game_from_save_loader.dart';
@@ -82,7 +85,18 @@ class EditorDocumentLauncher {
       case EditorDocumentKind.node:
         return NodeContentScreen(questId: id.questId, nodeId: id.key);
       case EditorDocumentKind.visualScript:
-        return VisualScriptEditorScreen(questId: id.questId, scriptId: id.key);
+        // Оба экрана правят один файл скрипта; какой из них открыть —
+        // настройка устройства (см. ScriptEditorModeStore).
+        return switch (ScriptEditorModeStore.instance.mode) {
+          ScriptEditorMode.classic => VisualScriptEditorScreen(
+            questId: id.questId,
+            scriptId: id.key,
+          ),
+          ScriptEditorMode.canvas => ScratchScriptEditorScreen(
+            questId: id.questId,
+            scriptId: id.key,
+          ),
+        };
       case EditorDocumentKind.lua:
         return LuaEditorScreen(
           questId: id.questId,
@@ -116,6 +130,10 @@ class EditorDocumentLauncher {
         return GuideScreen(info: info);
       case EditorDocumentKind.questHistory:
         return QuestHistoryScreen(questId: id.questId);
+      case EditorDocumentKind.tool:
+      case EditorDocumentKind.questMenu:
+      case EditorDocumentKind.screen:
+        return EditorNestedDocuments.build(id);
     }
   }
 

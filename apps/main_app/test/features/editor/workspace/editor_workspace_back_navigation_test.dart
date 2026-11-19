@@ -6,7 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:canvas_app/features/editor/workspace/editor_back_handler.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document.dart';
+import 'package:canvas_app/features/editor/workspace/editor_nested_documents.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
+import 'package:canvas_app/features/editor/workspace/editor_screen_tabs.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_session.dart';
 import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
@@ -21,39 +23,180 @@ import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
 /// Экраны документов подменены фейковыми: настоящие тянут Rust-ядро и файлы
 /// квеста, а проверять здесь нужно именно поведение шелла.
 void main() {
-  testWidgets('одна вкладка: «Назад» снимает ровно один маршрут и щадит вкладку', (
+  tearDown(EditorNestedDocuments.resetForTest);
+
+  testWidgets('вложенный редактор открывается вкладкой, не пряча таб-бар', (
     tester,
   ) async {
-    final h = await _Harness.mount(tester, questId: 'q_single');
+    final h = await _Harness.mount(tester, questId: 'q_tool');
+    final context = tester.element(find.text('DOC:a'));
+    final id = EditorDocumentId(
+      questId: 'q_tool',
+      kind: EditorDocumentKind.tool,
+      key: 'stack:a:item1',
+    );
+
+    final future = EditorNestedDocuments.open<void>(
+      context,
+      questId: 'q_tool',
+      identity: 'stack:a:item1',
+      title: 'Стек',
+      builder: (_) => const Scaffold(body: Center(child: Text('TOOL'))),
+    );
+    await h.settle();
+
+    expect(h.keys, ['a', 'stack:a:item1']);
+    expect(h.activeKind, EditorDocumentKind.tool);
+    expect(find.text('TOOL'), findsOneWidget);
+    expect(find.text('Стек'), findsOneWidget, reason: 'вкладка подписана');
+
+    await EditorWorkspaceScope.of(
+      tester.element(find.text('TOOL')),
+    ).closeDocument(id);
+    await h.settle();
+    await future;
+
+    expect(h.keys, ['a']);
+    expect(h.activeKey, 'a');
+  });
+
+  testWidgets('домик открывает меню квеста вкладкой, а не закрывает редактор', (
+    tester,
+  ) async {
+    final h = await _Harness.mount(tester, questId: 'q_menu');
+
+    await tester.tap(find.byTooltip('В меню квеста'));
+    await h.settle();
+
+    expect(h.keys, ['a', 'quest-menu']);
+    expect(h.activeKey, 'quest-menu');
+    expect(h.activeKind, EditorDocumentKind.questMenu);
+    expect(find.text('Меню квеста'), findsWidgets, reason: 'вкладка подписана');
+
+    // Повторный домик фокусирует существующую вкладку, а не плодит копии.
+    await tester.tap(find.byTooltip('В меню квеста'));
+    await h.settle();
+    expect(h.keys.where((key) => key == 'quest-menu').length, 1);
+  });
+
+  testWidgets('произвольный экран приложения открывается вкладкой', (
+    tester,
+  ) async {
+    final h = await _Harness.mount(tester, questId: 'q_screen');
+
+    final future = EditorScreenTabs.open<void>(
+      tester.element(find.text('DOC:a')),
+      identity: 'market',
+      title: 'Каталог',
+      builder: (_) => const Scaffold(body: Center(child: Text('MARKET'))),
+    );
+    await h.settle();
+
+    expect(h.keys, ['a', 'market']);
+    expect(h.activeKind, EditorDocumentKind.screen);
+    expect(find.text('MARKET'), findsOneWidget);
+
+    await EditorWorkspaceScope.of(
+      tester.element(find.text('MARKET')),
+    ).closeDocument(
+      EditorDocumentId(
+        questId: 'q_screen',
+        kind: EditorDocumentKind.screen,
+        key: 'market',
+      ),
+    );
+    await h.settle();
+    await future;
+    expect(h.keys, ['a']);
+  });
+
+  testWidgets('«Назад» внутри вкладки снимает её маршрут, а не вкладку', (
+    tester,
+  ) async {
+    final h = await _Harness.mount(tester, questId: 'q_tool_back');
+    final id = EditorDocumentId(
+      questId: 'q_tool_back',
+      kind: EditorDocumentKind.tool,
+      key: 'stack:a:item2',
+    );
+
+    final future = EditorNestedDocuments.open<void>(
+      tester.element(find.text('DOC:a')),
+      questId: 'q_tool_back',
+      identity: 'stack:a:item2',
+      title: 'Стек',
+      builder: (_) => Scaffold(
+        body: Center(
+          child: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      const Scaffold(body: Center(child: Text('PICKER'))),
+                ),
+              ),
+              child: const Text('OPEN'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await h.settle();
+    await tester.tap(find.text('OPEN'));
+    await h.settle();
+    expect(find.text('PICKER'), findsOneWidget);
 
     await h.pressBack();
 
-    // До фикса: закрытие последней вкладки уже сняло маршрут, а «Назад»
-    // снял и экран под ним — пользователь выпадал из редактора на 2 экрана.
-    expect(h.observer.pops, 1);
-    // Вкладка живёт в сессии и вернётся при следующем входе.
-    expect(h.activeKey, 'a');
+    expect(find.text('PICKER'), findsNothing, reason: 'маршрут пикера снят');
+    expect(find.text('OPEN'), findsOneWidget, reason: 'вкладка осталась');
+    expect(h.keys, ['a', 'stack:a:item2']);
+    expect(h.activeKey, 'stack:a:item2');
+
+    await EditorWorkspaceScope.of(
+      tester.element(find.text('OPEN')),
+    ).closeDocument(id);
+    await h.settle();
+    await future;
   });
 
-  testWidgets('вкладок несколько: «Назад» закрывает активную и оставляет в воркспейсе', (
-    tester,
-  ) async {
-    final h = await _Harness.mount(tester, questId: 'q_multi');
-    await h.openTab('b');
-    expect(h.keys, ['a', 'b']);
+  testWidgets(
+    'одна вкладка: «Назад» снимает ровно один маршрут и щадит вкладку',
+    (tester) async {
+      final h = await _Harness.mount(tester, questId: 'q_single');
 
-    await h.pressBack(); // история: возврат к a
-    expect(h.activeKey, 'a');
-    await h.pressBack(); // история исчерпана: закрываем активную
+      await h.pressBack();
 
-    expect(
-      h.observer.pops,
-      0,
-      reason: 'в воркспейсе ещё есть над чем работать — выход только по «Меню»',
-    );
-    expect(h.keys, ['b']);
-    expect(find.text('DOC:b'), findsOneWidget);
-  });
+      // До фикса: закрытие последней вкладки уже сняло маршрут, а «Назад»
+      // снял и экран под ним — пользователь выпадал из редактора на 2 экрана.
+      expect(h.observer.pops, 1);
+      // Вкладка живёт в сессии и вернётся при следующем входе.
+      expect(h.activeKey, 'a');
+    },
+  );
+
+  testWidgets(
+    'вкладок несколько: «Назад» закрывает активную и оставляет в воркспейсе',
+    (tester) async {
+      final h = await _Harness.mount(tester, questId: 'q_multi');
+      await h.openTab('b');
+      expect(h.keys, ['a', 'b']);
+
+      await h.pressBack(); // история: возврат к a
+      expect(h.activeKey, 'a');
+      await h.pressBack(); // история исчерпана: закрываем активную
+
+      expect(
+        h.observer.pops,
+        0,
+        reason:
+            'в воркспейсе ещё есть над чем работать — выход только по «Меню»',
+      );
+      expect(h.keys, ['b']);
+      expect(find.text('DOC:b'), findsOneWidget);
+    },
+  );
 
   testWidgets('закрытая вкладка не всплывает по «Назад» (не циклим)', (
     tester,
@@ -73,7 +216,9 @@ void main() {
     expect(h.observer.pops, 1);
   });
 
-  testWidgets('многократная «Назад» не возвращает закрытые экраны', (tester) async {
+  testWidgets('многократная «Назад» не возвращает закрытые экраны', (
+    tester,
+  ) async {
     final h = await _Harness.mount(tester, questId: 'q_no_loop');
     await h.openTab('b');
     await h.closeTab('b');
@@ -87,35 +232,37 @@ void main() {
     expect(seen, isEmpty);
   });
 
-  testWidgets('документ без своего обработчика «Назад» закрывает вкладку шелл', (
-    tester,
-  ) async {
-    final h = await _Harness.mount(
-      tester,
-      questId: 'q_no_handler',
-      registersBackHandler: false,
-    );
-    await h.openTab('b', registersBackHandler: false);
+  testWidgets(
+    'документ без своего обработчика «Назад» закрывает вкладку шелл',
+    (tester) async {
+      final h = await _Harness.mount(
+        tester,
+        questId: 'q_no_handler',
+        registersBackHandler: false,
+      );
+      await h.openTab('b', registersBackHandler: false);
 
-    await h.pressBack(); // история: возврат к a
-    await h.pressBack(); // история исчерпана
+      await h.pressBack(); // история: возврат к a
+      await h.pressBack(); // история исчерпана
 
-    expect(h.observer.pops, 0);
-    expect(h.keys, ['b']);
-  });
+      expect(h.observer.pops, 0);
+      expect(h.keys, ['b']);
+    },
+  );
 
-  testWidgets('история важнее закрытия: возврат к предыдущей посещённой вкладке', (
-    tester,
-  ) async {
-    final h = await _Harness.mount(tester, questId: 'q_history');
-    await h.openTab('b');
+  testWidgets(
+    'история важнее закрытия: возврат к предыдущей посещённой вкладке',
+    (tester) async {
+      final h = await _Harness.mount(tester, questId: 'q_history');
+      await h.openTab('b');
 
-    await h.pressBack();
+      await h.pressBack();
 
-    expect(h.observer.pops, 0);
-    expect(h.activeKey, 'a');
-    expect(h.keys, ['a', 'b'], reason: 'вкладка b остаётся открытой');
-  });
+      expect(h.observer.pops, 0);
+      expect(h.activeKey, 'a');
+      expect(h.keys, ['a', 'b'], reason: 'вкладка b остаётся открытой');
+    },
+  );
 
   testWidgets('нода без истории: «Назад» возвращает на канвас, а не выходит', (
     tester,
@@ -133,7 +280,9 @@ void main() {
 
     expect(h.observer.pops, 0, reason: 'из квеста не выходим');
     expect(h.activeKind, EditorDocumentKind.canvas);
-    expect(h.keys, ['ch1'], reason: 'вкладка ноды стала полотном, не размножилась');
+    expect(h.keys, [
+      'ch1',
+    ], reason: 'вкладка ноды стала полотном, не размножилась');
 
     // Второй «Назад» уже на полотне: выход из редактора, а не возврат в ноду.
     await h.pressBack();
@@ -210,8 +359,9 @@ class _Harness {
       // а его Future под fake-async переживает лишь первый тест: во втором
       // await вешается и шелл никогда не открывает стартовую вкладку.
       overrides: [
-        editorWorkspaceSessionStoreProvider
-            .overrideWithValue(const _NoSessionStore()),
+        editorWorkspaceSessionStoreProvider.overrideWithValue(
+          const _NoSessionStore(),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -239,13 +389,17 @@ class _Harness {
             'a',
             title: 'A',
           ),
-          documentBuilder: (document) => _FakeDocument(
-            document: document,
-            saveResult: document.id.key == 'a' ? saveResult : null,
-            registersBackHandler:
-                harness.backHandlers[document.id.key] ?? true,
-            parent: document.id.key == 'a' ? parent : null,
-          ),
+          questMenuBuilder: (_) =>
+              const Scaffold(body: Center(child: Text('QUEST MENU'))),
+          documentBuilder: (document) => document.id.kind.isNested
+              ? EditorNestedDocuments.build(document.id)
+              : _FakeDocument(
+                  document: document,
+                  saveResult: document.id.key == 'a' ? saveResult : null,
+                  registersBackHandler:
+                      harness.backHandlers[document.id.key] ?? true,
+                  parent: document.id.key == 'a' ? parent : null,
+                ),
         ),
       ),
     );
@@ -282,7 +436,9 @@ class _Harness {
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
           SystemChannels.navigation.name,
-          const JSONMethodCodec().encodeMethodCall(const MethodCall('popRoute')),
+          const JSONMethodCodec().encodeMethodCall(
+            const MethodCall('popRoute'),
+          ),
           (_) {},
         );
     await settle();
@@ -293,21 +449,14 @@ class _Harness {
     final scope = EditorWorkspaceScope.of(
       tester.element(find.text('DOC:$key')),
     );
-    await scope.closeDocument(
-      EditorDocumentDescriptor.node(questId, key).id,
-    );
+    await scope.closeDocument(EditorDocumentDescriptor.node(questId, key).id);
     await settle();
   }
 
   /// Открыть вкладку так, как это делает документ из воркспейса.
-  Future<void> openTab(
-    String key, {
-    bool registersBackHandler = true,
-  }) async {
+  Future<void> openTab(String key, {bool registersBackHandler = true}) async {
     backHandlers[key] = registersBackHandler;
-    EditorWorkspaceScope.of(
-      tester.element(find.text('DOC:a')),
-    ).openDocument(
+    EditorWorkspaceScope.of(tester.element(find.text('DOC:a'))).openDocument(
       EditorDocumentDescriptor.node(questId, key, title: key.toUpperCase()),
     );
     await settle();
@@ -375,9 +524,6 @@ class _FakeDocumentState extends State<_FakeDocument> {
       body: Center(child: Text('DOC:${widget.document.id.key}')),
     );
     if (!widget.registersBackHandler) return content;
-    return EditorDocumentBackScope(
-      onBackPressed: _handleBack,
-      child: content,
-    );
+    return EditorDocumentBackScope(onBackPressed: _handleBack, child: content);
   }
 }

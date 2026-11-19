@@ -189,6 +189,20 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
   // Симуляция (запуск игры из контейнерного редактора)
   // ---------------------------------------------------------------------------
 
+  /// Черновик/финал из вложенного редактора: сразу в список детей, чтобы
+  /// закрытие ради сохранения не требовалось.
+  void _upsertChild(ContentItem item) {
+    if (!mounted) return;
+    final index = _children.indexWhere((existing) => existing.id == item.id);
+    final normalized = item.copyWith(flex: 1);
+    if (index >= 0) {
+      setState(() => _children[index] = normalized);
+    } else {
+      setState(() => _children.add(normalized));
+    }
+    widget.onAutoSave?.call(_currentState());
+  }
+
   Map<String, dynamic> _currentState() => {
     'children': _children,
     'alignment': _currentAlignment,
@@ -327,13 +341,6 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
     setState(() {
       _children.add(newItem);
     });
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tr('Элемент вставлен')),
-        backgroundColor: Colors.blue,
-      ),
-    );
   }
 
   // ============================================================
@@ -487,13 +494,6 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
         _children.add(linked.copyWith(flex: 1));
       });
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(trf('Шаблон вставлен как связанный: {p0}', {'p0': masterInQuest.name})),
-          backgroundColor: Colors.cyan,
-        ),
-      );
       return;
     }
 
@@ -567,14 +567,6 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
       _children.add(newItem.copyWith(flex: 1));
     });
 
-    if (!mounted) return;
-    final report = installed.assetsReport;
-    final msg = report.copied > 0
-        ? trf('Шаблон вставлен (ресурсов: {p0}, пропущено: {p1})', {'p0': report.copied, 'p1': report.skippedExisting})
-        : tr('Шаблон вставлен');
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.blue));
   }
 
   // ============================================================
@@ -739,16 +731,9 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
       _children[index] = container.copyWith(children: children);
     });
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tr('Элемент вставлен внутрь контейнера')),
-        backgroundColor: Colors.green,
-      ),
-    );
   }
 
-  // --- Р В РІР‚СњР В Р’ВР В РЎвЂ™Р В РІР‚С”Р В РЎвЂєР В РІР‚СљР В Р’В ---
+  // --- Верхний уровень ---
   void _showSettingsDialog() {
     final isRow = widget.containerType == 'row';
     final cs = Theme.of(context).colorScheme;
@@ -1269,13 +1254,11 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
               onItemSelected: (type, {pluginTypeId}) async {
                 final newItem = type == 'plugin'
                     ? await _createPluginChildItem(pluginTypeId)
-                    : await _logic.createItemByType(type);
-                if (newItem != null && mounted) {
-                  setState(() {
-                    _children.add(newItem.copyWith(flex: 1));
-                  });
-                  widget.onAutoSave?.call(_currentState());
-                }
+                    : await _logic.createItemByType(
+                        type,
+                        onDraft: _upsertChild,
+                      );
+                if (newItem != null && mounted) _upsertChild(newItem);
               },
               onPaste: _pasteCopiedItem,
               onInsertFromTemplate: _insertFromTemplate,

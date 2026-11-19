@@ -10,6 +10,7 @@ import 'package:canvas_app/features/editor/screens/node_selection_screen.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_editor_screen.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/function_selection_screen.dart';
 import 'package:canvas_app/features/editor/services/trigger_service.dart';
+import 'package:canvas_app/features/editor/workspace/editor_nested_documents.dart';
 import 'package:canvas_app/features/resources/screens/markdown_editor_screen.dart';
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
 import 'package:canvas_app/features/resources/services/resource_service.dart';
@@ -132,23 +133,24 @@ class ItemEditorHelper {
     if (item.type == 'stack') {
       // Стек открывается сразу канвасом: экран «список детей + превью» был
       // лишним шагом — все его правки живут на канвасе.
-      await Navigator.push<void>(
+      await EditorNestedDocuments.open<void>(
         context,
-        MaterialPageRoute(
-          builder: (_) => StackCanvasScreen(
-            stackItem: item,
-            questId: questId,
-            nodeId: nodeId,
-            onJumpToNode: onJumpToNode,
-            fromGameSession: fromGameSession,
-            onAutoSave: (state) async {
-              final newItem = state['item'] as ContentItem?;
-              if (newItem != null) updateItem(index, newItem);
-              if (onBeforeContainerEdit != null) {
-                await onBeforeContainerEdit!();
-              }
-            },
-          ),
+        questId: questId,
+        identity: 'stack:$nodeId:${item.id}',
+        title: tr('Стек'),
+        builder: (_) => StackCanvasScreen(
+          stackItem: item,
+          questId: questId,
+          nodeId: nodeId,
+          onJumpToNode: onJumpToNode,
+          fromGameSession: fromGameSession,
+          onAutoSave: (state) async {
+            final newItem = state['item'] as ContentItem?;
+            if (newItem != null && context.mounted) updateItem(index, newItem);
+            if (context.mounted && onBeforeContainerEdit != null) {
+              await onBeforeContainerEdit!();
+            }
+          },
         ),
       );
       return;
@@ -158,60 +160,63 @@ class ItemEditorHelper {
       if (onBeforeContainerEdit != null) await onBeforeContainerEdit!();
       if (!context.mounted) return;
 
-      final result = await Navigator.push<Map<String, dynamic>>(
+      final isRow = item.type == 'row';
+      final result = await EditorNestedDocuments.open<Map<String, dynamic>>(
         context,
-        MaterialPageRoute(
-          builder: (_) => ContainerEditorScreen(
-            questId: questId,
-            nodeId: nodeId,
-            containerType: item.type,
-            initialChildren: item.children ?? [],
-            initialAlignment: item.crossAxisAlignment,
-            initialTextFit: item.textFit,
-            initialRowTextAlign: item.rowTextAlignment,
-            initialItemSpacing: item.itemSpacing,
-            initialSpacingExpr: item.numericExpr('itemSpacing'),
-            initialChildImageRoundedCorners: item.childImageRoundedCorners,
-            initialFontFamily: item.fontFamily,
-            initialPluginData: item.pluginData,
-            onJumpToNode: onJumpToNode,
-            fromGameSession: fromGameSession,
-            onAutoSave: (state) async {
-              final newChildren = state['children'] as List<ContentItem>? ?? [];
-              final newAlign = state['alignment'] as String?;
-              final newTextFit = state['textFit'] as String?;
-              final newRowTextAlign = state['rowTextAlign'] as String?;
-              final newPluginData =
-                  state['pluginData'] as Map<String, dynamic>?;
-              final newSpacing = (state['itemSpacing'] as num?)?.toDouble();
-              final newSpacingExpr = state['spacingExpr'] as String?;
-              final newRoundImages = state['childImageRoundedCorners'] as bool?;
-              final newFontFamily = state['fontFamily'] as String?;
+        questId: questId,
+        identity: 'container:$nodeId:${item.id}',
+        title: isRow ? tr('Ряд') : tr('Колонка'),
+        builder: (_) => ContainerEditorScreen(
+          questId: questId,
+          nodeId: nodeId,
+          containerType: item.type,
+          initialChildren: item.children ?? [],
+          initialAlignment: item.crossAxisAlignment,
+          initialTextFit: item.textFit,
+          initialRowTextAlign: item.rowTextAlignment,
+          initialItemSpacing: item.itemSpacing,
+          initialSpacingExpr: item.numericExpr('itemSpacing'),
+          initialChildImageRoundedCorners: item.childImageRoundedCorners,
+          initialFontFamily: item.fontFamily,
+          initialPluginData: item.pluginData,
+          onJumpToNode: onJumpToNode,
+          fromGameSession: fromGameSession,
+          onAutoSave: (state) async {
+            final newChildren = state['children'] as List<ContentItem>? ?? [];
+            final newAlign = state['alignment'] as String?;
+            final newTextFit = state['textFit'] as String?;
+            final newRowTextAlign = state['rowTextAlign'] as String?;
+            final newPluginData =
+                state['pluginData'] as Map<String, dynamic>?;
+            final newSpacing = (state['itemSpacing'] as num?)?.toDouble();
+            final newSpacingExpr = state['spacingExpr'] as String?;
+            final newRoundImages = state['childImageRoundedCorners'] as bool?;
+            final newFontFamily = state['fontFamily'] as String?;
 
-              updateItem(
-                index,
-                withSpacingExpr(
-                  item.copyWith(
-                    children: newChildren,
-                    crossAxisAlignment: newAlign,
-                    textFit: newTextFit,
-                    rowTextAlignment: newRowTextAlign,
-                    pluginData: newPluginData,
-                    itemSpacing: newSpacing,
-                    clearItemSpacing: newSpacing == null,
-                    childImageRoundedCorners: newRoundImages,
-                    clearChildImageRoundedCorners: newRoundImages == null,
-                    fontFamily: newFontFamily,
-                    clearFontFamily: newFontFamily == null,
-                  ),
-                  newSpacingExpr,
+            if (!context.mounted) return;
+            updateItem(
+              index,
+              withSpacingExpr(
+                item.copyWith(
+                  children: newChildren,
+                  crossAxisAlignment: newAlign,
+                  textFit: newTextFit,
+                  rowTextAlignment: newRowTextAlign,
+                  pluginData: newPluginData,
+                  itemSpacing: newSpacing,
+                  clearItemSpacing: newSpacing == null,
+                  childImageRoundedCorners: newRoundImages,
+                  clearChildImageRoundedCorners: newRoundImages == null,
+                  fontFamily: newFontFamily,
+                  clearFontFamily: newFontFamily == null,
                 ),
-              );
-              if (onBeforeContainerEdit != null) {
-                await onBeforeContainerEdit!();
-              }
-            },
-          ),
+                newSpacingExpr,
+              ),
+            );
+            if (context.mounted && onBeforeContainerEdit != null) {
+              await onBeforeContainerEdit!();
+            }
+          },
         ),
       );
       if (result != null && context.mounted) {
@@ -253,41 +258,44 @@ class ItemEditorHelper {
     }
 
     if (item.type == 'text') {
-      final result = await Navigator.push<MarkdownEditorResult>(
+      ContentItem applyText(MarkdownEditorResult result) => item.copyWith(
+        text: result.text,
+        fontFamily: result.fontFamily,
+        clearFontFamily: result.fontFamily == null,
+        textSize: result.textSize,
+        clearTextSize: result.textSize == null,
+        // Режим и скорость пишутся всегда: «Без анимации» — это тоже
+        // выбор автора, а не отсутствие поля.
+        textReveal: result.textReveal,
+        revealSpeed: result.revealSpeed,
+        // Пара «цвет + толщина» снимается целиком: без цвета контура
+        // толщина повисла бы мёртвым полем в файле квеста.
+        textOutlineColor: result.textOutlineColor,
+        textOutlineWidth: result.textOutlineWidth,
+        clearTextOutline: result.textOutlineColor == null,
+      );
+
+      final result = await EditorNestedDocuments.open<MarkdownEditorResult>(
         context,
-        MaterialPageRoute(
-          builder: (_) => MarkdownEditorScreen(
-            initialText: item.text ?? '',
-            questId: questId,
-            initialFontFamily: item.fontFamily,
-            initialTextSize: item.textSize,
-            initialTextReveal: item.textReveal,
-            initialRevealSpeed: item.revealSpeed,
-            initialTextOutlineColor: item.textOutlineColor,
-            initialTextOutlineWidth: item.textOutlineWidth,
-          ),
+        questId: questId,
+        identity: 'text:$nodeId:${item.id}',
+        title: tr('Текст'),
+        builder: (_) => MarkdownEditorScreen(
+          initialText: item.text ?? '',
+          questId: questId,
+          initialFontFamily: item.fontFamily,
+          initialTextSize: item.textSize,
+          initialTextReveal: item.textReveal,
+          initialRevealSpeed: item.revealSpeed,
+          initialTextOutlineColor: item.textOutlineColor,
+          initialTextOutlineWidth: item.textOutlineWidth,
+          onChanged: (result) {
+            if (context.mounted) updateItem(index, applyText(result));
+          },
         ),
       );
       if (result != null && context.mounted) {
-        updateItem(
-          index,
-          item.copyWith(
-            text: result.text,
-            fontFamily: result.fontFamily,
-            clearFontFamily: result.fontFamily == null,
-            textSize: result.textSize,
-            clearTextSize: result.textSize == null,
-            // Режим и скорость пишутся всегда: «Без анимации» — это тоже
-            // выбор автора, а не отсутствие поля.
-            textReveal: result.textReveal,
-            revealSpeed: result.revealSpeed,
-            // Пара «цвет + толщина» снимается целиком: без цвета контура
-            // толщина повисла бы мёртвым полем в файле квеста.
-            textOutlineColor: result.textOutlineColor,
-            textOutlineWidth: result.textOutlineWidth,
-            clearTextOutline: result.textOutlineColor == null,
-          ),
-        );
+        updateItem(index, applyText(result));
       }
       return;
     }
@@ -297,6 +305,9 @@ class ItemEditorHelper {
         initialText: item.text,
         initialTarget: item.targetNodeId,
         existingItem: item,
+        onDraft: (draft) {
+          if (context.mounted) updateItem(index, keepLayerFields(item, draft));
+        },
       );
       if (newItem != null && context.mounted) {
         updateItem(index, keepLayerFields(item, newItem));
@@ -329,11 +340,17 @@ class ItemEditorHelper {
     }
 
     if (item.type == 'chat') {
-      final updated = await Navigator.push<ContentItem>(
+      final updated = await EditorNestedDocuments.open<ContentItem>(
         context,
-        MaterialPageRoute(
-          builder: (_) =>
-              ChatEditorScreen(questId: questId, existingItem: item),
+        questId: questId,
+        identity: 'chat:$nodeId:${item.id}',
+        title: tr('Чат'),
+        builder: (_) => ChatEditorScreen(
+          questId: questId,
+          existingItem: item,
+          onChanged: (draft) {
+            if (context.mounted) updateItem(index, keepLayerFields(item, draft));
+          },
         ),
       );
       if (updated != null && context.mounted) {
@@ -343,7 +360,12 @@ class ItemEditorHelper {
     }
 
     if (item.type == 'modal') {
-      final updated = await logic.editModal(existing: item);
+      final updated = await logic.editModal(
+        existing: item,
+        onChanged: (draft) {
+          if (context.mounted) updateItem(index, keepLayerFields(item, draft));
+        },
+      );
       if (updated != null && context.mounted) {
         updateItem(index, keepLayerFields(item, updated));
       }
@@ -478,10 +500,24 @@ class ItemEditorHelper {
   }
 
   Future<void> editVideoItem(int index, ContentItem item) async {
-    final updated = await Navigator.push<ContentItem>(
+    final updated = await EditorNestedDocuments.open<ContentItem>(
       context,
-      MaterialPageRoute(
-        builder: (_) => VideoEditorScreen(questId: questId, existingItem: item),
+      questId: questId,
+      identity: 'video:$nodeId:${item.id}',
+      title: tr('Видео'),
+      builder: (_) => VideoEditorScreen(
+        questId: questId,
+        existingItem: item,
+        onChanged: (draft) {
+          if (!context.mounted) return;
+          updateItem(
+            index,
+            keepLayerFields(
+              item,
+              draft,
+            ).withNumericExpr('borderRadius', draft.numericExpr('borderRadius')),
+          );
+        },
       ),
     );
     if (updated != null && context.mounted) {

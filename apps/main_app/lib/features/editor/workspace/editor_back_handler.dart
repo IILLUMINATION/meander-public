@@ -7,10 +7,27 @@ import 'editor_workspace_scope.dart';
 
 /// Обработчик запроса «Назад» для документа воркспейса.
 ///
-/// Возвращает `true`, если запрос обработан полностью: вкладка закрыта
-/// или выход отменён (например, пользователь не сохранил изменения).
-/// Шелл после этого никаких дополнительных действий не выполняет.
+/// Возвращает `true`, если запрос обработан полностью: вкладка закрыта,
+/// шаг внутри документа сделан (например, выход из папки библиотеки) или
+/// выход отменён (пользователь не сохранил изменения) — шелл после этого
+/// никаких дополнительных действий не выполняет.
+///
+/// `false` — «не моё событие»: документ глубины не имеет, решает шелл
+/// (история вкладок, закрытие, выход из редактора) или маршрут в режиме
+/// отдельного экрана.
 typedef EditorBackPressed = Future<bool> Function();
+
+/// Запись реестра: обработчик и его место в очереди «Назад».
+class EditorBackEntry {
+  final EditorBackPressed handler;
+
+  /// Документ живёт в собственной глубине (папки библиотеки ресурсов), и
+  /// «Назад» внутри неё значит «на уровень выше», а не «предыдущая вкладка».
+  /// Такой обработчик спрашивается раньше истории воркспейса.
+  final bool beforeWorkspaceHistory;
+
+  const EditorBackEntry(this.handler, {this.beforeWorkspaceHistory = false});
+}
 
 /// Реестр back-обработчиков документов редактора.
 ///
@@ -24,18 +41,28 @@ typedef EditorBackPressed = Future<bool> Function();
 /// оборачивают контент в [EditorBackHandler] и регистрируют сюда свой
 /// обработчик. Шелл диспатчит запрос только активному документу.
 class EditorBackHandlers {
-  final Map<EditorDocumentId, EditorBackPressed> _handlers = {};
+  final Map<EditorDocumentId, EditorBackEntry> _handlers = {};
 
   /// Обработчик документа или null, если документ его не зарегистрировал.
-  EditorBackPressed? handlerFor(EditorDocumentId id) => _handlers[id];
+  EditorBackPressed? handlerFor(EditorDocumentId id) => _handlers[id]?.handler;
 
-  void _register(EditorDocumentId id, EditorBackPressed handler) =>
-      _handlers[id] = handler;
+  /// Берёт ли документ «Назад» раньше истории воркспейса.
+  bool takesBackBeforeHistory(EditorDocumentId id) =>
+      _handlers[id]?.beforeWorkspaceHistory ?? false;
+
+  void _register(
+    EditorDocumentId id,
+    EditorBackPressed handler, {
+    bool beforeWorkspaceHistory = false,
+  }) => _handlers[id] = EditorBackEntry(
+    handler,
+    beforeWorkspaceHistory: beforeWorkspaceHistory,
+  );
 
   /// Снимаем регистрацию только если это то же самое замыкание —
   /// защита от гонки при быстром dispose/пересоздании виджетов.
   void _unregister(EditorDocumentId id, EditorBackPressed handler) {
-    if (identical(_handlers[id], handler)) {
+    if (identical(_handlers[id]?.handler, handler)) {
       _handlers.remove(id);
     }
   }
@@ -74,11 +101,17 @@ class EditorBackRegistry extends InheritedWidget {
 /// ```
 class EditorBackHandler extends StatefulWidget {
   final EditorBackPressed onBackPressed;
+
+  /// Документ со своей глубиной: «Назад» спрашивается раньше истории вкладок.
+  /// См. [EditorBackEntry.beforeWorkspaceHistory].
+  final bool beforeWorkspaceHistory;
+
   final Widget child;
 
   const EditorBackHandler({
     super.key,
     required this.onBackPressed,
+    this.beforeWorkspaceHistory = false,
     required this.child,
   });
 
@@ -107,7 +140,11 @@ class _EditorBackHandlerState extends State<EditorBackHandler> {
       _id = doc.id;
       _holder = holder;
       _registered = widget.onBackPressed;
-      holder._register(doc.id, widget.onBackPressed);
+      holder._register(
+        doc.id,
+        widget.onBackPressed,
+        beforeWorkspaceHistory: widget.beforeWorkspaceHistory,
+      );
     }
   }
 
@@ -126,13 +163,19 @@ class _EditorBackHandlerState extends State<EditorBackHandler> {
   @override
   void didUpdateWidget(EditorBackHandler oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.onBackPressed, widget.onBackPressed) &&
+    if ((!identical(oldWidget.onBackPressed, widget.onBackPressed) ||
+            oldWidget.beforeWorkspaceHistory !=
+                widget.beforeWorkspaceHistory) &&
         _registered != null &&
         _holder != null &&
         _id != null) {
       _holder!._unregister(_id!, _registered!);
       _registered = widget.onBackPressed;
-      _holder!._register(_id!, widget.onBackPressed);
+      _holder!._register(
+        _id!,
+        widget.onBackPressed,
+        beforeWorkspaceHistory: widget.beforeWorkspaceHistory,
+      );
     }
   }
 
@@ -161,6 +204,9 @@ class _EditorBackHandlerState extends State<EditorBackHandler> {
 class EditorDocumentBackScope extends StatefulWidget {
   final EditorBackPressed onBackPressed;
 
+  /// Документ со своей глубиной: «Назад» спрашивается раньше истории вкладок.
+  final bool beforeWorkspaceHistory;
+
   /// Может ли маршрут попнуть напрямую без обработчика (например,
   /// экран настроек без несохранённых изменений). Используется только
   /// в режиме отдельного маршрута.
@@ -171,6 +217,7 @@ class EditorDocumentBackScope extends StatefulWidget {
   const EditorDocumentBackScope({
     super.key,
     required this.onBackPressed,
+    this.beforeWorkspaceHistory = false,
     this.standaloneCanPop = false,
     required this.child,
   });
@@ -189,11 +236,21 @@ class _EditorDocumentBackScopeState extends State<EditorDocumentBackScope> {
     _embedded = EditorDocumentContext.maybeOf(context) != null;
   }
 
+  /// Отдельный маршрут: обработчик сделал шаг внутри документа — остаёмся;
+  /// вернул `false` (шагов больше нет) — закрываем экран, как и «Назад»
+  /// на обычном маршруте.
+  Future<void> _runAndMaybePop(BuildContext context) async {
+    final handled = await widget.onBackPressed();
+    if (handled || !context.mounted) return;
+    Navigator.maybeOf(context)?.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_embedded) {
       return EditorBackHandler(
         onBackPressed: widget.onBackPressed,
+        beforeWorkspaceHistory: widget.beforeWorkspaceHistory,
         child: widget.child,
       );
     }
@@ -201,7 +258,7 @@ class _EditorDocumentBackScopeState extends State<EditorDocumentBackScope> {
       canPop: widget.standaloneCanPop,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop || widget.standaloneCanPop) return;
-        unawaited(widget.onBackPressed());
+        unawaited(_runAndMaybePop(context));
       },
       child: widget.child,
     );

@@ -18,7 +18,6 @@ import 'package:canvas_app/features/editor/screens/canvas/widgets/canvas_tool_pi
 import 'package:canvas_app/features/editor/widgets/template_picker_sheet.dart';
 import 'package:canvas_app/features/editor/widgets/template_save_dialog.dart';
 import 'package:canvas_app/features/editor/screens/quest_search_screen.dart';
-import 'package:canvas_app/features/editor/widgets/editor_ui.dart';
 import 'package:canvas_app/features/editor/widgets/quest_validation_panel.dart';
 import 'package:canvas_app/features/onboarding/controllers/tutorial_controller.dart';
 import 'package:canvas_app/shared/widgets/canvas_painter.dart';
@@ -483,12 +482,6 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
       if (ok) {
         ref.invalidate(allQuestNodesProvider(widget.questId));
         await notifier.reloadData();
-        if (!mounted) return;
-        showEditorNotice(
-          context,
-          trf('Связанная нода вставлена: {p0}', {'p0': masterInQuest.name}),
-          color: Colors.cyan,
-        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -570,16 +563,6 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
     if (ok) {
       ref.invalidate(allQuestNodesProvider(widget.questId));
       await notifier.reloadData();
-      if (!mounted) return;
-      final report = installed.assetsReport;
-      final msg = report.copied > 0
-          ? trf('Нода «{p0}» вставлена (ресурсов: {p1}, пропущено: {p2})', {
-              'p0': newNode.title,
-              'p1': report.copied,
-              'p2': report.skippedExisting,
-            })
-          : trf('Нода «{p0}» вставлена', {'p0': newNode.title});
-      showEditorNotice(context, msg, color: Colors.blue);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -619,13 +602,6 @@ class _CanvasScreenState extends ConsumerState<CanvasScreen> {
     // Выделяем копию: она ложится рядом на 30 px, и без выделения не видно,
     // что именно появилось.
     notifier.selectNode(copyId);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tr('Нода дублирована')),
-        backgroundColor: Colors.green,
-        duration: Duration(milliseconds: 800),
-      ),
-    );
   }
 
   Future<void> _showTidyUpConfirmationDialog(CanvasNotifier notifier) async {

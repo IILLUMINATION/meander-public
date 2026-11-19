@@ -119,14 +119,15 @@ Future<void> _driveUntil(
 Finder _createFab() =>
     find.widgetWithText(FloatingActionButton, 'Создать новую');
 
-/// Пикер готов к новому созданию: список прочитан и ни один снейкбар не
-/// перекрывает висячую кнопку — после успешного акта она под плашкой
-/// «Создана нода», и тап уходит в неё (`hitTestWarningShouldBeFatal` тут
-/// не включён, молчаливый промах и выглядел как зависший тест).
+/// Пикер готов к новому созданию: список прочитан и висячая кнопка реально
+/// принимает тап — её не перекрывает ни плашка, ни ещё не доигранный переход
+/// маршрута (`ModalRoute` игнорирует указатели, пока анимация не завершена).
+/// `hitTestable()` проверяет оба случая сразу; без него тап молча уходил мимо,
+/// и тест выглядел зависшим.
 bool _pickerLoaded(WidgetTester tester) =>
-    _createFab().evaluate().isNotEmpty &&
-    find.byType(CircularProgressIndicator).evaluate().isEmpty &&
-    find.byType(SnackBar).evaluate().isEmpty;
+    _createFab().evaluate().length == 1 &&
+    _createFab().hitTestable().evaluate().length == 1 &&
+    find.byType(CircularProgressIndicator).evaluate().isEmpty;
 
 /// Открывает пикер с хостового экрана и жмёт создание ноды.
 ///
@@ -144,7 +145,10 @@ Future<void> _createNode(WidgetTester tester, {Finder? failureMessage}) async {
   await _driveUntil(
     tester,
     () =>
-        _pops.length > before ||
+        // Пикер закрылся и его маршрут доиграл: иначе висячая кнопка старого
+        // маршрута ещё в дереве, и следующий тап ищет две кнопки.
+        (_pops.length > before &&
+            find.text('открыть пикер').hitTestable().evaluate().isNotEmpty) ||
         (failureMessage?.evaluate().isNotEmpty ?? false),
   );
 }

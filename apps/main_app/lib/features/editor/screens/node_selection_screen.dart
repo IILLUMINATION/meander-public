@@ -210,13 +210,6 @@ class _NodeSelectionScreenState extends ConsumerState<NodeSelectionScreen> {
       ref.invalidate(allQuestNodesProvider(widget.questId));
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(trf('Создана нода: {title}', {'title': title})),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(milliseconds: 1200),
-          ),
-        );
         Navigator.pop(context, newNodeId);
       }
     } catch (e) {
@@ -763,13 +756,6 @@ class _NodeSelectionScreenState extends ConsumerState<NodeSelectionScreen> {
           clipboardState.state = null;
 
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(tr('Нода успешно вставлена')),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-
             ref.invalidate(allQuestNodesProvider(widget.questId));
           }
         } else {

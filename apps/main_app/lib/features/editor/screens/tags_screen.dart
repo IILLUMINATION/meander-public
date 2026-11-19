@@ -860,14 +860,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
         container.invalidate(allQuestNodesProvider(widget.questId));
       }
       if (mounted) {
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('Глава скопирована')),
-              backgroundColor: Color(0xFF00C853),
-            ),
-          );
-        } else {
+        if (!success) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(tr('Ошибка копирования')),
@@ -1094,26 +1087,6 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
       container.invalidate(allQuestNodesProvider(widget.questId));
       if (!mounted) return;
 
-      final report = installed.assetsReport;
-      final msg = report.copied > 0
-          ? trf(
-              'Глава «{p0}» вставлена (нод: {p1}, связей: {p2}, ресурсов: {p3}, пропущено: {p4})',
-              {
-                'p0': newTag.name,
-                'p1': applied.nodes.length,
-                'p2': applied.connections.length,
-                'p3': report.copied,
-                'p4': report.skippedExisting,
-              },
-            )
-          : trf('Глава «{p0}» вставлена (нод: {p1}, связей: {p2})', {
-              'p0': newTag.name,
-              'p1': applied.nodes.length,
-              'p2': applied.connections.length,
-            });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.blue),
-      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_editor_screen.dart';
 import 'package:canvas_app/features/resources/services/resource_providers.dart';
@@ -12,10 +14,19 @@ class VideoEditorScreen extends ConsumerStatefulWidget {
   final String questId;
   final ContentItem? existingItem;
 
+  /// Стабильный id для нового видео: без него каждое автосохранение
+  /// создавало бы новый элемент в ноде.
+  final String? draftId;
+
+  /// Автосохранение в родительскую вкладку без закрытия экрана.
+  final ValueChanged<ContentItem>? onChanged;
+
   const VideoEditorScreen({
     super.key,
     required this.questId,
     this.existingItem,
+    this.draftId,
+    this.onChanged,
   });
 
   @override
@@ -23,6 +34,7 @@ class VideoEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
+  String? _lastAutosave;
   late String _sourceType; // asset | url | youtube
   String? _resourcePath;
   final _urlCtrl = TextEditingController();
@@ -75,6 +87,30 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     } else {
       _sourceType = 'asset';
     }
+    _lastAutosave = _snapshot(_buildItem());
+    _urlCtrl.addListener(_scheduleAutosave);
+    _startCtrl.addListener(_scheduleAutosave);
+    _endCtrl.addListener(_scheduleAutosave);
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _scheduleAutosave();
+  }
+
+  void _scheduleAutosave() => _emitAutosave();
+
+  String? _snapshot(ContentItem? item) => item?.toJson().toString();
+
+  void _emitAutosave() {
+    final onChanged = widget.onChanged;
+    if (onChanged == null) return;
+    final item = _buildItem();
+    final snapshot = _snapshot(item);
+    if (snapshot == _lastAutosave) return;
+    _lastAutosave = snapshot;
+    if (item != null) onChanged(item);
   }
 
   @override
@@ -118,25 +154,29 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     }
   }
 
-  void _save() {
+  ContentItem? _buildItem({bool notifyUser = false}) {
     String? videoUrl;
     String? resourcePath;
     String sourceType = _sourceType;
     if (_sourceType == 'asset') {
       if (_resourcePath == null || _resourcePath!.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(tr('Выберите файл видео'))));
-        return;
+        if (notifyUser) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(tr('Выберите файл видео'))));
+        }
+        return null;
       }
       resourcePath = _resourcePath;
     } else {
       final url = _urlCtrl.text.trim();
       if (url.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(tr('Введите ссылку'))));
-        return;
+        if (notifyUser) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(tr('Введите ссылку'))));
+        }
+        return null;
       }
       videoUrl = url;
       // auto-detect youtube if needed
@@ -150,7 +190,10 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     final endMs = int.tryParse(_endCtrl.text.trim());
 
     final item = ContentItem(
-      id: widget.existingItem?.id ?? const Uuid().v4(),
+      id:
+          widget.existingItem?.id ??
+          widget.draftId ??
+          const Uuid().v4(),
       type: 'video',
       resourcePath: resourcePath,
       videoUrl: videoUrl,
@@ -176,7 +219,13 @@ class _VideoEditorScreenState extends ConsumerState<VideoEditorScreen> {
     );
     // Скругление — своё: пустая строка означает «формулу сняли», а не «не
     // знаю», поэтому с неё ключ убирается.
-    Navigator.pop(context, item.withNumericExpr('borderRadius', _radiusExpr));
+    return item.withNumericExpr('borderRadius', _radiusExpr);
+  }
+
+  void _save() {
+    final item = _buildItem(notifyUser: true);
+    if (item == null) return;
+    Navigator.pop(context, item);
   }
 
   /// Файл для подписи: имя из библиотеки квеста, иначе имя файла без пути —
