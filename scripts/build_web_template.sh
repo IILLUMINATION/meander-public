@@ -48,6 +48,18 @@ PY
 
 mkdir -p "$TARGET_DIR"
 rm -f "$TARGET"
-(cd "$TMP" && zip -q -9 -r -X "$TARGET" .)
+# python-архиватор вместо zip: в Git Bash на Windows команды zip нет,
+# а Python 3 есть и на раннерах, и на машинах разработчиков.
+python3 - "$TMP" "$TARGET" <<'PY'
+import os, sys, zipfile
+src, dst = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    for root, dirs, files in os.walk(src):
+        dirs.sort()
+        for name in sorted(files):
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, src).replace(os.sep, "/")
+            archive.write(full, rel)
+PY
 
 echo "==> готово: $TARGET ($(du -h "$TARGET" | cut -f1))"
