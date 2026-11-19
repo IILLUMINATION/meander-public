@@ -1035,11 +1035,15 @@ router.post('/:id/admin/action', authMiddleware, adminAuth, async (req: AuthRequ
             if (tier === null) {
                 return res.status(400).json({ error: 'Invalid market tier' });
             }
+            // `is_demo` передаём отдельным bool-параметром, а не выражением
+            // `($1 = $3)`: так тип параметра не зависит от вывода типа
+            // `market_tier`, и запрос одинаково работает на старых базах, где
+            // колонка пришла из миграции с другим типом.
             const result = await pool.query(
                 `UPDATE quests
-                 SET market_tier = $1, is_demo = ($1 = $3), updated_at = NOW()
+                 SET market_tier = $1, is_demo = $3, updated_at = NOW()
                  WHERE id = $2 RETURNING *`,
-                [tier, id, MARKET_TIER_DEMO]
+                [tier, id, tier === MARKET_TIER_DEMO]
             );
             if (result.rows.length === 0) return res.status(404).json({ error: 'Quest not found' });
             return res.json(result.rows[0]);

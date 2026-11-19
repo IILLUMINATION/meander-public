@@ -70,6 +70,25 @@ void main() {
     expect(prefs.getString('user_id'), isNull);
   });
 
+  test('500 — ошибка бэкенда, а не «сервер на обслуживании»', () async {
+    final api = _apiReturning(500, body: '{"error":"Server error"}');
+
+    Object? thrown;
+    try {
+      await api.post('quests/0/admin/action', body: {'action': 'x'});
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown, isNotNull);
+    expect(thrown.toString(), contains('500'));
+    expect(thrown.toString(), contains('Server error'));
+    expect(
+      thrown.toString(),
+      isNot(contains('SERVER_MAINTENANCE')),
+      reason: 'иначе админ видит техработы вместо причины',
+    );
+  });
+
   test('сервер не отвечает — запрос завершается сам', () async {
     final api = ApiService(
       client: MockClient(

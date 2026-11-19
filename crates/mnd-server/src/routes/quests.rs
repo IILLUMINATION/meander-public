@@ -1592,12 +1592,12 @@ async fn admin_action(
                 };
                 let row = sqlx::query(
                     "UPDATE quests
-                        SET market_tier = $1, is_demo = ($1 = $3), updated_at = NOW()
+                        SET market_tier = $1, is_demo = $3, updated_at = NOW()
                       WHERE id = $2 RETURNING *",
                 )
                 .bind(tier)
                 .bind(quest_id)
-                .bind(MARKET_TIER_DEMO)
+                .bind(tier == MARKET_TIER_DEMO)
                 .fetch_optional(&state.db)
                 .await?;
                 match row {

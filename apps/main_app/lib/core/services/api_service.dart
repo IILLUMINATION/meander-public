@@ -194,7 +194,17 @@ class ApiService {
 
   void _checkStatusCode(http.Response response) {
     if (response.statusCode >= 500 && response.statusCode < 600) {
-      throw Exception('SERVER_MAINTENANCE');
+      final detail = _failureDetail(response);
+      final suffix = detail.isEmpty ? '' : ' $detail';
+      // 502/503/504 — шлюз/сервис недоступен, это и есть «обслуживание».
+      // 500 — конкретная ошибка бэкенда: её нельзя выдавать за техработы,
+      // иначе админ-действие «не работает» без единой подсказки, что именно.
+      if (response.statusCode == 503 ||
+          response.statusCode == 504 ||
+          response.statusCode == 502) {
+        throw Exception('SERVER_MAINTENANCE: ${response.statusCode}$suffix');
+      }
+      throw Exception('Failed to request: ${response.statusCode}$suffix');
     }
   }
 
