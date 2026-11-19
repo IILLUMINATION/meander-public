@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:canvas_app/core/services/table_export_service.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_editor_screen.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/table_path_picker.dart';
 import 'package:canvas_app/features/resources/screens/data/table_data_keys_sheet.dart';
 import 'package:canvas_app/features/resources/screens/data/table_guide.dart';
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
@@ -423,18 +424,11 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     final next = await showTableDataKeysSheet(context, table: _table);
     if (next == null || !mounted) return;
     if (mapEquals(next, _table.data)) return;
-    final before = _table.data.length;
     _pushUndo(columns: false, rows: false);
     setState(() {
       _table.data = next;
       _hasEdits = true;
     });
-    _snack(
-      trf('Ключей скриптов: было {before}, стало {p0}', {
-        'before': before,
-        'p0': next.length,
-      }),
-    );
   }
 
   Future<void> _addColumn() async {
@@ -523,7 +517,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _formulaCtrl.clear();
       _hasEdits = true;
     });
-    _snackWithUndo(trf('Столбец «{p0}» удалён', {'p0': col}));
   }
 
   void _deleteRow(int index) {
@@ -537,7 +530,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _formulaCtrl.clear();
       _hasEdits = true;
     });
-    _snackWithUndo(trf('Строка {p0} удалена', {'p0': index + 1}));
   }
 
   /// Вставляет пустую строку на позицию [index] и выделяет её — как
@@ -693,11 +685,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _hasEdits = true;
       _syncFormulaFromSelection();
     });
-    _snackWithUndo(
-      result.isEmpty
-          ? trf('Имя строки {p0} убрано', {'p0': row + 1})
-          : trf('Строка {p0} теперь «{p1}»', {'p0': row + 1, 'p1': result}),
-    );
   }
 
   void _moveRow(int index, int dir) {
@@ -930,7 +917,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
       _hasEdits = true;
       _syncFormulaFromSelection();
     });
-    _snack(tr('Вложенная таблица удалена'));
   }
 
   Future<void> _openCellMenu(int row, int col) async {
@@ -1073,12 +1059,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
         _formulaCtrl.clear();
         _hasEdits = true;
       });
-      _snackWithUndo(
-        trf('Импортировано: {p0} столбцов, {p1} строк', {
-          'p0': _table.columns.length,
-          'p1': _table.rows.length,
-        }),
-      );
     } catch (e) {
       _snack(trf('Ошибка импорта CSV: {p0}', {'p0': friendlyError(e)}));
     }
@@ -1174,17 +1154,6 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     );
   }
 
-  void _snackWithUndo(String text) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(label: tr('Отменить'), onPressed: _undo),
-      ),
-    );
-  }
-
   Widget _thumbnail(String path) {
     final future = _fileFutures.putIfAbsent(
       path,
@@ -1265,6 +1234,15 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
     return KeyEventResult.ignored;
   }
 
+  Future<void> _pickStorageKey() async {
+    final reference = await pickTableKeyReference(
+      context,
+      questId: widget.questId,
+      tableName: _table.name,
+    );
+    if (reference != null && mounted) Navigator.pop(context, reference);
+  }
+
   // ---------------------------------------------------------------------------
   //  Build
   // ---------------------------------------------------------------------------
@@ -1325,13 +1303,18 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
                 )
               : null,
           actions: [
-            if (widget.cellPickerMode)
+            if (widget.cellPickerMode) ...[
+              IconButton(
+                tooltip: tr('Вставить ключ хранилища'),
+                icon: const Icon(Icons.key_rounded),
+                onPressed: _pickStorageKey,
+              ),
               IconButton(
                 tooltip: tr('Вернуться'),
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),
-              )
-            else ...[
+              ),
+            ] else ...[
               if (_undoStack.isNotEmpty)
                 IconButton(
                   tooltip: tr('Отменить'),
@@ -2222,7 +2205,9 @@ class _TableEditorScreenState extends State<TableEditorScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                tr('Нажмите на ячейку, чтобы вставить ссылку на неё в текст'),
+                tr(
+                  'Нажмите на ячейку — или на ключ в шапке, чтобы вставить ссылку на хранилище',
+                ),
                 style: TextStyle(color: scheme.onSurface, fontSize: 13),
               ),
             ),

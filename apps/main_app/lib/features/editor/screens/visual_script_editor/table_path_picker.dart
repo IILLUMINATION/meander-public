@@ -4,14 +4,13 @@ import 'package:canvas_app/features/resources/screens/data/table_guide.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/models/quest_table_model.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 
-/// Срез таблицы так, как её видит блок «Данные»: движок работает только с
-/// `data` (ключ → значение). Колонки и ряды сетки в `data` не попадают, и
-/// именно на этом спотыкаются тестировщики: «удаляю значение из таблицы, а оно
-/// остаётся». Поэтому пикер показывает ключи и честно говорит, если их нет.
+/// Срез таблицы так, как её видит блок «Данные»: ключи `data` (ключ →
+/// значение) плюс сетка. У сетки путь — адрес ячейки (`["колонка"][1]` или
+/// `["колонка"]["имя строки"]`), у хранилища — имя ключа. Показываем автору
+/// оба вида, иначе он пишет в путь ссылку из текста и «Записать» молчит.
 class TableDataSnapshot {
   final String name;
   final Map<String, dynamic> data;
@@ -28,10 +27,8 @@ class TableDataSnapshot {
   });
 
   /// Первое непустое имя строки — им можно адресовать ячейку вместо номера.
-  String get firstRowName => rowNames.firstWhere(
-    (n) => n.trim().isNotEmpty,
-    orElse: () => '',
-  );
+  String get firstRowName =>
+      rowNames.firstWhere((n) => n.trim().isNotEmpty, orElse: () => '');
 
   bool get hasKeys => data.isNotEmpty;
 
@@ -78,6 +75,50 @@ Future<TableDataSnapshot?> loadTableDataSnapshot(
   return null;
 }
 
+/// Безопасный сегмент пути можно писать без кавычек: `gold`, `items`.
+/// Точка и скобки меняют разбор, поэтому такие имена всегда в кавычках.
+bool _isBarePathKey(String key) =>
+    key.isNotEmpty &&
+    !key.contains('.') &&
+    !key.contains('[') &&
+    !key.contains(']') &&
+    !key.contains('"') &&
+    !key.contains("'") &&
+    !key.contains(' ') &&
+    !key.contains('\t') &&
+    !key.contains('\n');
+
+/// Путь по вложенным ключам и индексам: `gold`, `gold["sub"]`, `items[0]`.
+String tablePathOf(List<Object> path) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < path.length; i++) {
+    final segment = path[i];
+    if (segment is int) {
+      buffer.write('[$segment]');
+      continue;
+    }
+    final key = '$segment';
+    if (i == 0 && _isBarePathKey(key)) {
+      buffer.write(key);
+    } else {
+      buffer.write('["${escapeTableKey(key)}"]');
+    }
+  }
+  return buffer.toString();
+}
+
+/// Ссылка для текста и формул: `{таблица["ключ"]["вложенный"]}`.
+/// Путь из пикера — уже готовая часть после имени таблицы.
+String tableTextReference(String tableName, String path) {
+  final trimmed = path.trim();
+  if (trimmed.isEmpty) return '{$tableName}';
+  if (trimmed.startsWith('[')) return '{$tableName$trimmed}';
+  final bracket = trimmed.indexOf('[');
+  final head = bracket < 0 ? trimmed : trimmed.substring(0, bracket);
+  final rest = bracket < 0 ? '' : trimmed.substring(bracket);
+  return '{$tableName["${escapeTableKey(head)}"]$rest}';
+}
+
 /// Выбор пути блока «Данные»: реальные ключи таблицы + ручной ввод +
 /// редактор формул. Возвращает строку пути или `null`, если автор отменил.
 Future<String?> pickTablePath(
@@ -86,6 +127,7 @@ Future<String?> pickTablePath(
   required String tableName,
   required TableOperation operation,
   String initial = '',
+  String? description,
 }) {
   return Navigator.push<String>(
     context,
@@ -95,9 +137,32 @@ Future<String?> pickTablePath(
         tableName: tableName,
         operation: operation,
         initial: initial,
+        description: description,
       ),
     ),
   );
+}
+
+/// Пикер ключа для вставки в текст: возвращает готовую ссылку
+/// `{таблица["ключ"]["вложенный"]}`, а не сырой путь блока «Данные».
+Future<String?> pickTableKeyReference(
+  BuildContext context, {
+  required String questId,
+  required String tableName,
+  String initial = '',
+}) async {
+  final path = await pickTablePath(
+    context,
+    questId: questId,
+    tableName: tableName,
+    operation: TableOperation.get,
+    initial: initial,
+    description: tr(
+      'Выберите ключ или вложенный путь — в текст вставится ссылка вида {таблица["ключ"]}.',
+    ),
+  );
+  if (path == null) return null;
+  return tableTextReference(tableName, path);
 }
 
 class TablePathPickerScreen extends StatefulWidget {
@@ -105,6 +170,7 @@ class TablePathPickerScreen extends StatefulWidget {
   final String tableName;
   final TableOperation operation;
   final String initial;
+  final String? description;
 
   const TablePathPickerScreen({
     super.key,
@@ -112,6 +178,7 @@ class TablePathPickerScreen extends StatefulWidget {
     required this.tableName,
     required this.operation,
     this.initial = '',
+    this.description,
   });
 
   @override
@@ -123,6 +190,9 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
   final TextEditingController _search = TextEditingController();
   TableDataSnapshot? _snapshot;
   bool _loaded = false;
+
+  /// Текущий уровень дерева: имена ключей (`String`) и индексы списков (`int`).
+  final List<Object> _path = [];
 
   @override
   void initState() {
@@ -152,31 +222,17 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
 
   void _choose(String path) => Navigator.pop(context, path);
 
-  /// Ссылка на ячейку первой строки колонки — та же форма, что вставляет пикер
-  /// ячейки в тексте. Сетка путём блока «Данные» не является, поэтому её не
-  /// подставляем в поле пути, а даём скопировать.
-  static String _gridRef(
-    String table,
-    String column, [
-    String rowName = '',
-  ]) {
+  /// Адрес ячейки для поля «Путь» — номер строки с 1 или точное имя строки.
+  static String _gridPath(String column, [String rowName = '']) {
     final col = escapeTableKey(column);
     final row = escapeTableKey(rowName.trim());
-    if (row.isNotEmpty) return '{$table["$col"]["$row"]}';
-    return '{$table["$col"][1]}';
+    if (row.isNotEmpty) return '["$col"]["$row"]';
+    return '["$col"][1]';
   }
 
-  Future<void> _copyGridRef(String ref) async {
-    await Clipboard.setData(ClipboardData(text: ref));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(trf('Скопировано — вставьте в текст или формулу: {ref}', {'ref': ref})),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+  /// Ссылка на ячейку так, как её пишут в тексте и формулах.
+  static String _gridRef(String table, String column, [String rowName = '']) {
+    return '{$table${_gridPath(column, rowName)}}';
   }
 
   Future<void> _openFormulaEditor() async {
@@ -192,23 +248,65 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
     if (result != null && mounted) _manual.text = result;
   }
 
-  List<MapEntry<String, dynamic>> _visibleKeys() {
+  dynamic _valueAtPath(List<Object> path) {
+    dynamic current = _snapshot?.data;
+    for (final segment in path) {
+      if (current is Map) {
+        current = current[segment];
+      } else if (current is List && segment is int) {
+        if (segment < 0 || segment >= current.length) return null;
+        current = current[segment];
+      } else {
+        return null;
+      }
+    }
+    return current;
+  }
+
+  List<MapEntry<Object, dynamic>> _entriesAtCurrent() {
+    final current = _valueAtPath(_path);
+    final entries = <MapEntry<Object, dynamic>>[];
+    if (current is Map) {
+      for (final entry in current.entries) {
+        final key = entry.key.toString();
+        if (_path.isEmpty && key.startsWith('__')) continue;
+        entries.add(MapEntry<Object, dynamic>(key, entry.value));
+      }
+    } else if (current is List) {
+      for (var i = 0; i < current.length; i++) {
+        entries.add(MapEntry<Object, dynamic>(i, current[i]));
+      }
+    }
+    entries.sort((a, b) => '${a.key}'.compareTo('${b.key}'));
     final query = _search.text.trim().toLowerCase();
-    final entries = (_snapshot?.data ?? const <String, dynamic>{}).entries
-        .where((e) => !e.key.startsWith('__'))
-        .toList();
     if (query.isEmpty) return entries;
     return entries
-        .where((e) => e.key.toLowerCase().contains(query))
+        .where((e) => '${e.key}'.toLowerCase().contains(query))
         .toList();
+  }
+
+  void _drill(Object segment) {
+    setState(() {
+      _path.add(segment);
+      _search.clear();
+    });
+  }
+
+  void _goToLevel(int length) {
+    setState(() {
+      _path.removeRange(length, _path.length);
+      _search.clear();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final keys = _visibleKeys();
+    final entries = _entriesAtCurrent();
     final snapshot = _snapshot;
     final op = widget.operation;
+    final currentPath = tablePathOf(_path);
+    final atRoot = _path.isEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -228,7 +326,7 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
+        child: ListView(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -236,14 +334,25 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    trf('Путь — это имя, под которым блок «Данные» хранит значение внутри таблицы. Ряд и колонка сетки путём не считаются: их читают ссылкой вида {p0} в тексте и формулах.', {'p0': _gridRef(widget.tableName, 'колонка')}),
+                    trf(
+                      'Путь — имя ключа хранилища («gold») или адрес ячейки сетки: колонка и строка, строка — с 1 или по имени. В тексте та же ячейка пишется как {p0}.',
+                      {'p0': _gridRef(widget.tableName, 'колонка')},
+                    ),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                       height: 1.35,
                     ),
                   ),
                   Text(
-                    op.description,
+                    tr(
+                      'Вложенные ключи и элементы списков — это тоже путь: gold["sub"], items[0]. Кнопка › раскрывает уровень, тап по строке выбирает его целиком.',
+                    ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    widget.description ?? op.description,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -254,17 +363,52 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
             if (snapshot != null && !snapshot.hasKeys && snapshot.rowCount > 0)
               _InfoCard(
                 icon: Icons.grid_on_rounded,
-                text:
-                    trf('В таблице {p0} рядов сетки, но блок «Данные» работает только с ключами хранилища. Запишите первый ключ операцией «Записать» — он появится здесь.', {'p0': snapshot.rowCount}),
+                text: trf(
+                  'В таблице {p0} рядов сетки и ещё нет ключей хранилища. Ячейку выбирайте адресом из списка ниже, а ключ создаст операция «Записать».',
+                  {'p0': snapshot.rowCount},
+                ),
               ),
-            if (snapshot != null && snapshot.columns.isNotEmpty)
+            if (!atRoot)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          ActionChip(
+                            label: Text(widget.tableName),
+                            onPressed: () => _goToLevel(0),
+                          ),
+                          for (var i = 0; i < _path.length; i++)
+                            ActionChip(
+                              label: Text('${_path[i]}'),
+                              onPressed: () => _goToLevel(i + 1),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (_path.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: () => _choose(currentPath),
+                        icon: const Icon(Icons.check_rounded, size: 16),
+                        label: Text(tr('Выбрать путь')),
+                      ),
+                  ],
+                ),
+              ),
+            if (snapshot != null && snapshot.columns.isNotEmpty && atRoot)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      tr('Сетка — это не путь. Вот так её ячейку читают из текста (номер строки менять самому, с 1):'),
+                      tr(
+                        'Ячейка сетки: номер строки — с 1, имя — если оно задано. Нажмите, чтобы подставить путь.',
+                      ),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -276,18 +420,12 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
                         itemCount: snapshot.columns.length,
                         separatorBuilder: (_, _) => const SizedBox(width: 6),
                         itemBuilder: (_, i) {
-                          final ref = _gridRef(
-                            widget.tableName,
-                            snapshot.columns[i],
-                            snapshot.firstRowName,
-                          );
+                          final column = snapshot.columns[i];
+                          final path = _gridPath(column, snapshot.firstRowName);
                           return ActionChip(
-                            onPressed: () => _copyGridRef(ref),
-                            avatar: const Icon(
-                              Icons.copy_rounded,
-                              size: 14,
-                            ),
-                            label: Text(ref),
+                            onPressed: () => _choose(path),
+                            avatar: const Icon(Icons.grid_on_rounded, size: 14),
+                            label: Text(path),
                           );
                         },
                       ),
@@ -303,51 +441,69 @@ class _TablePathPickerScreenState extends State<TablePathPickerScreen> {
                 decoration: InputDecoration(
                   isDense: true,
                   prefixIcon: Icon(Icons.search_rounded),
-                  hintText: tr('Поиск ключа'),
+                  hintText: atRoot ? tr('Поиск ключа') : tr('Поиск на уровне'),
                 ),
               ),
             ),
             const SizedBox(height: 4),
-            Expanded(
+            SizedBox(
+              height: 300,
               child: !_loaded
                   ? const Center(child: CircularProgressIndicator())
-                  : keys.isEmpty
+                  : entries.isEmpty
                   ? SingleChildScrollView(
                       padding: const EdgeInsets.all(16),
                       child: Text(
-                        snapshot != null && snapshot.hasKeys
-                            ? trf('Ничего не найдено по запросу «{p0}».', {'p0': _search.text})
-                            : trf('У хранилища «{p0}» пока нет ключей. Введите имя пути ниже — «Записать» создаст ключ, а «Получить» вернёт запасное значение.', {'p0': widget.tableName}),
+                        _search.text.trim().isNotEmpty
+                            ? trf('Ничего не найдено по запросу «{p0}».', {
+                                'p0': _search.text,
+                              })
+                            : atRoot
+                            ? trf(
+                                'У хранилища «{p0}» пока нет ключей. Введите имя пути ниже — «Записать» создаст ключ; ячейка сетки адресуется через ["колонка"][1].',
+                                {'p0': widget.tableName},
+                              )
+                            : tr('На этом уровне пусто.'),
                         style: theme.textTheme.bodyMedium,
                       ),
                     )
                   : ListView.builder(
-                      itemCount: keys.length,
+                      itemCount: entries.length,
                       itemBuilder: (_, i) {
-                        final entry = keys[i];
+                        final entry = entries[i];
+                        final value = entry.value;
+                        final isContainer = value is Map || value is List;
+                        final nextPath = tablePathOf([..._path, entry.key]);
                         final described = TableDataSnapshot.describeValue(
-                          entry.value,
+                          value,
                         );
                         return ListTile(
                           dense: true,
                           leading: Icon(
-                            entry.value is List
+                            value is List
                                 ? Icons.list_rounded
-                                : entry.value is Map
+                                : value is Map
                                 ? Icons.account_tree_rounded
                                 : Icons.label_outline_rounded,
                           ),
-                          title: Text(entry.key),
-                          subtitle: Text(described),
-                          trailing: entry.value is List
+                          title: Text(
+                            entry.key is int
+                                ? '[${entry.key}]'
+                                : '${entry.key}',
+                          ),
+                          subtitle: Text(
+                            currentPath.isEmpty
+                                ? described
+                                : '$nextPath · $described',
+                          ),
+                          trailing: isContainer
                               ? IconButton(
-                                  tooltip: tr('Путь к первому элементу'),
-                                  icon: const Icon(Icons.skip_next_rounded),
-                                  onPressed: () =>
-                                      _choose('${entry.key}[0]'),
+                                  tooltip: tr('Открыть вложенные'),
+                                  icon: const Icon(Icons.chevron_right_rounded),
+                                  onPressed: () => _drill(entry.key),
                                 )
                               : null,
-                          onTap: () => _choose(entry.key),
+                          onTap: () => _choose(nextPath),
                         );
                       },
                     ),
@@ -417,4 +573,3 @@ class _InfoCard extends StatelessWidget {
     );
   }
 }
-

@@ -826,12 +826,18 @@ fn execute_condition_prelude_table_operation(
         .get("tableName")
         .map(value_to_string)
         .unwrap_or_default();
-    let evaluated_table = evaluate_expression(block.get("tableName").cloned(), game_state);
-
-    let table_name = if matches!(evaluated_table, Value::Object(_) | Value::Array(_)) {
-        table_name_expr
-    } else {
-        evaluated_table.to_string()
+    // Та же защита, что в `execute_table_operation`: голое имя сетки
+    // evaluator разворачивает в её содержимое, и «Получить» молча промахивался.
+    let table_name = match literal_table_name(game_state, &table_name_expr) {
+        Some(name) => name,
+        None => {
+            let evaluated_table = evaluate_expression(block.get("tableName").cloned(), game_state);
+            if matches!(evaluated_table, Value::Object(_) | Value::Array(_)) {
+                table_name_expr
+            } else {
+                evaluated_table.to_string()
+            }
+        }
     };
 
     // get_table использует собственное имя (не toString с кавычками).
@@ -841,7 +847,10 @@ fn execute_condition_prelude_table_operation(
     }
 
     let raw_path = block.get("path").map(value_to_string).unwrap_or_default();
-    let path_str = {
+    let address = table_address_suffix(&raw_path, &table_name);
+    let path_str = if let Some(suffix) = &address {
+        suffix.clone()
+    } else {
         let evaluated = evaluate_expression(Some(Value::String(raw_path.clone())), game_state);
         if evaluated.is_null() && !raw_path.trim().is_empty() && raw_path != "null" {
             raw_path.clone()
@@ -850,7 +859,10 @@ fn execute_condition_prelude_table_operation(
         }
     };
     let keys = parse_path(&path_str);
-    let val = get_value_at_path(Value::Object(table.unwrap().data.clone()), &keys);
+    let val = match &address {
+        Some(suffix) => manual_deep_lookup(&format!("{table_name}{suffix}"), game_state),
+        None => get_value_at_path(Value::Object(table.unwrap().data.clone()), &keys),
+    };
     let fallback_value = if block.contains_key("value") {
         evaluate_expression(block.get("value").cloned(), game_state)
     } else {
@@ -2296,6 +2308,191 @@ fn set_table_data_at_path(table: &mut crate::models::QuestTable, keys: &[Value],
     }
 }
 
+/// Имя таблицы как литерал: `лавка`, `{лавка}`. `None` — это выражение или
+/// опечатка, дальше решает evaluator.
+fn literal_table_name(state: &dyn ScriptRuntime, raw: &str) -> Option<String> {
+    let mut token = raw.trim();
+    if token.starts_with('{') && token.ends_with('}') && token.len() >= 2 {
+        token = token[1..token.len() - 1].trim();
+    }
+    lookup_table(state, token).map(|table| table.name)
+}
+
+/// Путь-адрес внутри таблицы: `["колонка"][1]`, `колонка[1]`,
+/// `{лавка["колонка"][1]}`, `лавка["колонка"][1]`. Возвращает хвост,
+/// начинающийся с `[`/`.`, либо `None` — тогда путь обычный (`data`).
+///
+/// Отдельная функция нужна, чтобы адрес не прогонялся через
+/// `evaluate_expression`: `{лавка["оружие"][1]}` — это значение ячейки
+/// («посох»), и «Записать» по такому пути создаёт ключ `посох` вместо
+/// правки ячейки.
+fn table_address_suffix(raw: &str, table_name: &str) -> Option<String> {
+    let mut text = normalize_placeholder_braces(raw.trim()).trim().to_string();
+    if text.starts_with('{') && text.ends_with('}') && text.len() >= 2 {
+        text = text[1..text.len() - 1].trim().to_string();
+    }
+    if let Some(rest) = text.strip_prefix(table_name) {
+        let rest = rest.trim_start();
+        return (rest.starts_with('[') || rest.starts_with('.')).then(|| rest.to_string());
+    }
+    text.starts_with('[').then_some(text)
+}
+
+/// Куда указывает адрес: в сетку (`rows`) или в key-value `data`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddressTarget {
+    Data,
+    Grid,
+}
+
+fn address_target(table: &crate::models::QuestTable, keys: &[Value]) -> AddressTarget {
+    let Some(Value::String(first)) = keys.first() else {
+        return AddressTarget::Data;
+    };
+    // Чтение смотрит в `data` раньше колонки — запись обязана так же.
+    if table.data.contains_key(first) {
+        return AddressTarget::Data;
+    }
+    if first == "rows" || first == "columns" {
+        return AddressTarget::Grid;
+    }
+    if table.columns.iter().any(|column| column == first) {
+        return AddressTarget::Grid;
+    }
+    if table
+        .row_names
+        .iter()
+        .any(|name| !name.trim().is_empty() && name == first.trim())
+    {
+        return AddressTarget::Grid;
+    }
+    AddressTarget::Data
+}
+
+/// Номер строки по 1-based номеру или точному имени; пустое имя не адресует.
+fn table_row_position(table: &crate::models::QuestTable, key: &Value) -> Option<usize> {
+    match key {
+        Value::Number(number) => {
+            let index = number.as_i64()?;
+            (index >= 1 && index as usize <= table.rows.len()).then(|| index as usize - 1)
+        }
+        Value::String(name) => {
+            let needle = name.trim();
+            if needle.is_empty() {
+                return None;
+            }
+            table.row_names.iter().position(|name| name == needle)
+        }
+        _ => None,
+    }
+}
+
+fn column_name(table: &crate::models::QuestTable, key: &Value) -> Option<String> {
+    let Value::String(name) = key else {
+        return None;
+    };
+    table.columns.iter().find(|column| *column == name).cloned()
+}
+
+/// Записать значение в ячейку сетки. `rest` — хвост адреса после
+/// «колонка + строка»: вложенные массивы в значении индексируются с 0, как в
+/// обычном JSON (паритет с чтением).
+fn write_grid_cell(
+    table: &mut crate::models::QuestTable,
+    row: usize,
+    column: &str,
+    rest: &[Value],
+    value: Value,
+) -> Result<(), String> {
+    if rest.is_empty() {
+        table.rows[row].insert(column.to_string(), value);
+        return Ok(());
+    }
+    let mut cell = table.rows[row].get(column).cloned().unwrap_or(Value::Null);
+    if cell.is_null() {
+        cell = if matches!(rest[0], Value::Number(_)) {
+            Value::Array(Vec::new())
+        } else {
+            Value::Object(Map::new())
+        };
+    }
+    set_value_at_path(&mut cell, rest, value);
+    table.rows[row].insert(column.to_string(), cell);
+    Ok(())
+}
+
+/// `set` по адресу таблицы: ячейка сетки, строка-сначала или ключ `data`.
+/// Ошибка ничего не меняет — автор получает объяснение вместо тихого промаха.
+fn set_table_address_value(
+    table: &mut crate::models::QuestTable,
+    keys: &[Value],
+    value: Value,
+) -> Result<String, String> {
+    if keys.is_empty() {
+        return Err("пустой адрес".to_string());
+    }
+    match address_target(table, keys) {
+        AddressTarget::Data => {
+            set_table_data_at_path(table, keys, value);
+            Ok(format!("data {keys:?}"))
+        }
+        AddressTarget::Grid => {
+            let first = &keys[0];
+            // Колонка важнее имени строки (как при чтении).
+            if let Some(column) = column_name(table, first) {
+                let Some(row_key) = keys.get(1) else {
+                    return Err(format!(
+                        "адрес {keys:?} указывает на всю колонку «{column}». \
+                         Укажите строку: [\"{column}\"][1] или [\"{column}\"][\"имя\"]."
+                    ));
+                };
+                let Some(row) = table_row_position(table, row_key) else {
+                    return Err(format!(
+                        "в таблице «{}» нет строки {row_key} — номер с 1, имя строки в \
+                         кавычках.",
+                        table.name
+                    ));
+                };
+                write_grid_cell(table, row, &column, &keys[2..], value)?;
+                return Ok(format!("rows[{row}][\"{column}\"]"));
+            }
+            // Строка-сначала: ["имя"]["колонка"] / ["rows"][1]["колонка"].
+            if first == "rows" {
+                let Some(row_key) = keys.get(1) else {
+                    return Err("укажите строку: [\"rows\"][1][\"колонка\"]".to_string());
+                };
+                let Some(row) = table_row_position(table, row_key) else {
+                    return Err(format!("в таблице «{}» нет строки {row_key}.", table.name));
+                };
+                let Some(column) = keys.get(2).and_then(|k| column_name(table, k)) else {
+                    return Err(format!(
+                        "после строки нужна колонка: [\"rows\"][1][\"колонка\"]. Колонки: {}.",
+                        table.columns.join(", ")
+                    ));
+                };
+                write_grid_cell(table, row, &column, &keys[3..], value)?;
+                return Ok(format!("rows[{row}][\"{column}\"]"));
+            }
+            if first == "columns" {
+                return Err("«columns» — список имён колонок, писать в него нельзя".to_string());
+            }
+            if let Some(row) = table_row_position(table, first) {
+                let Some(column) = keys.get(1).and_then(|k| column_name(table, k)) else {
+                    return Err(format!(
+                        "после имени строки нужна колонка: [\"имя\"][\"колонка\"]. Колонки: {}.",
+                        table.columns.join(", ")
+                    ));
+                };
+                write_grid_cell(table, row, &column, &keys[2..], value)?;
+                return Ok(format!("rows[{row}][\"{column}\"]"));
+            }
+            Err(format!(
+                "адрес {keys:?} не указывает ни на колонку, ни на строку"
+            ))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Исполнение скрипта
 // ---------------------------------------------------------------------------
@@ -2610,11 +2807,21 @@ impl ScriptExecutor {
             .map(value_to_string)
             .unwrap_or_default();
 
-        let evaluated_table = evaluate_expression(block.get("tableName").cloned(), game_state);
-        let table_name = if matches!(evaluated_table, Value::Object(_) | Value::Array(_)) {
-            table_name_expr.clone()
-        } else {
-            value_to_string(&evaluated_table)
+        // Имя таблицы — не выражение. `evaluate_expression` на голом имени
+        // сетки разворачивает его в содержимое («посох\nпистолет\nкатана»),
+        // блок ищет несуществующую таблицу и молча пропускается — на таблице
+        // без ключей `data` это ломало любую операцию.
+        let table_name = match literal_table_name(game_state, &table_name_expr) {
+            Some(name) => name,
+            None => {
+                let evaluated_table =
+                    evaluate_expression(block.get("tableName").cloned(), game_state);
+                if matches!(evaluated_table, Value::Object(_) | Value::Array(_)) {
+                    table_name_expr.clone()
+                } else {
+                    value_to_string(&evaluated_table)
+                }
+            }
         };
 
         let table = lookup_table(game_state, &table_name);
@@ -2641,11 +2848,17 @@ impl ScriptExecutor {
         };
 
         let raw_path = block.get("path").map(value_to_string).unwrap_or_default();
+        // Адрес ячейки сетки — не выражение: `{t["колонка"][1]}` как путь к
+        // записи нельзя вычислять в значение, иначе «Записать» пишет по ключу
+        // «посох», а ячейка не меняется.
+        let address = table_address_suffix(&raw_path, &table_name);
         // Путь может быть динамическим выражением, но литералы вида
         // "items[0]"/"a.b" evaluator не осиливает и возвращает null —
         // тогда используем сырой литерал. Пустой путь сохраняет старое
         // поведение ("null" → промах → fallback-value).
-        let path_str = {
+        let path_str = if let Some(suffix) = &address {
+            suffix.clone()
+        } else {
             let evaluated = evaluate_expression(Some(Value::String(raw_path.clone())), game_state);
             if evaluated.is_null() && !raw_path.trim().is_empty() && raw_path != "null" {
                 raw_path.clone()
@@ -2664,9 +2877,28 @@ impl ScriptExecutor {
             "   📊 DataOp: {op_name} on '{table_name}' path {keys:?} (Raw: '{path_str}')"
         ));
 
+        // Адрес ячейки сетки меняют только «Получить» и «Записать»: остальные
+        // операции работают с `data`, и запись мимо сетки выглядела бы как
+        // успех, ничего не поменяв.
+        if address.is_some()
+            && !matches!(op_name, "get" | "set")
+            && matches!(address_target(&table, &keys), AddressTarget::Grid)
+        {
+            self.log(&format!(
+                "⚠️ {op_name}: путь {keys:?} указывает в сетку таблицы «{table_name}». \
+                 Адрес ячейки поддерживают только «Получить» и «Записать»."
+            ));
+            return Ok(None);
+        }
+
         match op_name {
             "get" => {
-                let val = get_value_at_path(Value::Object(table.data.clone()), &keys);
+                let val = match &address {
+                    Some(suffix) => {
+                        manual_deep_lookup(&format!("{table_name}{suffix}"), game_state)
+                    }
+                    None => get_value_at_path(Value::Object(table.data.clone()), &keys),
+                };
                 let fallback_value = if block.contains_key("value") {
                     evaluate_expression(block.get("value").cloned(), game_state)
                 } else {
@@ -2735,8 +2967,17 @@ impl ScriptExecutor {
                 if !path_given || keys.is_empty() {
                     self.log(
                         "⚠️ Записать: укажите путь — целиком корень таблицы не \
-                         заменяется. Пример пути: gold или items[0].",
+                         заменяется. Пример пути: gold, items[0] или адрес ячейки \
+                         сетки вида [\"колонка\"][1].",
                     );
+                } else if address.is_some() {
+                    match set_table_address_value(&mut table, &keys, val.clone()) {
+                        Ok(target) => {
+                            self.log(&format!("      -> Set value={val} → {target}"));
+                            game_state.set_table(&table_name, table);
+                        }
+                        Err(message) => self.log(&format!("⚠️ Записать: {message}")),
+                    }
                 } else {
                     self.log(&format!("      -> Set value={val}"));
                     set_table_data_at_path(&mut table, &keys, val);
@@ -4691,6 +4932,42 @@ mod tests {
         assert_eq!(s.get_variable("показ"), Some(&json!(1)));
     }
 
+    #[test]
+    fn condition_prelude_table_get_reads_grid_cell() {
+        // Прелюдия условия читает таблицу тем же путём, что и блок «Данные»:
+        // адрес ячейки и голое имя сетки (без ключей `data`).
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "склад".into(),
+            vec!["ящик".into()],
+            vec![json!({"ящик": "меч"}).as_object().unwrap().clone()],
+            Map::new(),
+        );
+        table.set_row_names(&["оружие".into()]);
+        s.set_table("склад", table);
+        let script = json!({
+            "blocks": [{
+                "type": "event", "eventType": "onContentAppear", "children": [
+                    {"type": "table_operation", "operation": "get",
+                     "tableName": "склад", "path": "{склад[\"ящик\"][1]}",
+                     "targetVariable": "предмет"},
+                    {"type": "condition", "expression": "{предмет} == 'меч'",
+                     "then_blocks": []}
+                ]
+            }]
+        });
+        assert!(evaluate_condition(
+            script.as_object().unwrap(),
+            &mut s,
+            EventType::OnContentAppear,
+            &None,
+            &None,
+            true,
+            true,
+        ));
+        assert_eq!(s.get_variable("предмет"), Some(&json!("меч")));
+    }
+
     // Категория 7: ПОГРАНИЧНЫЕ ЗНАЧЕНИЯ — TABLE OPERATIONS, GO_TO_NODE
 
     #[test]
@@ -5021,6 +5298,168 @@ mod tests {
             log.contains("запасн"),
             "и объяснение запасного значения: {log}"
         );
+    }
+
+    #[test]
+    fn table_operation_set_writes_grid_cell_from_author_address() {
+        // Пример из живого квеста: таблица без ключей `data`, сетка 3×1.
+        // Путь — ровно то, что автор видит в тексте: `{таблица["оружие"][1]}`.
+        // Раньше имя таблицы разворачивалось в её содержимое, а путь — в
+        // значение ячейки, поэтому блок писал ключ «посох» и ячейка не
+        // менялась.
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "тестовая табливца".into(),
+            vec!["оружие".into()],
+            vec![
+                json!({"оружие": "посох"}).as_object().unwrap().clone(),
+                json!({"оружие": "пистолет"}).as_object().unwrap().clone(),
+                json!({"оружие": "катана"}).as_object().unwrap().clone(),
+            ],
+            Map::new(),
+        );
+        table.set_row_names(&["".into(), "".into(), "".into()]);
+        s.set_table("тестовая табливца", table);
+
+        let log = table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "тестовая табливца",
+                "path": "{тестовая табливца[\"оружие\"][1]}",
+                "value": "'другое оружие'"
+            }),
+        );
+        assert!(log.contains("rows[0]"), "лог: {log}");
+        let table = s.get_table("тестовая табливца").unwrap();
+        assert_eq!(table.rows[0]["оружие"], json!("другое оружие"));
+        assert_eq!(table.rows[1]["оружие"], json!("пистолет"));
+        assert_eq!(table.rows[2]["оружие"], json!("катана"));
+        assert!(
+            table.data.is_empty(),
+            "запись в сетку не должна создавать ключи data: {:?}",
+            table.data
+        );
+        assert_eq!(
+            evaluate_expression(Some(json!("{тестовая табливца[\"оружие\"][1]}")), &mut s),
+            json!("другое оружие"),
+            "текст ячейки обязан показать новое значение"
+        );
+    }
+
+    #[test]
+    fn table_operation_set_writes_grid_cell_by_row_name() {
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into(), "запас".into()],
+            vec![
+                json!({"цена": 30, "запас": 2}).as_object().unwrap().clone(),
+                json!({"цена": 99, "запас": 1}).as_object().unwrap().clone(),
+            ],
+            Map::new(),
+        );
+        table.set_row_names(&["меч".into(), "щит".into()]);
+        s.set_table("лавка", table);
+
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка", "path": "[\"цена\"][\"щит\"]", "value": "42"
+            }),
+        );
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка", "path": "[\"меч\"][\"запас\"]", "value": "7"
+            }),
+        );
+
+        let table = s.get_table("лавка").unwrap();
+        assert_eq!(table.rows[0]["запас"], json!(7));
+        assert_eq!(table.rows[1]["цена"], json!(42));
+        assert_eq!(table.rows[0]["цена"], json!(30));
+        assert_eq!(
+            evaluate_expression(Some(json!("{лавка[\"цена\"][\"щит\"]}")), &mut s),
+            json!(42)
+        );
+    }
+
+    #[test]
+    fn table_operation_get_reads_grid_cell_by_address() {
+        let mut s = state();
+        s.set_table(
+            "лавка",
+            QuestTable::new(
+                "лавка".into(),
+                vec!["цена".into()],
+                vec![
+                    json!({"цена": 30}).as_object().unwrap().clone(),
+                    json!({"цена": 99}).as_object().unwrap().clone(),
+                ],
+                Map::new(),
+            ),
+        );
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "get",
+                "tableName": "лавка", "path": "[\"цена\"][2]",
+                "targetVariable": "цена"
+            }),
+        );
+        assert_eq!(s.get_variable("цена"), Some(&json!(99)));
+    }
+
+    #[test]
+    fn table_operation_set_whole_column_explains_missing_row() {
+        let mut s = state();
+        s.set_table(
+            "лавка",
+            QuestTable::new(
+                "лавка".into(),
+                vec!["цена".into()],
+                vec![json!({"цена": 30}).as_object().unwrap().clone()],
+                Map::new(),
+            ),
+        );
+        let log = table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка", "path": "[\"цена\"]", "value": "1"
+            }),
+        );
+        assert!(log.contains("Укажите строку"), "лог: {log}");
+        assert_eq!(s.get_table("лавка").unwrap().rows[0]["цена"], json!(30));
+    }
+
+    #[test]
+    fn table_operation_grid_address_keeps_data_key_priority() {
+        // Чтение смотрит в `data` раньше колонки — запись обязана так же,
+        // иначе адрес с тем же именем молча разошёлся бы с текстом.
+        let mut s = state();
+        s.set_table(
+            "склад",
+            QuestTable::new(
+                "склад".into(),
+                vec!["ящик".into()],
+                vec![json!({"ящик": "сетка"}).as_object().unwrap().clone()],
+                json!({"ящик": "хранилище"}).as_object().unwrap().clone(),
+            ),
+        );
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "склад", "path": "[\"ящик\"]", "value": "'новое'"
+            }),
+        );
+        let table = s.get_table("склад").unwrap();
+        assert_eq!(table.data["ящик"], json!("новое"));
+        assert_eq!(table.rows[0]["ящик"], json!("сетка"));
     }
 
     #[test]

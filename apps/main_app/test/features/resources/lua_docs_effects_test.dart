@@ -36,6 +36,14 @@ void main() {
       'core.set_item_visible',
       'core.set_item_image',
       'core.open_link',
+      'core.set_top_panel',
+      'core.fade_out',
+      'core.fade_in',
+      'core.save_game',
+      'core.open_saves',
+      'core.load_save',
+      'core.delete_save',
+      'core.log',
     ]) {
       await search(tester, name);
       expect(find.text('Ничего не найдено'), findsNothing, reason: name);

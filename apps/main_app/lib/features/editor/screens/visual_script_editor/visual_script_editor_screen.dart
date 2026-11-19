@@ -3,15 +3,17 @@ import 'dart:convert';
 import 'package:canvas_app/core/services/refactoring_service.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_nodes_store.dart';
-import 'package:mnd_player/utils/quest_store.dart';
 import 'package:canvas_app/features/editor/providers/visual_script_clipboard_provider.dart';
 import 'package:canvas_app/features/editor/services/script_providers.dart';
 import 'package:canvas_app/features/editor/workspace/editor_back_handler.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document_lifecycle.dart';
+import 'package:canvas_app/features/editor/workspace/script_document_store.dart';
+import 'package:canvas_app/core/services/session_recorder.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/block_models.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/block_factory.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/block_creation.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/block_insertion.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/script_block_shell.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/action_picker_screen.dart';
@@ -20,7 +22,6 @@ import 'package:canvas_app/features/editor/screens/visual_script_editor/script_s
 import 'package:canvas_app/features/editor/screens/visual_script_editor/script_validator.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/widgets/event_block_widget.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
-import 'package:canvas_app/shared/script_contracts.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -80,6 +81,12 @@ class _VisualScriptEditorScreenState
   /// Пока false — ЛЮБОЕ сохранение запрещено: иначе недозагруженный
   /// редактор (пустой список блоков) затирает файл на диске.
   bool _loadCompleted = false;
+
+  /// Текст ошибки чтения файла. Пока он есть, редактор НЕ показывает пустой
+  /// список блоков: раньше сбой чтения выглядел как пустой скрипт, а все
+  /// последующие правки молча отбрасывались гардом `_loadCompleted` —
+  /// снаружи это «скрипт не сохраняется».
+  String? _loadError;
   StreamSubscription<RefactorRenameEvent>? _renameSub;
   StreamSubscription<ResourceRenameEvent>? _resourceRenameSub;
 
@@ -139,8 +146,13 @@ class _VisualScriptEditorScreenState
     // вкладки, ни деактивацию: флешим буфер здесь безусловно. Сравнивать
     // сигнатуру нельзя — она эвристика, а любой её промах (правка поля,
     // вложенного блока) означает тихую потерю правки при выходе.
+    // Стартуем запись СИНХРОННО (без микрозадачи через `_saveQueue`):
+    // экран уже умирает, а хранилище должно увидеть постановку в очередь
+    // раньше, чем вкладка, которая сейчас монтируется, прочитает тот же
+    // файл — иначе она покажет устаревшее содержимое.
     if (_loadCompleted) {
-      unawaited(_saveScript());
+      final task = _doSaveScript();
+      _saveQueue = task.then((_) {}, onError: (Object _) {});
     }
     _autoScrollTicker?.dispose();
     _autoScrollTicker = null;
@@ -376,57 +388,21 @@ class _VisualScriptEditorScreenState
   }
 
   Future<void> _loadScript() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
     final loadStopwatch = Stopwatch()..start();
     try {
-      final scriptPath = QuestPaths.scriptFile(
-        widget.questId,
-        '${widget.scriptId}.json',
-      );
-      final internalScriptPath = QuestPaths.internalScriptFile(
-        widget.questId,
-        '${widget.scriptId}.json',
-      );
-
-      final store = await _store();
-      String finalPath;
-      if (await store.exists(scriptPath)) {
-        finalPath = scriptPath;
-      } else if (await store.exists(internalScriptPath)) {
-        finalPath = internalScriptPath;
+      final doc = await _document.load();
+      _blocks = doc.blocks;
+      if (doc.exists) {
+        if (doc.name.isNotEmpty) _scriptName = doc.name;
       } else {
-        // Файла ещё нет. Это нормально для только что созданного скрипта,
-        // когда редактор открылся раньше завершения записи — даём записи
-        // догнать и перепроверяем один раз.
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        if (await store.exists(scriptPath)) {
-          finalPath = scriptPath;
-        } else if (await store.exists(internalScriptPath)) {
-          finalPath = internalScriptPath;
-        } else {
-          _blocks = [];
-          _scriptName = tr('Новый скрипт');
-          // Заведомо новый скрипт: сохранять можно (это сценарий создания).
-          _loadCompleted = true;
-          _lastSavedSignature = _scriptSignature;
-          setState(() {
-            _isLoading = false;
-            _isConditionalScript = false;
-          });
-          return;
-        }
+        // Файла ещё нет: это сценарий создания, а не недогруженный редактор.
+        _scriptName = tr('Новый скрипт');
       }
-
-      final scriptData = await store.readJson(finalPath) ?? <String, dynamic>{};
-      _scriptName = scriptData['name'] as String? ?? _scriptName;
-      final blocksJson = scriptData['blocks'] as List<dynamic>? ?? [];
-      _blocks = ScriptParser.parseBlocks(blocksJson);
-
-      if (_blocks.length == 1 && _blocks.first is ConditionBlock) {
-        _isConditionalScript = true;
-      } else {
-        _isConditionalScript = false;
-      }
+      _isConditionalScript = doc.isConditional;
       // Загрузка успешна: фиксируем сигнатуру, чтобы первый тик автосейва
       // не считал только что прочитанное «грязью».
       _loadCompleted = true;
@@ -440,8 +416,9 @@ class _VisualScriptEditorScreenState
       _blocks = [];
       _loadCompleted = false;
       if (mounted) {
+        _loadError = friendlyError(e);
         _showSnack(
-          trf('Не удалось загрузить скрипт: {p0}', {'p0': friendlyError(e)}),
+          trf('Не удалось загрузить скрипт: {p0}', {'p0': _loadError!}),
           error: true,
         );
       }
@@ -450,6 +427,14 @@ class _VisualScriptEditorScreenState
         setState(() => _isLoading = false);
       }
       loadStopwatch.stop();
+      SessionRecorder.instance.record('script', {
+        'action': 'load',
+        'scriptId': widget.scriptId,
+        'ms': loadStopwatch.elapsedMilliseconds,
+        'blocks': _blocks.length,
+        'ok': _loadError == null,
+        'error': ?_loadError,
+      });
       if (kDebugMode) {
         print(
           '⚡ [VisualScriptEditor] Initial open ${widget.scriptId}: '
@@ -497,9 +482,11 @@ class _VisualScriptEditorScreenState
     return '';
   }
 
-  /// Хранилище квеста (план 020-C4.2): атомарные записи через ядро.
-  Future<QuestStore>? _storeF;
-  Future<QuestStore> _store() => _storeF ??= QuestStore.create().then((s) => s);
+  /// Чтение и запись файла скрипта: общий код с канвас-редактором.
+  late final ScriptDocumentStore _document = ScriptDocumentStore(
+    questId: widget.questId,
+    scriptId: widget.scriptId,
+  );
 
   /// Очередь сохранений: автосейв-таймер, lifecycle-flush, save-on-deactivate
   /// и закрытие вкладки могут сработать одновременно — без очереди их
@@ -520,19 +507,6 @@ class _VisualScriptEditorScreenState
   }
 
   Future<void> _doSaveScript() async {
-    final scriptPath = QuestPaths.scriptFile(
-      widget.questId,
-      '${widget.scriptId}.json',
-    );
-    final internalScriptPath = QuestPaths.internalScriptFile(
-      widget.questId,
-      '${widget.scriptId}.json',
-    );
-    final store = await _store();
-    final finalPath = await store.exists(scriptPath)
-        ? scriptPath
-        : internalScriptPath;
-
     try {
       // Снимок буфера: между сборкой payload и концом записи пользователь
       // может добавить блок. Если после записи сверять сигнатуру с живым
@@ -541,34 +515,29 @@ class _VisualScriptEditorScreenState
       // считаем по снимку имени и живым блокам (лёгкая, см. `_scriptSignature`).
       final savedName = _scriptName;
       final savedBlocks = List<VisualScriptBlock>.of(_blocks);
-      final scriptData = {
-        'id': widget.scriptId,
-        'name': savedName,
-        'blocks': savedBlocks.map((block) => block.toJson()).toList(),
-      };
-      await store.writeJson(finalPath, scriptData);
+      final saveStopwatch = Stopwatch()..start();
+      await _document.save(name: savedName, blocks: savedBlocks);
+      saveStopwatch.stop();
+      SessionRecorder.instance.record('script', {
+        'action': 'save',
+        'scriptId': widget.scriptId,
+        'ms': saveStopwatch.elapsedMilliseconds,
+        'blocks': savedBlocks.length,
+        'ok': true,
+      });
       _lastSavedSignature = scriptSignatureOf(
           name: savedName,
           blocks: savedBlocks,
         );
       _docHandle?.markDirty(false);
-
-      if (finalPath.contains('/scripts/')) {
-        // metadata.json — атомарный read-modify-write в ядре.
-        final metaPath = QuestPaths.metadata(widget.questId);
-        final fileName = '${widget.scriptId}.json';
-        if (await store.exists(metaPath)) {
-          final meta = await store.readJson(metaPath);
-          if (meta != null && meta.containsKey(fileName)) {
-            final folder =
-                (meta[fileName] as Map?)?['folder']?.toString() ?? '/';
-            await store.metadataMutate(widget.questId, [
-              MetaMut.set(fileName, {'name': savedName, 'folder': folder}),
-            ]);
-          }
-        }
-      }
     } catch (e) {
+      SessionRecorder.instance.record('script', {
+        'action': 'save',
+        'scriptId': widget.scriptId,
+        'blocks': _blocks.length,
+        'ok': false,
+        'error': friendlyError(e),
+      });
       if (mounted)
         _showSnack(trf('Ошибка: {p0}', {'p0': friendlyError(e)}), error: true);
     }
@@ -615,19 +584,7 @@ class _VisualScriptEditorScreenState
 
   /// Имена таблиц квеста — для проверки коллизий имён при выходе.
   /// Ошибка чтения не должна мешать выйти: пустой набор отключает проверку.
-  Future<Set<String>> _questTableNames() async {
-    try {
-      final store = await _store();
-      final config = await store.readJson(QuestPaths.config(widget.questId));
-      final tables = config?['tables'] as List<dynamic>? ?? const [];
-      return {
-        for (final table in tables)
-          if (table is Map && table['name'] != null) table['name'].toString(),
-      };
-    } catch (_) {
-      return const {};
-    }
-  }
+  Future<Set<String>> _questTableNames() => _document.tableNames();
 
   /// Спросить перед выходом, если в скрипте остались незаполненные места.
   /// `true` — можно выходить (проблем нет или автор выбрал «выйти как есть»).
@@ -714,6 +671,12 @@ class _VisualScriptEditorScreenState
         _showSnack(tr('Сохранено'), success: true);
       }
     } catch (e) {
+      SessionRecorder.instance.record('script', {
+        'action': 'save-location',
+        'scriptId': widget.scriptId,
+        'ok': false,
+        'error': friendlyError(e),
+      });
       if (mounted)
         _showSnack(trf('Ошибка: {p0}', {'p0': friendlyError(e)}), error: true);
     }
@@ -872,8 +835,6 @@ class _VisualScriptEditorScreenState
       setState(() {});
     }
     await _saveScript();
-
-    if (mounted) _showSnack(tr('Скрипт импортирован из буфера'), success: true);
   }
 
   String _normalizeScriptId(String raw) {
@@ -1077,7 +1038,7 @@ class _VisualScriptEditorScreenState
     final entry = await showBlockPicker(context);
     if (entry == null || !mounted) return;
 
-    final newBlock = _createBlockFromType(entry.name);
+    final newBlock = createBlockOfType(entry.name);
     // Тап по палитре = готовый результат: блок сразу встаёт в разрыв,
     // ближайший к центру экрана, а не «зависает» карточкой, которую надо
     // ещё и притащить пальцем.
@@ -1154,65 +1115,6 @@ class _VisualScriptEditorScreenState
     );
   }
 
-  VisualScriptBlock _createBlockFromType(String blockType) {
-    switch (blockType) {
-      case 'assign_variable':
-        return AssignVariableBlock();
-      case 'condition':
-        return ConditionBlock();
-      case 'go_to_node':
-        return GoToNodeBlock();
-      case 'set_volume':
-        return SetVolumeBlock();
-      case 'set_blur':
-        return SetBlurBlock();
-      case 'wait':
-        return DelayBlock();
-      case 'call_script':
-        return CallScriptBlock();
-      case 'call_function':
-        return CallFunctionBlock();
-      case 'call_lua':
-        return CallLuaBlock();
-      // --- ДОБАВЛЕНО ---
-      case 'table_operation':
-        return TableOperationBlock();
-      case 'set_image':
-        return SetImageBlock();
-      case BlockTypes.setVisible:
-        return SetVisibleBlock();
-      case BlockTypes.setTopPanel:
-        return SetTopPanelBlock();
-      case 'play_sound':
-        return PlaySoundBlock();
-      case 'stop_sound':
-        return StopSoundBlock();
-      case 'play_music':
-        return PlayMusicBlock();
-      case 'stop_music':
-        return StopMusicBlock();
-      case 'pause_resume':
-        return PauseResumeBlock();
-      case 'crossfade':
-        return CrossfadeBlock();
-      case BlockTypes.saveOperation:
-        return SaveOperationBlock();
-      case 'open_link':
-        return OpenLinkBlock();
-      case 'http_request':
-        return HttpRequestBlock();
-      case 'comment':
-        return CommentBlock();
-      case 'for_each':
-        return ForEachBlock();
-      case 'while':
-        return WhileBlock();
-      // -----------------
-      default:
-        return AssignVariableBlock(variableName: 'unknown');
-    }
-  }
-
   void _handleBlockDrop(
     VisualScriptBlock droppedBlock,
     List<VisualScriptBlock> targetList,
@@ -1260,7 +1162,6 @@ class _VisualScriptEditorScreenState
         if (loc != null) {
           loc.list.insert(loc.index + 1, block.clone());
           setState(() {});
-          _showSnack(blockOperationToast(action, block), info: true);
         }
       case ScriptBlockMenuAction.paste:
         _pasteClipboardAfter(block);
@@ -1290,10 +1191,6 @@ class _VisualScriptEditorScreenState
     if (clipboardItem.operation == 'cut') {
       ref.read(visualScriptClipboardProvider.notifier).state = null;
     }
-    _showSnack(
-      trf('Блоки вставлены ({p0})', {'p0': clonedBlocks.length}),
-      info: true,
-    );
   }
 
   void _deleteEventBlock(int index) {
@@ -1394,12 +1291,14 @@ class _VisualScriptEditorScreenState
         ),
         body: _isLoading
             ? Center(child: CircularProgressIndicator(color: scheme.primary))
+            : _loadError != null
+            ? _buildLoadErrorBody()
             : _isConditionalScript
             ? _buildConditionalEditorBody()
             : _blocks.isEmpty
             ? _buildEmptyState()
             : _buildActionEditorBody(),
-        floatingActionButton: _isConditionalScript
+        floatingActionButton: _isConditionalScript || _loadError != null
             ? null
             // Круглая кнопка вместо подписанной пилюли: «Добавить действие» на
             // всю ширину лежала поверх последнего блока и нижней строки, а на
@@ -1411,6 +1310,45 @@ class _VisualScriptEditorScreenState
                 tooltip: tr('Добавить действие'),
                 child: const Icon(Icons.add_rounded),
               ),
+      ),
+    );
+  }
+
+  /// Сбой чтения файла: показываем причину и «Повторить», а не пустой
+  /// редактор. Пустой редактор провоцировал «сохранение» пустоты и правки,
+  /// которые никуда не попадали.
+  Widget _buildLoadErrorBody() {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded, size: 48, color: scheme.error),
+            const SizedBox(height: 12),
+            Text(
+              tr('Не удалось загрузить скрипт'),
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _loadError ?? '',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const ValueKey('script-load-retry'),
+              onPressed: _loadScript,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(tr('Повторить')),
+            ),
+          ],
+        ),
       ),
     );
   }

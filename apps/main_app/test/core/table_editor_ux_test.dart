@@ -187,4 +187,31 @@ void main() {
     expect(await pick('20'), r'{Тест["A"]["a\"b"]}');
     expect(await pick('30'), r'{Тест["A"]["a\\b"]}');
   });
+
+  testWidgets('удаление строки не показывает тост', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: TableEditorScreen(
+        table: makeTable(),
+        questId: 'no-toast',
+        onSave: (t) {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Номер строки в левой колонке — единственный «1» без формулы.
+    await tester.longPress(find.text('1').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Удалить строку'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Удалить строку'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Удалить строку'));
+    await tester.pumpAndSettle();
+
+    // Меню закрылось, а ячейки удалённой строки исчезли.
+    expect(find.text('Удалить строку'), findsNothing);
+    expect(find.text('x'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('Отменить'), findsNothing);
+  });
 }

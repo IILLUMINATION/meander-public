@@ -40,72 +40,84 @@ class _LuaDocsScreenState extends State<LuaDocsScreen> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
         ),
       ),
-      body: AdaptiveContent(maxWidth: 860, child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-              child: SearchBar(
-                controller: _searchController,
-                onChanged: (val) => setState(() => _searchQuery = val.trim().toLowerCase()),
-                hintText: tr('Поиск по API, примерам, таблицам...'),
-                leading: const Padding(
-                  padding: EdgeInsets.only(left: 8),
-                  child: Icon(Icons.search_rounded),
-                ),
-                trailing: [
-                  if (_searchQuery.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.clear_rounded),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
+      body: AdaptiveContent(
+        maxWidth: 860,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: SearchBar(
+                  controller: _searchController,
+                  onChanged: (val) =>
+                      setState(() => _searchQuery = val.trim().toLowerCase()),
+                  hintText: tr('Поиск по API, примерам, таблицам...'),
+                  leading: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Icon(Icons.search_rounded),
+                  ),
+                  trailing: [
+                    if (_searchQuery.isNotEmpty)
+                      IconButton(
+                        icon: const Icon(Icons.clear_rounded),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      ),
+                  ],
+                  elevation: const WidgetStatePropertyAll(0),
+                  backgroundColor: WidgetStatePropertyAll(
+                    scheme.surfaceContainerHigh,
+                  ),
+                  shape: WidgetStatePropertyAll(
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                ],
-                elevation: const WidgetStatePropertyAll(0),
-                backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerHigh),
-                shape: WidgetStatePropertyAll(
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
                 ),
               ),
-            ),
-            Expanded(
-              child: docItems.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.search_off_rounded, size: 48, color: scheme.onSurfaceVariant),
-                          const SizedBox(height: 12),
-                          Text(
-                            tr('Ничего не найдено'),
-                            style: TextStyle(
+              Expanded(
+                child: docItems.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.search_off_rounded,
+                              size: 48,
                               color: scheme.onSurfaceVariant,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            Text(
+                              tr('Ничего не найдено'),
+                              style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                        itemCount: docItems.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 16),
+                        itemBuilder: (context, index) {
+                          final item = docItems[index];
+                          return _DocCard(
+                            item: item,
+                            scheme: scheme,
+                            isDark: isDark,
+                          );
+                        },
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                      itemCount: docItems.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 16),
-                      itemBuilder: (context, index) {
-                        final item = docItems[index];
-                        return _DocCard(
-                          item: item,
-                          scheme: scheme,
-                          isDark: isDark,
-                        );
-                      },
-                    ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
-      )),
+      ),
     );
   }
 
@@ -152,7 +164,9 @@ class _DocCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? scheme.surfaceContainerHigh : scheme.surfaceContainerLow,
+        color: isDark
+            ? scheme.surfaceContainerHigh
+            : scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: scheme.outlineVariant.withValues(alpha: 0.5),
@@ -171,7 +185,11 @@ class _DocCard extends StatelessWidget {
                   color: scheme.primaryContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(item.icon, size: 20, color: scheme.onPrimaryContainer),
+                child: Icon(
+                  item.icon,
+                  size: 20,
+                  color: scheme.onPrimaryContainer,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -240,11 +258,7 @@ class _DocCard extends StatelessWidget {
           ],
           if (item.code != null) ...[
             const SizedBox(height: 12),
-            _DocCodeBox(
-              code: item.code!,
-              scheme: scheme,
-              isDark: isDark,
-            ),
+            _DocCodeBox(code: item.code!, scheme: scheme, isDark: isDark),
           ],
         ],
       ),
@@ -268,7 +282,9 @@ class _DocCodeBox extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF181A1F) : scheme.surfaceContainerHighest,
+        color: isDark
+            ? const Color(0xFF181A1F)
+            : scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: scheme.outlineVariant.withValues(alpha: 0.4),
@@ -324,8 +340,9 @@ List<_DocItem> get _kDocs => [
     title: tr('Быстрый старт & Функция start()'),
     category: tr('Основы'),
     icon: Icons.play_arrow_rounded,
-    description:
-        tr('Скрипт вызывается блоком call_lua или триггером. При вызове исполняется функция, указанная в блоке (по умолчанию start).'),
+    description: tr(
+      'Скрипт вызывается блоком call_lua или триггером. При вызове исполняется функция, указанная в блоке (по умолчанию start).',
+    ),
     code: """function start()
     local hp = core.get_var('hp') or 100
     core.set_var('hp', hp - 15)
@@ -336,16 +353,21 @@ List<_DocItem> get _kDocs => [
     return { node = 'next_chapter' }
 end""",
     bulletPoints: [
-      tr('Каждый вызов изолирован — локальные переменные вне функций не сохраняются между шагами.'),
-      tr('Для сохранения состояния между блоками используйте core.set_var / core.set_table.'),
+      tr(
+        'Каждый вызов изолирован — локальные переменные вне функций не сохраняются между шагами.',
+      ),
+      tr(
+        'Для сохранения состояния между блоками используйте core.set_var / core.set_table.',
+      ),
     ],
   ),
   _DocItem(
     title: tr('Переменные движка (core.get_var / core.set_var)'),
     category: tr('Переменные'),
     icon: Icons.data_object_rounded,
-    description:
-        tr('Интерфейс работы с переменными квеста. Поддерживает числа, строки и булевы значения.'),
+    description: tr(
+      'Интерфейс работы с переменными квеста. Поддерживает числа, строки и булевы значения.',
+    ),
     code: tr('''-- Получить значение переменной (nil если не существует)
 local gold = core.get_var('gold') or 0
 
@@ -355,15 +377,18 @@ core.set_var('has_sword', true)
 core.set_var('player_name', 'Артур')'''),
     bulletPoints: [
       tr('core.get_var(name) — возвращает текущее значение или nil.'),
-      tr('core.set_var(name, value) — обновляет переменную в состоянии квеста.'),
+      tr(
+        'core.set_var(name, value) — обновляет переменную в состоянии квеста.',
+      ),
     ],
   ),
   _DocItem(
     title: tr('Таблицы квеста (QuestTable, get_table / set_table)'),
     category: tr('Таблицы'),
     icon: Icons.table_chart_rounded,
-    description:
-        tr("QuestTable — единое хранилище таблиц со структурой { name, columns, rows, data }. В Lua нелатинские (русские) имена колонок в словарях задаются в скобках ['имя']."),
+    description: tr(
+      "QuestTable — единое хранилище таблиц со структурой { name, columns, rows, data }. В Lua нелатинские (русские) имена колонок в словарях задаются в скобках ['имя'].",
+    ),
     code: """function buy_item()
     -- Получаем таблицу или создаём новую, если её ещё нет
     local inv = core.get_table('инвентарь') or {
@@ -384,20 +409,29 @@ core.set_var('player_name', 'Артур')'''),
     core.set_table('инвентарь', inv)
 end""",
     bulletPoints: [
-      tr("ВАЖНО: В синтаксисе Lua русские ключи пишите в кавычках и квадратных скобках: ['колонка'] = значение."),
+      tr(
+        "ВАЖНО: В синтаксисе Lua русские ключи пишите в кавычках и квадратных скобках: ['колонка'] = значение.",
+      ),
       tr("columns — список колонок: {'предмет', 'кол'}."),
       tr("rows — 1-based массив строк-словарей { ['колонка'] = значение }."),
       tr("data — словарь ключ-значение для произвольных метаданных таблицы."),
-      tr("В data живёт то же хранилище, что читают блок «Данные» и формулы лавка['ключ']. Сетка (columns/rows) — отдельное содержимое: формулы видят её только через table_cell(...) или ссылку {лавка[\"цена\"][1]}, а Lua меняет её целиком через core.set_table."),
-      tr("После модификации таблицы сохраните её через core.set_table(имя, таблица)."),
+      tr(
+        "В data живёт то же хранилище, что читают блок «Данные» и формулы лавка['ключ']. Сетка (columns/rows) — отдельное содержимое: формулы видят её только через table_cell(...) или ссылку {лавка[\"цена\"][1]}, а Lua меняет её целиком через core.set_table.",
+      ),
+      tr(
+        "После модификации таблицы сохраните её через core.set_table(имя, таблица).",
+      ),
     ],
   ),
   _DocItem(
-    title: tr('Триггеры событий (onQuestStart, onNodeEnter, onPress, onContentAppear, onDataChange)'),
+    title: tr(
+      'Триггеры событий (onQuestStart, onNodeEnter, onPress, onContentAppear, onDataChange)',
+    ),
     category: tr('События'),
     icon: Icons.bolt_rounded,
-    description:
-        tr('Lua-файлы могут выступать обработчиками событий триггеров квеста. onQuestStart движок вызывает у .lua-файлов из папки scripts/ квеста — один раз при запуске игры, до первой ноды; список «глобальных скриптов» в настройках квеста для этого не нужен. onDataChange — диспетчер изменений данных: файл должен объявлять это событие (см. ниже), подписки задаёт визуальный блок «При изменении данных».'),
+    description: tr(
+      'Lua-файлы могут выступать обработчиками событий триггеров квеста. onQuestStart движок вызывает у .lua-файлов из папки scripts/ квеста — один раз при запуске игры, до первой ноды; список «глобальных скриптов» в настройках квеста для этого не нужен. onDataChange — диспетчер изменений данных: файл должен объявлять это событие (см. ниже), подписки задаёт визуальный блок «При изменении данных».',
+    ),
     code: """-- Запуск квеста: стартовые переменные и общие функции
 -- (файл лежит в scripts/ квеста, движок найдёт его сам)
 function onQuestStart()
@@ -431,12 +465,16 @@ function onDataChange(paths)
 end""",
   ),
   _DocItem(
-    title: tr('Звук и музыка (core.play_sound, stop_sound, play_music, stop_music, pause_resume)'),
+    title: tr(
+      'Звук и музыка (core.play_sound, stop_sound, play_music, stop_music, pause_resume)',
+    ),
     category: tr('Эффекты'),
     icon: Icons.volume_up_rounded,
-    description:
-        tr('Аудио из скрипта работает ровно так же, как блоки play_sound / play_music: команды попадают в ту же очередь и переживают сохранение.'),
-    code: """-- Короткий звук: id из библиотеки ресурсов, громкость 0..1 (по умолчанию 1)
+    description: tr(
+      'Аудио из скрипта работает ровно так же, как блоки play_sound / play_music: команды попадают в ту же очередь и переживают сохранение.',
+    ),
+    code:
+        """-- Короткий звук: id из библиотеки ресурсов, громкость 0..1 (по умолчанию 1)
 core.play_sound('hit', 0.4)
 
 -- Музыка: третий аргумент — таблица опций
@@ -450,16 +488,23 @@ core.stop_sound('hit')     -- без аргумента — остановить
 core.stop_music()
 core.pause_resume('music', 'pause')  -- action: pause / resume / toggle""",
     bulletPoints: [
-      tr('Все функции возвращают true, если команда записана, и false при пустом id.'),
-      tr('play_music пишет и слот активной музыки — трек возобновится после загрузки сейва.'),
+      tr(
+        'Все функции возвращают true, если команда записана, и false при пустом id.',
+      ),
+      tr(
+        'play_music пишет и слот активной музыки — трек возобновится после загрузки сейва.',
+      ),
     ],
   ),
   _DocItem(
-    title: tr('Контент ноды (core.set_item_visible, set_item_image, set_volume, set_blur)'),
+    title: tr(
+      'Контент ноды (core.set_item_visible, set_item_image, set_volume, set_blur)',
+    ),
     category: tr('Эффекты'),
     icon: Icons.visibility_rounded,
-    description:
-        tr('Тот же язык, что у блоков set_visible, set_image и настроек громкости/блюра, — с теми же значениями.'),
+    description: tr(
+      'Тот же язык, что у блоков set_visible, set_image и настроек громкости/блюра, — с теми же значениями.',
+    ),
     code: """-- Спрятать, убрать или показать айтем по id
 core.set_item_visible('photo', 'hidden')  -- не видно, место в рядке занято
 core.set_item_visible('photo', 'gone')    -- не видно и ряд схлопывается
@@ -477,16 +522,21 @@ core.set_volume('contentAudio', 0.3)
 core.set_volume('tagAudio', 0.8)
 core.set_blur(12)""",
     bulletPoints: [
-      tr('Смена видимости попадает в состояние игры: спрятанное остаётся спрятанным после перезапуска.'),
-      tr('Неизвестный адресат set_volume или нераспознанный режим set_item_visible — false, ничего не меняется.'),
+      tr(
+        'Смена видимости попадает в состояние игры: спрятанное остаётся спрятанным после перезапуска.',
+      ),
+      tr(
+        'Неизвестный адресат set_volume или нераспознанный режим set_item_visible — false, ничего не меняется.',
+      ),
     ],
   ),
   _DocItem(
     title: tr('Переход и внешняя ссылка (core.go_to, core.open_link)'),
     category: tr('Управление'),
     icon: Icons.alt_route_rounded,
-    description:
-        tr('go_to ведёт на другую ноду по имени, open_link открывает ссылку — оба проверяются движком до исполнения.'),
+    description: tr(
+      'go_to ведёт на другую ноду по имени, open_link открывает ссылку — оба проверяются движком до исполнения.',
+    ),
     code: """-- Переход: явный go_to важнее возвращаемой таблицы
 function onPress(item_id)
     if item_id == 'door' then
@@ -502,33 +552,135 @@ if core.open_link('https://example.com/manual') then
     core.set_var('link_shown', true)
 end""",
     bulletPoints: [
-      tr('core.go_to(имя ноды) — возврат из функции после этого не обязателен.'),
-      tr('open_link вернёт false для локальных и приватных адресов, а также для схем кроме http/https.'),
+      tr(
+        'core.go_to(имя ноды) — возврат из функции после этого не обязателен.',
+      ),
+      tr(
+        'open_link вернёт false для локальных и приватных адресов, а также для схем кроме http/https.',
+      ),
+    ],
+  ),
+  _DocItem(
+    title: tr(
+      'Верхняя панель и затухание (core.set_top_panel, fade_out, fade_in)',
+    ),
+    category: tr('Эффекты'),
+    icon: Icons.movie_filter_rounded,
+    description: tr(
+      'Панель игры и звук: те же служебные каналы, что у блоков set_top_panel и crossfade. Пишите половины затухания сами, если между ними должен идти код, а не вложенные блоки.',
+    ),
+    code: """-- Спрятать панель на катсцене и вернуть после
+core.set_top_panel('hide')   -- show / hide / toggle
+-- ...
+core.set_top_panel('show')
+
+-- Затухание звука в секундах: блок crossfade делает оба шага вокруг детей
+core.fade_out(1.5)
+-- смена музыки/сцены
+core.play_music('night_theme', { volume = 0.6 })
+core.fade_in(0.5)""",
+    bulletPoints: [
+      tr(
+        'Состояние панели попадает в сейв: спрятанная перед переходом останется спрятанной после загрузки.',
+      ),
+      tr(
+        'fade_out/fade_in принимают секунды (как поле duration у crossfade) и возвращают false, если очередь команд этого вызова уже полна.',
+      ),
+    ],
+  ),
+  _DocItem(
+    title: tr(
+      'Сохранения (core.save_game, open_saves, load_save, delete_save)',
+    ),
+    category: tr('Управление'),
+    icon: Icons.save_alt_rounded,
+    description: tr(
+      'Ручные точки сохранения из скрипта: движок кладёт ту же команду, что блок save_operation, а выполняет её клиент в открытой игровой сессии.',
+    ),
+    code: """-- Сохранить под именем (пустое имя — «Сохранение»)
+core.save_game('Перед боссом')
+
+-- Открыть список сохранений / загрузить по имени / удалить
+core.open_saves()
+core.load_save('Перед боссом')
+core.delete_save('Черновик')
+
+-- Проверить, что команда ушла
+if core.save_game('Чекпоинт') then
+    core.log('сейв запрошен')
+end""",
+    bulletPoints: [
+      tr(
+        'load_save без имени открывает список, как блок save_operation; delete_save без имени ничего не делает и возвращает false.',
+      ),
+      tr('В вебе сохранения выполняет клиент: у ядра нет доступа к файлам.'),
+    ],
+  ),
+  _DocItem(
+    title: tr('Отладка (core.log)'),
+    category: tr('Основы'),
+    icon: Icons.terminal_rounded,
+    description: tr(
+      'Строки core.log попадают в журнал движка рядом с логами блоков — это единственный способ увидеть значения внутри скрипта, не ломая сцену.',
+    ),
+    code: """function onPress(item_id)
+    core.log('нажали', item_id)
+    local gold = core.get_var('gold') or 0
+    core.log('золото до', gold)
+    core.set_var('gold', gold + 10)
+end
+
+-- Таблица печатается как JSON, строки — как есть
+core.log({hp = 10, name = 'Арт'})""",
+    bulletPoints: [
+      tr('Аргументы разделяются табуляцией, таблицы печатаются JSON-ом.'),
+      tr(
+        'За вызов сохраняется до 100 строк по 500 символов: цикл с логом не забьёт журнал.',
+      ),
     ],
   ),
   _DocItem(
     title: tr('Чего Lua пока не хватает'),
     category: tr('Ограничения'),
     icon: Icons.hourglass_bottom_rounded,
-    description:
-        tr('Эффекты и переменные доступны из скрипта полностью; темп сцены — пока нет.'),
+    description: tr(
+      'Эффекты, переменные, сохранения и отладка доступны из скрипта; темп сцены — нет.',
+    ),
     bulletPoints: [
-      tr('Задержки (wait) и плавные переходы (crossfade) остаются за блоками: скрипт выполняется атомарно и не «спит» внутри.'),
-      tr('Сетевые запросы (http_request) и вызов другого скрипта (call_script) в Lua пока не прокинуты.'),
-      tr('Нужен тайминг — ставьте блоки вокруг вызова скрипта: call_lua отвечает за логику, блоки — за ритм.'),
+      tr(
+        'Задержки (wait) остаются за блоками: скрипт выполняется атомарно и не «спит» внутри. Плавный переход собирается из core.fade_out / core.fade_in.',
+      ),
+      tr(
+        'Сетевые запросы (http_request) и вызов другого скрипта (call_script) в Lua пока не прокинуты.',
+      ),
+      tr(
+        'Нужен тайминг — ставьте блоки вокруг вызова скрипта: call_lua отвечает за логику, блоки — за ритм.',
+      ),
     ],
   ),
   _DocItem(
     title: tr('Песочница и безопасность'),
     category: tr('Безопасность'),
     icon: Icons.shield_rounded,
-    description:
-        tr('Исполнение скриптов строго изолировано в безопасной песочнице Rust-ядра:'),
+    description: tr(
+      'Исполнение скриптов строго изолировано в безопасной песочнице Rust-ядра:',
+    ),
     bulletPoints: [
-      tr('Доступные библиотеки: math, string, table, utf8, coroutine, package/require (только чистый Lua).'),
-      tr('Заблокированы опасные вызовы: os.execute, os.exit, os.remove, os.rename, io.popen, debug.'),
-      tr('Таблицы и переменные автоматически валидируются при записи.'),
-      tr('Внешний мир — только через core.*: прямого доступа к файлам, сети и состоянию движка у Lua нет.'),
+      tr(
+        'Доступные библиотеки: math, string, table, utf8, coroutine и os только с time/clock/date/difftime.',
+      ),
+      tr(
+        'Нет io, package, require, dofile, loadfile, debug; string.dump выключен, load принимает только текст, а не байткод.',
+      ),
+      tr(
+        'Скачанный квест не читает файлы, не видит переменные окружения и не запускает процессы — даже если очень попросит.',
+      ),
+      tr(
+        'Запись в служебные каналы (_internal_*) запрещена: ссылки, звук и сохранения идут только через core.* с проверками движка.',
+      ),
+      tr(
+        'Потолки на вызов: 10 млн инструкций, 2 секунды, 32 МБ памяти, 256 команд в очередь; значения переменных и таблиц ограничены по размеру.',
+      ),
     ],
   ),
 ];

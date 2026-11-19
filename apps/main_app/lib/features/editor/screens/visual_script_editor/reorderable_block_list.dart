@@ -296,7 +296,6 @@ class _ReorderableBlockListState extends ConsumerState<ReorderableBlockList> {
       case ScriptBlockMenuAction.duplicate:
         if (index != -1) {
           setState(() => widget.blocks.insert(index + 1, block.clone()));
-          _showSnack(blockOperationToast(action, block));
         }
         return;
       case ScriptBlockMenuAction.paste:
@@ -333,7 +332,6 @@ class _ReorderableBlockListState extends ConsumerState<ReorderableBlockList> {
     if (clipboardItem.operation == 'cut') {
       ref.read(visualScriptClipboardProvider.notifier).state = null;
     }
-    _showSnack(trf('Блоки вставлены ({p0})', {'p0': cloned.length}));
   }
 
   void _showSnack(String text) {

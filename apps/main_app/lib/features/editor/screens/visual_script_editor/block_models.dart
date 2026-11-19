@@ -59,7 +59,7 @@ extension TableOperationHelp on TableOperation {
       'Прочитать значение по пути в переменную. Пустой путь читает не таблицу, а запасное значение из поля «Значение».',
     ),
     TableOperation.set => tr(
-      'Заменить значение по пути (ключ, элемент списка items[1] или items[0].name). Корень таблицы не перезаписывается.',
+      'Заменить значение по пути: ключ, элемент списка items[0] или ячейка сетки ["колонка"][1]. Корень таблицы не перезаписывается.',
     ),
     TableOperation.add => tr(
       'Дописать элемент в конец списка по пути. Если списка там нет — он создастся.',
@@ -81,8 +81,12 @@ extension TableOperationHelp on TableOperation {
   /// Подпись под полем: что туда писать.
   String hintFor(String field) => switch ((this, field)) {
     (_, 'path') when this == TableOperation.clear => tr('пусто — вся таблица'),
-    (TableOperation.get, 'path') => tr('имя ключа, например gold'),
-    (TableOperation.set, 'path') => tr('куда пишем: gold или items[0]'),
+    (TableOperation.get, 'path') => tr(
+      'ключ (gold) или ячейка сетки ["колонка"][1]',
+    ),
+    (TableOperation.set, 'path') => tr(
+      'куда пишем: gold, items[0] или ["колонка"][1]',
+    ),
     (TableOperation.add, 'path') => tr('какой список пополняем: items'),
     (TableOperation.remove, 'path') => tr(
       'ключ (bread) или элемент с нуля: items[1] — второй',

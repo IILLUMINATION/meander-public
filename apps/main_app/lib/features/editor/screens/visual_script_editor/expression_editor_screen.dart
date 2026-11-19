@@ -278,12 +278,11 @@ class _ExpressionEditorScreenState extends State<ExpressionEditorScreen>
     if (clipboardText.isEmpty) return;
 
     final currentFormula = ref.read(formulaClipboardProvider);
+    // Вставка видна по тексту в поле — отдельная плашка только закрывала его.
     if (currentFormula != null && currentFormula.isNotEmpty) {
       _insertText(currentFormula);
-      _showSnack(tr('Формула вставлена из буфера'), info: true);
     } else {
       _insertText(clipboardText);
-      _showSnack(tr('Текст вставлен из буфера'), info: true);
     }
   }
 
