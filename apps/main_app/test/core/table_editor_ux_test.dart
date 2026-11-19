@@ -46,8 +46,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Выбор ячейки'), findsOneWidget);
-    expect(find.text('Нажмите на ячейку, чтобы вставить ссылку на неё в текст'),
-        findsOneWidget);
+    expect(
+      find.text(
+        'Нажмите на ячейку — или на ключ в шапке, чтобы вставить ссылку на хранилище',
+      ),
+      findsOneWidget,
+    );
     expect(find.byTooltip('Сохранить'), findsNothing);
     expect(find.byTooltip('Колонка'), findsNothing);
 
