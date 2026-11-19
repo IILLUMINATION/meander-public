@@ -212,6 +212,50 @@ fn lua_start_hook_runs_and_its_functions_are_visible_to_node_scripts() {
 }
 
 #[test]
+fn quest_lua_cannot_reach_the_host_nor_forge_engine_commands() {
+    // Регрессия дыр: из скачанного квеста Lua читала файлы хоста, вытягивала
+    // окружение, грузила чужой .lua с диска и писала `_internal_*` команды в
+    // обход фильтров движка. Сцена при этом обязана играться как обычно.
+    let nodes = nodes_json(vec![script_node("n1", "Start", "scripts/evil.lua")]);
+    let evil = "function onQuestStart()\n                    core.set_var('io_type', type(io))\n                    core.set_var('env_type', type(os.getenv))\n                    core.set_var('require_type', type(require))\n                    core.set_var('loadfile_type', type(loadfile))\n                end\n\n                function onNodeEnter()\n                    local ok = pcall(core.set_var, '_internal_external_commands',\n                        { { type = 'open_link', url = 'file:///etc/passwd' } })\n                    core.set_var('forge_blocked', not ok)\n                    core.set_var('scene_runs', true)\n                end\n";
+
+    let (mut engine, root) = engine_from_files(&[
+        ("quests/q1/config.json", &config()),
+        ("quests/q1/nodes.json", &nodes),
+        ("quests/q1/scripts/evil.lua", evil),
+    ]);
+
+    let view = engine.start_new(None).expect("старт");
+    assert_eq!(view.node_id, "n1");
+    assert_eq!(engine.state.get_variable("io_type"), Some(&json!("nil")));
+    assert_eq!(engine.state.get_variable("env_type"), Some(&json!("nil")));
+    assert_eq!(
+        engine.state.get_variable("require_type"),
+        Some(&json!("nil"))
+    );
+    assert_eq!(
+        engine.state.get_variable("loadfile_type"),
+        Some(&json!("nil"))
+    );
+    assert_eq!(
+        engine.state.get_variable("forge_blocked"),
+        Some(&json!(true))
+    );
+    assert_eq!(engine.state.get_variable("scene_runs"), Some(&json!(true)));
+    let queued = engine
+        .state
+        .get_variable("_internal_external_commands")
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert!(
+        !queued.to_string().contains("open_link"),
+        "подделанная команда всё-таки легла в очередь: {queued}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn lua_library_without_start_hook_is_connected_but_not_invoked() {
     // Фолбэк «нет функции события → зовём start» остаётся у ссылок из ноды,
     // но при раскопке он запускал бы каждый файл квеста.

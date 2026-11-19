@@ -64,7 +64,15 @@ pub(crate) const CORE_API: &[&str] = &[
     "set_blur",
     "set_item_visible",
     "set_item_image",
+    "set_top_panel",
+    "fade_out",
+    "fade_in",
     "open_link",
+    "save_game",
+    "open_saves",
+    "load_save",
+    "delete_save",
+    "log",
 ];
 
 const STDLIB_FUNCTIONS: &[(&str, &[&str])] = &[
@@ -102,11 +110,8 @@ const STDLIB_FUNCTIONS: &[(&str, &[&str])] = &[
             "insert", "remove", "concat", "sort", "unpack", "pack", "maxn",
         ],
     ),
-    ("os", &["time", "clock", "date", "difftime", "getenv"]),
-    (
-        "io",
-        &["open", "close", "lines", "read", "write", "tmpfile"],
-    ),
+    // Только часы и дата: процессов, файлов и окружения в песочнице нет.
+    ("os", &["time", "clock", "date", "difftime"]),
     (
         "utf8",
         &["len", "char", "sub", "codes", "codepoint", "offset"],

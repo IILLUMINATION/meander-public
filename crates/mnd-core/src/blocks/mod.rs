@@ -39,7 +39,8 @@ mod open_link;
 mod save_operation;
 mod set_blur;
 mod set_image;
-mod set_top_panel;
+// pub(crate): Lua-API пишет ту же служебную переменную, что и блок.
+pub(crate) mod set_top_panel;
 // pub(crate): валидатор скриптов сверяет режим с тем же списком, что и блок.
 pub(crate) mod set_visible;
 mod set_volume;

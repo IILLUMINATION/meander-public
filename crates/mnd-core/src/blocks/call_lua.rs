@@ -68,8 +68,96 @@ impl BlockHandler for CallLua {
             .expect("lua создана")
             .lock()
             .expect("lua lock");
-        session
-            .call_function(ctx.game_state, script.as_deref(), function_name, args)
-            .map_err(ExecutorError::Lua)
+        let result = session.call_function(ctx.game_state, script.as_deref(), function_name, args);
+        // `core.log` — единственный способ увидеть, что происходит внутри
+        // скрипта: строки уходят в журнал движка рядом с логами блоков.
+        for line in session.take_logs() {
+            ctx.executor.log(&format!("🖨️ {line}"));
+        }
+        result.map_err(ExecutorError::Lua)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executor::{EventType, ScriptExecutor};
+    use crate::runtime::InMemoryScriptRuntimeState;
+    use serde_json::json;
+
+    #[test]
+    fn core_log_lines_reach_the_engine_log() {
+        // `core.log` — единственный канал «посмотреть, что внутри»: строка
+        // обязана оказаться в журнале рядом с логами блоков, иначе автор
+        // отлаживает скрипт вслепую.
+        let logs = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = logs.clone();
+        let mut state = InMemoryScriptRuntimeState::default();
+        let mut lua = None;
+        let block = json!({
+            "blocks": [{
+                "type": "call_lua",
+                "function": "start",
+                "script": "function start() core.log('привет', 7, {hp = 3}) end"
+            }]
+        });
+        ScriptExecutor::new()
+            .with_logger(Some(Box::new(move |message: &str| {
+                sink.lock().unwrap().push(message.to_string());
+            })))
+            .execute(
+                block.as_object().unwrap(),
+                &mut state,
+                "q",
+                EventType::OnNodeEnter,
+                &None,
+                &None,
+                false,
+                &mut lua,
+            )
+            .unwrap();
+        let joined = logs.lock().unwrap().join("\n");
+        assert!(
+            joined.contains("привет\t7\t{\"hp\":3}"),
+            "строки core.log нет в журнале: {joined}"
+        );
+    }
+
+    #[test]
+    fn error_inside_script_still_flushes_its_log() {
+        let logs = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = logs.clone();
+        let mut state = InMemoryScriptRuntimeState::default();
+        let mut lua = None;
+        let block = json!({
+            "blocks": [{
+                "type": "call_lua",
+                "function": "start",
+                "script": "function start() core.log('до ошибки') error('бум') end"
+            }]
+        });
+        // Ошибку внутри `call_lua` исполнитель превращает в запись журнала,
+        // но строки, напечатанные до неё, обязаны дойти до автора.
+        ScriptExecutor::new()
+            .with_logger(Some(Box::new(move |message: &str| {
+                sink.lock().unwrap().push(message.to_string());
+            })))
+            .execute(
+                block.as_object().unwrap(),
+                &mut state,
+                "q",
+                EventType::OnNodeEnter,
+                &None,
+                &None,
+                false,
+                &mut lua,
+            )
+            .unwrap();
+        let joined = logs.lock().unwrap().join("\n");
+        assert!(joined.contains("до ошибки"), "лог потерялся: {joined}");
+        assert!(
+            joined.contains("бум"),
+            "ошибка не попала в журнал: {joined}"
+        );
     }
 }

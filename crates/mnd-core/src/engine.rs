@@ -433,6 +433,11 @@ impl GameEngine {
             &fn_name,
             arg.clone(),
         );
+        // Журнала исполнителя у движка на этом пути нет — пишем в тот же
+        // stderr, куда падает `Executor::log` без логгера.
+        for line in session.take_logs() {
+            eprintln!("[Rust/mnd-core] 🖨️ {line}");
+        }
         match result {
             Ok(Some(t)) => Some(t),
             Ok(None) => None,
@@ -838,6 +843,9 @@ impl GameEngine {
         };
         if let Ok(mut guard) = session.lock() {
             let _ = guard.exec_source(&mut self.state, &script);
+            for line in guard.take_logs() {
+                eprintln!("[Rust/mnd-core] 🖨️ {line}");
+            }
         }
     }
 

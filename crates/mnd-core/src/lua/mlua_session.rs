@@ -3,14 +3,79 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
+use std::time::Instant;
 
 use mlua::{Function, HookTriggers, Lua, LuaOptions, StdLib, Table, Value as LuaValue, VmState};
 use serde_json::{Map, Value, json};
 
+use crate::blocks::set_top_panel::TOP_PANEL_HIDDEN_VAR;
 use crate::blocks::set_visible::{Mode as VisibilityMode, apply_mode};
 use crate::executor::{ITEM_HIDDEN_VAR, ITEM_SOURCE_VAR, value_to_string};
 use crate::models::QuestTable;
 use crate::runtime::ScriptRuntime;
+
+/// Библиотеки, которые видит скрипт квеста.
+///
+/// Набор собран по принципу «только вычисления над своими данными»: ни
+/// файлов, ни процессов, ни загрузчика модулей. `io` и `package`/`require` в
+/// состояние не грузятся вообще — на них держалась дыра «скачанный квест
+/// читает `~/.ssh` и грузит чужой .lua с диска». `os` загружается, но его
+/// таблица собирается заново в [`LuaSession::lock_down_stdlib`]: остаются
+/// только часы и дата. `debug` mlua не отдаёт в безопасном режиме.
+const SAFE_STDLIB_BITS: [StdLib; 6] = [
+    StdLib::COROUTINE,
+    StdLib::TABLE,
+    StdLib::STRING,
+    StdLib::UTF8,
+    StdLib::MATH,
+    StdLib::OS,
+];
+
+/// Собрать [`SAFE_STDLIB_BITS`] в один набор (битовое «или» из `mlua` не
+/// `const`, поэтому набор склеивается функцией, а не константой).
+fn safe_stdlib() -> StdLib {
+    SAFE_STDLIB_BITS
+        .into_iter()
+        .reduce(|acc, lib| acc | lib)
+        .expect("набор библиотек не пуст")
+}
+
+/// Потолок памяти Lua-состояния квеста. Без него `string.rep('x', 400 МБ)` из
+/// скачанного квеста съедает память процесса: ОС убивает приложение целиком, а
+/// не одну сцену. 32 МБ — с запасом больше любой разумной игровой таблицы.
+const MAX_LUA_MEMORY_BYTES: usize = 32 * 1024 * 1024;
+
+/// Потолок реального времени одного вызова. Счётчик инструкций ловит циклы, но
+/// одна C-функция (`string.rep`, `string.find` с патологическим паттерном)
+/// может занять много времени между двумя проверками; часы ставят предел и
+/// этому.
+const MAX_LUA_CALL_MILLIS: u128 = 2_000;
+
+/// Сколько служебных команд (звук, внешние команды) один вызов может положить
+/// в очередь. Блоки кладут единицы; скрипт в цикле — сколько успеет за 10 млн
+/// инструкций, то есть десятки тысяч команд клиенту.
+const MAX_EFFECTS_PER_CALL: usize = 256;
+
+/// Потолок текстового аргумента `core.*` (id ассета, id айтема, имя ноды).
+const MAX_ARG_TEXT_LEN: usize = 512;
+
+/// Потолок имени переменной/таблицы и слота сохранения.
+const MAX_NAME_LEN: usize = 128;
+
+/// Потолок JSON-значения `core.set_var` — переменная не должна раздувать сейв.
+const MAX_VARIABLE_JSON_BYTES: usize = 64 * 1024;
+
+/// Потолок JSON-значения `core.set_table` — таблица крупнее, чем переменная.
+const MAX_TABLE_JSON_BYTES: usize = 512 * 1024;
+
+/// Сколько строк `core.log` держим за вызов и какой длины.
+const MAX_LOG_LINES: usize = 100;
+const MAX_LOG_LINE_LEN: usize = 500;
+
+/// Префикс служебных каналов движка. Писать в них из Lua нельзя: через
+/// `core.set_var('_internal_external_commands', …)` скрипт клал в очередь
+/// `open_link` в обход фильтра URL и `save_operation` в обход блока.
+const RESERVED_VAR_PREFIX: &str = "_internal";
 
 /// Сколько инструкций VM между двумя срабатываниями счётчика. Меньше — дороже
 /// на каждом кадре, больше — грубее потолок.
@@ -52,6 +117,9 @@ struct LuaBridge {
     /// обычно ничего не возвращает, а уйти в узел ей надо уметь — у блока
     /// `go_to_node` для этого собственный возврат.
     transition: Option<String>,
+    /// Строки `core.log` текущего вызова: журнал движка забирает их после
+    /// возврата функции ([`LuaSession::take_logs`]).
+    logs: Vec<String>,
 }
 
 /// Снимок доступен только во время вызова блока: вне движка (`snapshot == None`)
@@ -79,13 +147,21 @@ impl LuaStateSnapshot {
 
     /// Очередь служебной переменной — аналог `executor::push_effect`, только на
     /// снимке: живой runtime получит значение тем же диффом, что и переменные.
-    fn push_effect(&mut self, key: &str, value: Value) {
+    ///
+    /// `false` — очередь этого вызова уже полна: скрипт в цикле иначе засыплет
+    /// клиент десятками тысяч команд.
+    fn push_effect(&mut self, key: &str, value: Value) -> bool {
         let mut queue = match self.variables.remove(key) {
             Some(Value::Array(items)) => items,
             _ => Vec::new(),
         };
+        if queue.len() >= MAX_EFFECTS_PER_CALL {
+            self.variables.insert(key.to_string(), Value::Array(queue));
+            return false;
+        }
         queue.push(value);
         self.variables.insert(key.to_string(), Value::Array(queue));
+        true
     }
 
     /// Прямая запись служебной переменной (одноразовые слоты вроде громкости).
@@ -138,35 +214,48 @@ pub struct LuaSession {
     bridge: Arc<Mutex<LuaBridge>>,
     /// Счётчик инструкций, накопленных с начала текущего вызова блока.
     instructions: Arc<AtomicU64>,
+    /// Начало текущего вызова: второй предел рядом со счётчиком инструкций.
+    started: Arc<Mutex<Instant>>,
 }
 
 impl LuaSession {
     pub fn new() -> Self {
-        // Песочница: `ALL_SAFE` = все стандартные библиотеки, кроме `debug`
-        // (mlua сам refuse-ит `debug` и отключает C-модули для `require`).
-        // Опасные для хоста функции `os`/`io` обнуляем ниже в `install_core_api`.
+        // Песочница собрана из белого списка, а не из «всех безопасных с
+        // последующей зачисткой»: `io`, `package`, `require`, `loadfile`,
+        // `dofile` в состояние вообще не попадают, поэтому их нельзя вернуть
+        // ни `require`-ом, ни `package.loaded`, ни метатаблицами.
         let lua =
-            Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default()).expect("создать Lua-состояние");
+            Lua::new_with(safe_stdlib(), LuaOptions::default()).expect("создать Lua-состояние");
+        lua.set_memory_limit(MAX_LUA_MEMORY_BYTES)
+            .expect("ограничить память Lua");
         let bridge = Arc::new(Mutex::new(LuaBridge::default()));
         let instructions = Arc::new(AtomicU64::new(0));
+        let started = Arc::new(Mutex::new(Instant::now()));
 
         // Глобальный хук (не thread-хук): он же достаётся coroutine-потокам,
         // созданным после установки. Ошибка из хук-колбэка mlua пробрасывает
         // её как обычную ошибку Lua, то есть блок просто завершается с
-        // ошибкой вместо вечной зависки движка.
+        // ошибкой вместо вечной зависки движка. `pcall` её не глотает —
+        // проверено тестом `pcall_does_not_swallow_the_instruction_limit`.
         let counter = instructions.clone();
+        let clock = started.clone();
         lua.set_global_hook(
             HookTriggers::new().every_nth_instruction(LUA_INSTRUCTION_CHUNK as u32),
             move |_lua, _debug| {
                 let spent =
                     counter.fetch_add(LUA_INSTRUCTION_CHUNK, Ordering::Relaxed) + LUA_INSTRUCTION_CHUNK;
                 if spent > MAX_LUA_INSTRUCTIONS {
-                    Err(mlua::Error::runtime(format!(
+                    return Err(mlua::Error::runtime(format!(
                         "слишком много инструкций Lua (>{MAX_LUA_INSTRUCTIONS}) — похоже на бесконечный цикл"
-                    )))
-                } else {
-                    Ok(VmState::Continue)
+                    )));
                 }
+                let elapsed = clock.lock().unwrap().elapsed().as_millis();
+                if elapsed > MAX_LUA_CALL_MILLIS {
+                    return Err(mlua::Error::runtime(format!(
+                        "Lua-скрипт работает дольше {MAX_LUA_CALL_MILLIS} мс — прерван"
+                    )));
+                }
+                Ok(VmState::Continue)
             },
         )
         .expect("установить хук лимита инструкций");
@@ -175,9 +264,22 @@ impl LuaSession {
             lua,
             bridge,
             instructions,
+            started,
         };
         session.install_core_api();
         session
+    }
+
+    /// Отметить начало вызова: и счётчик инструкций, и часы.
+    fn begin_call(&self) {
+        self.instructions.store(0, Ordering::Relaxed);
+        *self.started.lock().unwrap() = Instant::now();
+    }
+
+    /// Забрать строки `core.log` текущего вызова. Движок отдаёт их своему
+    /// журналу сразу после возврата функции (`call_lua`), а не копит в сессии.
+    pub fn take_logs(&self) -> Vec<String> {
+        std::mem::take(&mut self.bridge.lock().unwrap().logs)
     }
 
     /// Зарегистрировать `core.*` (белый список; один раз при создании).
@@ -186,6 +288,11 @@ impl LuaSession {
             let bridge = self.bridge.clone();
             self.lua
                 .create_function(move |lua, name: String| -> Result<LuaValue, mlua::Error> {
+                    // Служебные каналы движка наружу не отдаём: там очередь
+                    // эффектов и токены, а не данные автора.
+                    if is_reserved_name(&name) {
+                        return Ok(LuaValue::Nil);
+                    }
                     let Some(snapshot) = &bridge.lock().unwrap().snapshot else {
                         return Ok(LuaValue::Nil);
                     };
@@ -202,11 +309,14 @@ impl LuaSession {
             let bridge = self.bridge.clone();
             self.lua
                 .create_function(
-                    move |_, (name, value): (String, LuaValue)| -> Result<(), mlua::Error> {
+                    move |_, (name, value): (String, LuaValue)| -> Result<bool, mlua::Error> {
+                        check_name(&name, "core.set_var")?;
+                        let json = lua_to_json(value);
+                        check_json_size(&json, MAX_VARIABLE_JSON_BYTES, "core.set_var")?;
                         if let Some(snapshot) = &mut bridge.lock().unwrap().snapshot {
-                            snapshot.variables.insert(name, lua_to_json(value));
+                            snapshot.variables.insert(name, json);
                         }
-                        Ok(())
+                        Ok(true)
                     },
                 )
                 .expect("create set_var")
@@ -227,14 +337,38 @@ impl LuaSession {
             let bridge = self.bridge.clone();
             self.lua
                 .create_function(
-                    move |_, (name, value): (String, LuaValue)| -> Result<(), mlua::Error> {
+                    move |_, (name, value): (String, LuaValue)| -> Result<bool, mlua::Error> {
+                        check_name(&name, "core.set_table")?;
+                        let json = lua_to_json(value);
+                        check_json_size(&json, MAX_TABLE_JSON_BYTES, "core.set_table")?;
                         if let Some(snapshot) = &mut bridge.lock().unwrap().snapshot {
-                            snapshot.tables.insert(name, lua_to_json(value));
+                            snapshot.tables.insert(name, json);
+                        }
+                        Ok(true)
+                    },
+                )
+                .expect("create set_table")
+        };
+        let log = {
+            let bridge = self.bridge.clone();
+            self.lua
+                .create_function(
+                    move |_, args: mlua::Variadic<LuaValue>| -> Result<(), mlua::Error> {
+                        let mut line = String::new();
+                        for (index, value) in args.iter().enumerate() {
+                            if index > 0 {
+                                line.push('\t');
+                            }
+                            line.push_str(&arg_text(Some(value)));
+                        }
+                        let mut guard = bridge.lock().unwrap();
+                        if guard.logs.len() < MAX_LOG_LINES {
+                            guard.logs.push(truncate_chars(line, MAX_LOG_LINE_LEN));
                         }
                         Ok(())
                     },
                 )
-                .expect("create set_table")
+                .expect("create log")
         };
 
         let go_to = {
@@ -243,7 +377,7 @@ impl LuaSession {
                 .create_function(
                     move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
                         let node = arg_text(args.first()).trim().to_string();
-                        if node.is_empty() {
+                        if node.is_empty() || node.chars().count() > MAX_ARG_TEXT_LEN {
                             return Ok(false);
                         }
                         bridge.lock().unwrap().transition = Some(node);
@@ -258,7 +392,7 @@ impl LuaSession {
                 .create_function(
                     move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
                         let audio_id = arg_text(args.first());
-                        if audio_id.is_empty() {
+                        if audio_id.is_empty() || audio_id.chars().count() > MAX_ARG_TEXT_LEN {
                             return Ok(false);
                         }
                         let volume = arg_num(args.get(1)).unwrap_or(1.0).clamp(0.0, 1.0);
@@ -299,7 +433,7 @@ impl LuaSession {
                 .create_function(
                     move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
                         let audio_id = arg_text(args.first());
-                        if audio_id.is_empty() {
+                        if audio_id.is_empty() || audio_id.chars().count() > MAX_ARG_TEXT_LEN {
                             return Ok(false);
                         }
                         let opts = args.get(1);
@@ -437,7 +571,7 @@ impl LuaSession {
                         let Some(mode) = VisibilityMode::from_raw(Some(&mode_raw)) else {
                             return Ok(false);
                         };
-                        if item_id.is_empty() {
+                        if item_id.is_empty() || item_id.chars().count() > MAX_NAME_LEN {
                             return Ok(false);
                         }
                         // apply_mode — та же функция, что у блока: «скрыть»
@@ -458,7 +592,11 @@ impl LuaSession {
                     move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
                         let item_id = arg_text(args.first()).trim().to_string();
                         let source = arg_text(args.get(1)).trim().to_string();
-                        if item_id.is_empty() || source.is_empty() {
+                        if item_id.is_empty()
+                            || item_id.chars().count() > MAX_NAME_LEN
+                            || source.is_empty()
+                            || source.chars().count() > MAX_ARG_TEXT_LEN
+                        {
                             return Ok(false);
                         }
                         Ok(with_snapshot(&bridge, |snapshot| {
@@ -477,7 +615,7 @@ impl LuaSession {
                 .create_function(
                     move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
                         let url = arg_text(args.first()).trim().to_string();
-                        if url.is_empty() {
+                        if url.is_empty() || url.chars().count() > MAX_ARG_TEXT_LEN {
                             return Ok(false);
                         }
                         // Белый список сети — тот же фильтр, что у блока.
@@ -493,6 +631,105 @@ impl LuaSession {
                 )
                 .expect("create open_link")
         };
+
+        let set_top_panel = {
+            let bridge = self.bridge.clone();
+            self.lua
+                .create_function(
+                    move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
+                        let raw = lua_to_json(args.first().cloned().unwrap_or(LuaValue::Nil));
+                        // Режимы те же, что у блока set_top_panel: show/hide/toggle.
+                        let Some(mode) = VisibilityMode::from_raw(Some(&raw)) else {
+                            return Ok(false);
+                        };
+                        Ok(with_snapshot(&bridge, |snapshot| {
+                            let hidden = match mode {
+                                VisibilityMode::Show => false,
+                                VisibilityMode::Hidden | VisibilityMode::Gone => true,
+                                VisibilityMode::Toggle => !matches!(
+                                    snapshot.variables.get(TOP_PANEL_HIDDEN_VAR),
+                                    Some(Value::Bool(true))
+                                ),
+                            };
+                            snapshot.set_effect(TOP_PANEL_HIDDEN_VAR, Value::Bool(hidden));
+                        })
+                        .is_some())
+                    },
+                )
+                .expect("create set_top_panel")
+        };
+        // Половины блока `crossfade`: блок оборачивает ими детей, а из Lua
+        // сценарий сам решает, что происходит между затуханием и возвратом.
+        let fade = |kind: &'static str, api: &'static str| {
+            let bridge = self.bridge.clone();
+            self.lua
+                .create_function(
+                    move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
+                        let seconds = arg_num(args.first()).unwrap_or(2.0).clamp(0.0, 60.0);
+                        let ms = (seconds * 1000.0).round() as i64;
+                        Ok(pushed(
+                            &bridge,
+                            AUDIO_QUEUE_VAR,
+                            json!({"type": kind, "ms": ms}),
+                        ))
+                    },
+                )
+                .unwrap_or_else(|e| panic!("create {api}: {e}"))
+        };
+        let fade_out = fade("fade_out", "fade_out");
+        let fade_in = fade("fade_in", "fade_in");
+
+        // Сохранения — те же внешние команды, что у блока `save_operation`.
+        let save_command = |build: fn(String) -> Option<Value>, api: &'static str| {
+            let bridge = self.bridge.clone();
+            self.lua
+                .create_function(
+                    move |_, args: mlua::Variadic<LuaValue>| -> Result<bool, mlua::Error> {
+                        let slot = arg_text(args.first()).trim().to_string();
+                        if slot.chars().count() > MAX_NAME_LEN {
+                            return Ok(false);
+                        }
+                        match build(slot) {
+                            Some(command) => Ok(pushed(&bridge, EXTERNAL_COMMANDS_VAR, command)),
+                            None => Ok(false),
+                        }
+                    },
+                )
+                .unwrap_or_else(|e| panic!("create {api}: {e}"))
+        };
+        let save_game = save_command(
+            |slot| {
+                let slot = if slot.is_empty() {
+                    "Сохранение".to_string()
+                } else {
+                    slot
+                };
+                Some(json!({"type": "save_game", "slotName": slot}))
+            },
+            "save_game",
+        );
+        let open_saves = save_command(|_slot| Some(json!({"type": "open_saves"})), "open_saves");
+        let load_save = save_command(
+            |slot| {
+                Some(if slot.is_empty() {
+                    json!({"type": "open_saves"})
+                } else {
+                    json!({"type": "load_save", "slotName": slot})
+                })
+            },
+            "load_save",
+        );
+        let delete_save = save_command(
+            |slot| {
+                // Как блок: без имени слота удалять нечего.
+                if slot.is_empty() {
+                    None
+                } else {
+                    Some(json!({"type": "delete_save", "slotName": slot}))
+                }
+            },
+            "delete_save",
+        );
 
         let core = self.lua.create_table().expect("create core table");
         core.set("get_var", get_var).expect("core.get_var");
@@ -510,29 +747,76 @@ impl LuaSession {
             ("set_blur", set_blur),
             ("set_item_visible", set_item_visible),
             ("set_item_image", set_item_image),
+            ("set_top_panel", set_top_panel),
+            ("fade_out", fade_out),
+            ("fade_in", fade_in),
             ("open_link", open_link),
+            ("save_game", save_game),
+            ("open_saves", open_saves),
+            ("load_save", load_save),
+            ("delete_save", delete_save),
+            ("log", log),
         ] {
             core.set(name, func)
                 .unwrap_or_else(|e| panic!("core.{name}: {e}"));
         }
         self.lua.globals().set("core", core).expect("globals core");
 
-        self.neutralize_host_escape_hatches();
+        self.lock_down_stdlib();
     }
 
-    /// Обнуляет функции stdlib, которые могут исполнять/удалять что-либо на
-    /// хосте. Изоляция mlua — whitelist библиотек, а не OS-песочница: без
-    /// этого `os.execute("rm -rf …")` реально бы исполнился в процессе движка.
-    fn neutralize_host_escape_hatches(&self) {
-        let os = self.lua.globals().get::<mlua::Table>("os").ok();
-        if let Some(os) = os {
-            for name in ["execute", "exit", "remove", "rename"] {
-                let _ = os.set(name, mlua::Nil);
-            }
+    /// Дозакрыть то, что приходит вместе с базовой библиотекой, и собрать
+    /// безопасный `os` руками.
+    ///
+    /// Библиотек `io`/`package`/`debug` в состоянии нет вообще (см.
+    /// [`safe_stdlib`]), но базовые глобалы `load`, `dofile`, `loadfile`,
+    /// `require` живут в `_G` всегда — их выкидываем. `load` возвращаем
+    /// урезанным: только текстовые чанки (байткод из чужого квеста — это
+    /// данные, которые VM разбирает намного сложнее, чем исходник).
+    fn lock_down_stdlib(&self) {
+        let globals = self.lua.globals();
+        for name in ["io", "package", "debug", "require", "dofile", "loadfile"] {
+            let _ = globals.set(name, LuaValue::Nil);
         }
-        let io = self.lua.globals().get::<mlua::Table>("io").ok();
-        if let Some(io) = io {
-            let _ = io.set("popen", mlua::Nil);
+        // `os` — заново: часы и дата без процессов, файлов и окружения.
+        if let Ok(os) = globals.get::<Table>("os")
+            && let Ok(safe) = self.lua.create_table()
+        {
+            for name in ["time", "clock", "date", "difftime"] {
+                if let Ok(value) = os.get::<LuaValue>(name) {
+                    let _ = safe.set(name, value);
+                }
+            }
+            let _ = globals.set("os", safe);
+        }
+        // `string.dump` отдаёт байткод — обратной дороги к нему нет.
+        if let Ok(string) = globals.get::<Table>("string") {
+            let _ = string.set("dump", LuaValue::Nil);
+        }
+        // `load`: та же сигнатура, но mode принудительно текстовый.
+        if self
+            .lua
+            .load(
+                r#"
+local raw_load = load
+load = function(chunk, chunkname, mode, env)
+    if type(chunk) == "string" and chunk:sub(1, 1) == "\27" then
+        return nil, "binary chunks are disabled in the quest sandbox"
+    end
+    if env ~= nil then
+        return raw_load(chunk, chunkname, "t", env)
+    end
+    return raw_load(chunk, chunkname, "t")
+end
+"#,
+            )
+            .set_name("sandbox")
+            .exec()
+            .is_err()
+        {
+            // Не должно случиться: `load` есть всегда. Если случилось —
+            // состояние без `load` безопаснее, чем с необёрнутым.
+            let _ = globals.set("load", LuaValue::Nil);
         }
     }
 
@@ -550,11 +834,11 @@ impl LuaSession {
         if script.trim().is_empty() {
             return Ok(());
         }
-        self.instructions.store(0, Ordering::Relaxed);
+        self.begin_call();
         let snapshot = LuaStateSnapshot::from_state(state);
         *self.bridge.lock().unwrap() = LuaBridge {
             snapshot: Some(snapshot),
-            transition: None,
+            ..LuaBridge::default()
         };
         let exec = self
             .lua
@@ -585,11 +869,11 @@ impl LuaSession {
         args: Value,
     ) -> Result<Option<String>, String> {
         // 1. Снимок текущего состояния — то, что видит core.*.
-        self.instructions.store(0, Ordering::Relaxed);
+        self.begin_call();
         let snapshot = LuaStateSnapshot::from_state(state);
         *self.bridge.lock().unwrap() = LuaBridge {
             snapshot: Some(snapshot),
-            transition: None,
+            ..LuaBridge::default()
         };
 
         // 2. Inline-скрипт: повторный exec идемпотентен (функции
@@ -643,7 +927,7 @@ impl Default for LuaSession {
 /// Append одной команды в очередь на снимке. `false` — вызов вне движка,
 /// снимка нет, команде негде лечь.
 fn pushed(bridge: &Arc<Mutex<LuaBridge>>, key: &str, command: Value) -> bool {
-    with_snapshot(bridge, |snapshot| snapshot.push_effect(key, command)).is_some()
+    with_snapshot(bridge, |snapshot| snapshot.push_effect(key, command)) == Some(true)
 }
 
 /// Аргумент как текст: число и булев `tostring`-ом, nil — пустая строка.
@@ -653,6 +937,51 @@ fn arg_text(value: Option<&LuaValue>) -> String {
         None | Some(LuaValue::Nil) => String::new(),
         Some(v) => value_to_string(&lua_to_json(v.clone())),
     }
+}
+
+/// Имя служебного канала движка: `_internal…`. Через них ходят команды
+/// клиенту (ссылки, сохранения, звук), поэтому из скрипта туда писать нельзя.
+fn is_reserved_name(name: &str) -> bool {
+    name.starts_with(RESERVED_VAR_PREFIX)
+}
+
+/// Проверить имя переменной/таблицы: непустое, не служебное, не бесконечное.
+fn check_name(name: &str, api: &str) -> Result<(), mlua::Error> {
+    if name.trim().is_empty() {
+        return Err(mlua::Error::runtime(format!("{api}: пустое имя")));
+    }
+    if is_reserved_name(name) {
+        return Err(mlua::Error::runtime(format!(
+            "{api}: имя '{name}' зарезервировано движком"
+        )));
+    }
+    if name.chars().count() > MAX_NAME_LEN {
+        return Err(mlua::Error::runtime(format!(
+            "{api}: имя длиннее {MAX_NAME_LEN} символов"
+        )));
+    }
+    Ok(())
+}
+
+/// Потолок JSON-значения: иначе одна переменная раздувает сейв и память.
+fn check_json_size(value: &Value, max: usize, api: &str) -> Result<(), mlua::Error> {
+    let size = serde_json::to_string(value).map_or(usize::MAX, |raw| raw.len());
+    if size > max {
+        return Err(mlua::Error::runtime(format!(
+            "{api}: значение больше потолка ({size} > {max} байт)"
+        )));
+    }
+    Ok(())
+}
+
+/// Обрезать строку по символам (не по байтам — иначе рвём UTF-8).
+fn truncate_chars(text: String, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text;
+    }
+    let mut out: String = text.chars().take(max).collect();
+    out.push('…');
+    out
 }
 
 /// Аргумент как число: строку пробуем распарсить (автор мог подать «0.5»),
@@ -773,31 +1102,47 @@ fn lua_to_json_depth(v: LuaValue, depth: u32) -> Value {
 fn table_to_json(t: &Table, depth: u32) -> Result<Value, mlua::Error> {
     let mut seq: Vec<(i64, Value)> = Vec::new();
     let mut map: Map<String, Value> = Map::new();
-    let mut seq_only = true;
 
-    for pair in t.pairs::<LuaValue, LuaValue>() {
-        let (k, val) = pair?;
+    // `for_each` — сырой `next`, без метаметода `__pairs`: конвертация не
+    // должна исполнять чужой код и не может «соврать» о содержимом.
+    t.for_each::<LuaValue, LuaValue>(|k, val| {
+        let json = lua_to_json_depth(val, depth + 1);
         match k {
-            LuaValue::Integer(i) if i >= 1 && seq_only => {
-                seq.push((i, lua_to_json_depth(val, depth + 1)));
+            LuaValue::Integer(i) if i >= 1 => seq.push((i, json)),
+            // Нечисловые и «нулевые» ключи в JSON-объект по строке: раньше они
+            // молча пропадали, и таблица теряла данные на сохранении.
+            LuaValue::Integer(i) => {
+                map.insert(i.to_string(), json);
+            }
+            LuaValue::Number(n) => {
+                map.insert(n.to_string(), json);
             }
             LuaValue::String(s) => {
-                seq_only = false;
-                let key = s.to_string_lossy().to_string();
-                map.insert(key, lua_to_json_depth(val, depth + 1));
+                map.insert(s.to_string_lossy().to_string(), json);
             }
-            _ => {
-                seq_only = false;
+            LuaValue::Boolean(b) => {
+                map.insert(b.to_string(), json);
             }
+            // Ключ-таблица/функция/поток в JSON не представим — пропускаем.
+            _ => {}
         }
-    }
+        Ok(())
+    })?;
 
-    if seq_only && !seq.is_empty() {
+    let contiguous = seq
+        .iter()
+        .enumerate()
+        .all(|(i, (key, _))| *key == i as i64 + 1);
+    if map.is_empty() && !seq.is_empty() && contiguous {
         seq.sort_by_key(|(i, _)| *i);
-        Ok(Value::Array(seq.into_iter().map(|(_, v)| v).collect()))
-    } else {
-        Ok(Value::Object(map))
+        return Ok(Value::Array(seq.into_iter().map(|(_, v)| v).collect()));
     }
+    // Смешанная таблица: массива в JSON нет, но и терять половину нельзя —
+    // отдаём объект, где числовые ключи тоже стали строками.
+    for (i, v) in seq {
+        map.insert(i.to_string(), v);
+    }
+    Ok(Value::Object(map))
 }
 
 #[cfg(test)]
@@ -806,48 +1151,291 @@ mod tests {
     use crate::runtime::InMemoryScriptRuntimeState;
     use serde_json::json;
 
-    #[test]
-    fn stdlib_available_but_debug_blocked() {
+    /// Общий помощник: прогнать тело функции и вернуть состояние.
+    fn run(body: &str) -> InMemoryScriptRuntimeState {
         let mut session = LuaSession::new();
-        let mut s = InMemoryScriptRuntimeState::default();
+        let mut state = InMemoryScriptRuntimeState::default();
+        let script = format!("function probe() {body} end");
         session
-            .call_function(
-                &mut s,
-                Some(
-                    "function probe() core.set_var('io_exists', io ~= nil) core.set_var('os_exists', os ~= nil) core.set_var('pkg_exists', package ~= nil) core.set_var('dbg_exists', debug ~= nil) core.set_var('require_ok', type(require) == 'function') end",
-                ),
-                "probe",
-                Value::Null,
-            )
-            .unwrap();
-        assert_eq!(s.get_variable("io_exists"), Some(&json!(true)));
-        assert_eq!(s.get_variable("os_exists"), Some(&json!(true)));
-        assert_eq!(s.get_variable("pkg_exists"), Some(&json!(true)));
-        // debug — единственная исключённая библиотека.
-        assert_eq!(s.get_variable("dbg_exists"), Some(&json!(false)));
-        assert_eq!(s.get_variable("require_ok"), Some(&json!(true)));
+            .call_function(&mut state, Some(&script), "probe", Value::Null)
+            .expect("скрипт должен отработать");
+        state
     }
 
     #[test]
-    fn host_escape_hatches_neutralized() {
+    fn sandbox_has_no_files_processes_or_module_loader() {
+        // Регрессия дыры: скачанный квест читал `io.open('/etc/hostname')`,
+        // вытягивал `os.getenv('HOME')` и грузил чужой .lua через
+        // `package.path`/`require`. Ничего из этого в песочнице нет.
+        let s = run("core.set_var('io', type(io))
+             core.set_var('package', type(package))
+             core.set_var('require', type(require))
+             core.set_var('dofile', type(dofile))
+             core.set_var('loadfile', type(loadfile))
+             core.set_var('debug', type(debug))
+             core.set_var('dump', type(string.dump))
+             core.set_var('execute', type(os.execute))
+             core.set_var('getenv', type(os.getenv))
+             core.set_var('remove', type(os.remove))
+             core.set_var('tmpname', type(os.tmpname))
+             core.set_var('time', type(os.time))
+             core.set_var('date', type(os.date))");
+        for name in [
+            "io", "package", "require", "dofile", "loadfile", "debug", "dump", "execute", "getenv",
+            "remove", "tmpname",
+        ] {
+            assert_eq!(
+                s.get_variable(name),
+                Some(&json!("nil")),
+                "{name} доступен из Lua"
+            );
+        }
+        // Часы и дата остаются: авторам нужны даты событий.
+        assert_eq!(s.get_variable("time"), Some(&json!("function")));
+        assert_eq!(s.get_variable("date"), Some(&json!("function")));
+    }
+
+    #[test]
+    fn load_accepts_text_chunks_but_not_bytecode() {
+        let s = run(
+            "local fn, err = load(string.char(27) .. 'Lua' .. string.rep(string.char(0), 8))
+             core.set_var('binary_blocked', fn == nil)
+             core.set_var('binary_error', tostring(err))
+             local ok = load('return 40 + 2')
+             core.set_var('text_value', ok())",
+        );
+        assert_eq!(s.get_variable("binary_blocked"), Some(&json!(true)));
+        assert_eq!(s.get_variable("text_value"), Some(&json!(42)));
+    }
+
+    #[test]
+    fn quest_script_cannot_forge_engine_channels() {
+        // Служебные каналы движка (`_internal_*`) — не данные автора: через
+        // них ходят ссылки наружу, сохранения и звук. Раньше
+        // `core.set_var('_internal_external_commands', {...})` обходил
+        // фильтр URL и сам блок `save_operation`.
         let mut session = LuaSession::new();
-        let mut s = InMemoryScriptRuntimeState::default();
+        let mut state = InMemoryScriptRuntimeState::default();
         session
             .call_function(
-                &mut s,
+                &mut state,
                 Some(
-                    "function probe() core.set_var('os_execute', type(os.execute)) core.set_var('os_exit', type(os.exit)) core.set_var('os_remove', type(os.remove)) core.set_var('io_popen', type(io.popen)) core.set_var('io_open', type(io.open)) end",
+                    "function probe()
+                         local ok = pcall(core.set_var, '_internal_external_commands', {{type = 'open_link', url = 'file:///etc/passwd'}})
+                         core.set_var('write_blocked', not ok)
+                         local ok_table = pcall(core.set_table, '_internal_tables', {})
+                         core.set_var('table_blocked', not ok_table)
+                         core.set_var('read_hidden', tostring(core.get_var('_internal_audio_queue')))
+                     end",
+                ),
+                "probe",
+                Value::Null,
+            )
+            .expect("pcall гасит запрет, сам вызов проходит");
+        assert_eq!(state.get_variable("write_blocked"), Some(&json!(true)));
+        assert_eq!(state.get_variable("table_blocked"), Some(&json!(true)));
+        assert_eq!(state.get_variable("read_hidden"), Some(&json!("nil")));
+        assert_eq!(
+            state.get_variable("_internal_external_commands"),
+            None,
+            "запрещённая запись всё-таки легла в канал"
+        );
+    }
+
+    #[test]
+    fn memory_bomb_stops_at_the_limit_instead_of_the_process() {
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        let err = session
+            .call_function(
+                &mut state,
+                Some(
+                    "function probe() local t = {} for i = 1, 8 do t[i] = string.rep('x', 8 * 1024 * 1024) end end",
+                ),
+                "probe",
+                Value::Null,
+            )
+            .expect_err("выделение сверх потолка должно стать ошибкой Lua");
+        assert!(err.contains("memory"), "не та ошибка: {err}");
+    }
+
+    #[test]
+    fn oversized_values_and_names_are_rejected() {
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        session
+            .call_function(
+                &mut state,
+                Some(
+                    "function probe()
+                         local big = pcall(core.set_var, 'huge', string.rep('x', 100 * 1024))
+                         core.set_var('big_blocked', not big)
+                         local long_name = pcall(core.set_var, string.rep('n', 500), 1)
+                         core.set_var('name_blocked', not long_name)
+                         core.set_var('empty_blocked', not pcall(core.set_var, '', 1))
+                     end",
+                ),
+                "probe",
+                Value::Null,
+            )
+            .expect("pcall не пропускает ошибку наружу");
+        assert_eq!(state.get_variable("big_blocked"), Some(&json!(true)));
+        assert_eq!(state.get_variable("name_blocked"), Some(&json!(true)));
+        assert_eq!(state.get_variable("empty_blocked"), Some(&json!(true)));
+        assert_eq!(state.get_variable("huge"), None);
+    }
+
+    #[test]
+    fn effect_queues_are_bounded_per_call() {
+        // Без потолка один цикл кладёт в очередь клиента десятки тысяч команд.
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        session
+            .call_function(
+                &mut state,
+                Some(
+                    "function probe()
+                         local placed = 0
+                         for i = 1, 400 do if core.play_sound('hit') then placed = placed + 1 end end
+                         core.set_var('placed', placed)
+                     end",
                 ),
                 "probe",
                 Value::Null,
             )
             .unwrap();
-        assert_eq!(s.get_variable("os_execute"), Some(&json!("nil")));
-        assert_eq!(s.get_variable("os_exit"), Some(&json!("nil")));
-        assert_eq!(s.get_variable("os_remove"), Some(&json!("nil")));
-        assert_eq!(s.get_variable("io_popen"), Some(&json!("nil")));
-        // io.open оставляем — файлы разрешены.
-        assert_eq!(s.get_variable("io_open"), Some(&json!("function")));
+        let queued = state
+            .get_variable("_internal_audio_queue")
+            .and_then(Value::as_array)
+            .expect("очередь звука");
+        assert_eq!(queued.len(), MAX_EFFECTS_PER_CALL);
+        assert_eq!(
+            state.get_variable("placed"),
+            Some(&json!(MAX_EFFECTS_PER_CALL))
+        );
+    }
+
+    #[test]
+    fn pcall_does_not_swallow_the_instruction_limit() {
+        // Иначе `while true do pcall(f) end` обходил бы потолок инструкций.
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        let err = session
+            .call_function(
+                &mut state,
+                Some(
+                    "function probe() local pc = pcall while true do pc(function() local x = 1 end) end end",
+                ),
+                "probe",
+                Value::Null,
+            )
+            .expect_err("цикл с pcall обязан прерваться");
+        assert!(err.contains("инструкц"), "не та ошибка: {err}");
+    }
+
+    #[test]
+    fn mixed_table_keys_survive_the_conversion() {
+        // Раньше `{1, 2, a = 1}` превращалось в `{a = 1}`: числовые элементы
+        // сбрасывались, как только в таблице встречался строковый ключ.
+        let s = run("core.set_var('mixed', {10, 20, a = 'x'})
+             core.set_var('sparse', {[0] = 'zero', [2] = 'two'})
+             core.set_var('plain', {7, 8, 9})");
+        assert_eq!(
+            s.get_variable("mixed"),
+            Some(&json!({"1": 10, "2": 20, "a": "x"}))
+        );
+        assert_eq!(
+            s.get_variable("sparse"),
+            Some(&json!({"0": "zero", "2": "two"}))
+        );
+        assert_eq!(s.get_variable("plain"), Some(&json!([7, 8, 9])));
+    }
+
+    #[test]
+    fn core_set_top_panel_writes_the_block_channel() {
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        session
+            .call_function(
+                &mut state,
+                Some(
+                    "function probe()
+                         core.set_top_panel('hide')
+                         core.set_var('after_hide', 1)
+                         core.set_top_panel('toggle')
+                         core.set_var('after_toggle', 1)
+                         core.set_top_panel('мусор')
+                     end",
+                ),
+                "probe",
+                Value::Null,
+            )
+            .unwrap();
+        // hide → спрятана, затем toggle → снова видна.
+        assert_eq!(
+            state.get_variable(TOP_PANEL_HIDDEN_VAR),
+            Some(&json!(false))
+        );
+        assert!(state.get_variable("after_toggle").is_some());
+    }
+
+    #[test]
+    fn fade_and_save_reuse_block_commands() {
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        session
+            .call_function(
+                &mut state,
+                Some(
+                    "function probe()
+                         core.fade_out(1.5)
+                         core.fade_in(0.5)
+                         core.save_game('Перед боссом')
+                         core.open_saves()
+                         core.load_save('Перед боссом')
+                         core.delete_save('')
+                     end",
+                ),
+                "probe",
+                Value::Null,
+            )
+            .unwrap();
+        assert_eq!(
+            state.get_variable("_internal_audio_queue"),
+            Some(&json!([
+                {"type": "fade_out", "ms": 1500},
+                {"type": "fade_in", "ms": 500},
+            ]))
+        );
+        assert_eq!(
+            state.get_variable("_internal_external_commands"),
+            Some(&json!([
+                {"type": "save_game", "slotName": "Перед боссом"},
+                {"type": "open_saves"},
+                {"type": "load_save", "slotName": "Перед боссом"},
+            ])),
+            "delete_save без слота ничего не кладёт в очередь"
+        );
+    }
+
+    #[test]
+    fn core_log_reaches_the_engine_log() {
+        let mut session = LuaSession::new();
+        let mut state = InMemoryScriptRuntimeState::default();
+        session
+            .call_function(
+                &mut state,
+                Some("function probe() core.log('hp', 12, {a = 1}) core.log('вторая строка') end"),
+                "probe",
+                Value::Null,
+            )
+            .unwrap();
+        let logs = session.take_logs();
+        assert_eq!(logs.len(), 2);
+        assert!(logs[0].starts_with("hp\t12\t"), "не та строка: {}", logs[0]);
+        assert_eq!(logs[1], "вторая строка");
+        // Забрали один раз — второй раз журнал пуст.
+        assert!(session.take_logs().is_empty());
     }
 
     #[test]

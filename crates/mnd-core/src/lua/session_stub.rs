@@ -25,6 +25,11 @@ impl LuaSession {
         Err("Lua в этой сборке недоступен — откройте квест в приложении".to_string())
     }
 
+    /// Журнал `core.log`: в сборке без Lua его не бывает.
+    pub fn take_logs(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     pub fn call_function(
         &mut self,
         _state: &mut dyn ScriptRuntime,

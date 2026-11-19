@@ -233,6 +233,11 @@ impl PluginInstance {
         for name in ["os", "io", "package", "debug"] {
             let _ = globals.set(name, LuaValue::Nil);
         }
+        // `string.dump` отдаёт байткод: загрузить его обратно нельзя (`load`
+        // выключен), но и отдавать наружу незачем.
+        if let Ok(string) = globals.get::<mlua::Table>("string") {
+            let _ = string.set("dump", LuaValue::Nil);
+        }
         let registry = self.lua.create_table().expect("реестр хуков");
         let _ = globals.set(HANDLERS_REGISTRY, registry);
     }
