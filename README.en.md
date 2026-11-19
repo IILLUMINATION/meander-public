@@ -94,6 +94,28 @@ iOS builds on macOS only and from a release tag — full path from clone to an
 archive in App Store Connect: [iOS release build](docs/ios-release.md) (in
 Russian, like the rest of `docs/`).
 
+### Network: no proxies, blind relays only
+
+The app talks to a single origin (`MEANDER_API_BASE`). There are no TLS
+terminating mirrors: a proxy that routes by path has to decrypt, so it would see
+`Authorization`, id tokens and messages. When a provider blocks the domain, the
+app falls back to a blind relay (`relay/`) that only forwards bytes — TLS is
+terminated by the client itself and the certificate is checked against the
+original domain, so the relay sees nothing but ciphertext.
+
+Path selection: direct connection first, then relays (your own from Settings,
+then the built-in one), each probed with a real HTTPS request through itself. A
+dead relay is skipped and the request is retried directly. Users can add, remove,
+enable and disable relays in Settings → "Servers and relays"; the build-time list
+is just a default:
+
+```bash
+flutter build apk --release --dart-define=MEANDER_RELAYS=194.31.223.9:8443
+```
+
+Running your own relay is one file or `docker compose up -d` — see
+[relay/README.md](relay/README.md).
+
 ### OAuth
 
 Google, Yandex and Telegram login require your own OAuth clients. Copy
