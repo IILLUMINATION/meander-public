@@ -93,6 +93,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Жалобы'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Жалоб к разбору: 3'), findsOneWidget);
     expect(find.text('Аня Петрова'), findsOneWidget);
     expect(find.text('Иллюминат'), findsOneWidget);
@@ -103,7 +106,7 @@ void main() {
     expect(tester.takeException(), isNull);
 
     await expectLater(
-      find.byType(AdminScreen),
+      find.byType(AdminSectionScreen),
       matchesGoldenFile('goldens/admin_reports_tab.png'),
     );
 
@@ -155,6 +158,9 @@ void main() {
         child: const MaterialApp(home: AdminScreen()),
       ),
     );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Жалобы'));
     await tester.pumpAndSettle();
 
     expect(find.text('Заблокировать пользователя'), findsOneWidget);

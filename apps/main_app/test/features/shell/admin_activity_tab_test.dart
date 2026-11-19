@@ -141,7 +141,7 @@ void main() {
     expect(find.text('Иван Петров'), findsOneWidget);
 
     await expectLater(
-      find.byType(AdminScreen),
+      find.byType(AdminSectionScreen),
       matchesGoldenFile('goldens/admin_activity_tab.png'),
     );
   });

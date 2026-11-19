@@ -84,57 +84,105 @@ final blockedUsersProvider =
 //  ЭКРАН
 // ============================================================================
 
-class AdminScreen extends ConsumerStatefulWidget {
+/// Раздел центра управления. Вкладки заменены отдельными экранами: восемь
+/// вкладок в горизонтальной ленте приходилось листать вслепую, чтобы добраться
+/// до поддержки или банов.
+enum AdminSection {
+  reports,
+  moderation,
+  activity,
+  music,
+  assets,
+  bans,
+  cosmetics,
+  support,
+}
+
+/// Центр управления как хаб: сетка разделов с числами, которые важны сразу.
+class AdminScreen extends ConsumerWidget {
   const AdminScreen({super.key});
 
   @override
-  ConsumerState<AdminScreen> createState() => _AdminScreenState();
-}
-
-class _AdminScreenState extends ConsumerState<AdminScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  /// Перечитать списки выдачи по кнопке «Обновить» в шапке.
-  int _cosmeticsNonce = 0;
-
-  /// Тип жалоб, который сейчас показан. `all` — без фильтра.
-  String _reportFilter = 'all';
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 8, vsync: this);
-    _tabController.addListener(() {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  void _refreshAll() {
-    ref.invalidate(moderationQueueProvider);
-    ref.invalidate(musicModerationQueueProvider);
-    ref.invalidate(assetModerationQueueProvider);
-    ref.invalidate(adminStatsProvider);
-    ref.invalidate(adminActivityProvider);
-    ref.invalidate(reportsProvider);
-    ref.invalidate(blockedUsersProvider);
-    setState(() => _cosmeticsNonce++);
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final queueAsync = ref.watch(moderationQueueProvider);
-    final statsAsync = ref.watch(adminStatsProvider);
-    final activityAsync = ref.watch(adminActivityProvider);
-    final reportsAsync = ref.watch(reportsProvider);
-    final pendingReports = reportsAsync.valueOrNull?.length ?? 0;
+    final textTheme = Theme.of(context).textTheme;
+
+    final reports = ref.watch(reportsProvider).valueOrNull?.length ?? 0;
+    final moderation =
+        ref.watch(moderationQueueProvider).valueOrNull?.length ?? 0;
+    final music =
+        ref.watch(musicModerationQueueProvider).valueOrNull?.length ?? 0;
+    final assets =
+        ref.watch(assetModerationQueueProvider).valueOrNull?.length ?? 0;
+    final bans = ref.watch(blockedUsersProvider).valueOrNull?.length ?? 0;
+    final appeals = ref.watch(supportInboxProvider).unreadTotal;
+
+    final entries = <_AdminNavEntry>[
+      _AdminNavEntry(
+        section: AdminSection.reports,
+        title: tr('Жалобы'),
+        icon: Icons.flag_rounded,
+        count: reports,
+        container: scheme.errorContainer,
+        onContainer: scheme.onErrorContainer,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.moderation,
+        title: tr('Модерация'),
+        icon: Icons.fact_check_rounded,
+        count: moderation,
+        container: scheme.primaryContainer,
+        onContainer: scheme.onPrimaryContainer,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.activity,
+        title: tr('Активность'),
+        icon: Icons.insights_rounded,
+        count: 0,
+        container: scheme.tertiaryContainer,
+        onContainer: scheme.onTertiaryContainer,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.support,
+        title: tr('Обращения'),
+        icon: Icons.support_agent_rounded,
+        count: appeals,
+        container: scheme.secondaryContainer,
+        onContainer: scheme.onSecondaryContainer,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.music,
+        title: tr('Музыка'),
+        icon: Icons.library_music_rounded,
+        count: music,
+        container: scheme.surfaceContainerHighest,
+        onContainer: scheme.onSurface,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.assets,
+        title: tr('Ассеты'),
+        icon: Icons.image_rounded,
+        count: assets,
+        container: scheme.surfaceContainerHighest,
+        onContainer: scheme.onSurface,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.bans,
+        title: tr('Баны'),
+        icon: Icons.block_rounded,
+        count: bans,
+        container: scheme.surfaceContainerHighest,
+        onContainer: scheme.onSurface,
+      ),
+      _AdminNavEntry(
+        section: AdminSection.cosmetics,
+        title: tr('Оформление'),
+        icon: Icons.palette_rounded,
+        count: 0,
+        container: scheme.surfaceContainerHighest,
+        onContainer: scheme.onSurface,
+      ),
+    ];
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -150,73 +198,253 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: tr('Обновить'),
-            onPressed: _refreshAll,
+            onPressed: () => _invalidateAll(ref),
           ),
           const SizedBox(width: 4),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              indicatorSize: TabBarIndicatorSize.tab,
-              splashBorderRadius: BorderRadius.circular(24),
-              indicator: BoxDecoration(
-                color: scheme.primary,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              labelColor: scheme.onPrimary,
-              unselectedLabelColor: scheme.onSurfaceVariant,
-              dividerColor: Colors.transparent,
-              labelStyle: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-              tabs: [
-                Tab(
-                  child: _AdminTabLabel(
-                    label: tr('Жалобы'),
-                    count: pendingReports,
+      ),
+      body: AdaptiveContent(
+        maxWidth: 1100,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 760 ? 3 : 2;
+            return GridView.count(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+              crossAxisCount: columns,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 1.35,
+              children: [
+                for (final entry in entries)
+                  _AdminNavCard(
+                    entry: entry,
+                    textTheme: textTheme,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            AdminSectionScreen(section: entry.section),
+                      ),
+                    ),
                   ),
-                ),
-                Tab(text: tr('Модерация')),
-                Tab(text: tr('Активность')),
-                Tab(text: tr('Музыка')),
-                Tab(text: tr('Ассеты')),
-                Tab(text: tr('Баны')),
-                Tab(text: tr('Оформление')),
-                Tab(
-                  child: _AdminTabLabel(
-                    label: tr('Обращения'),
-                    count: ref
-                        .watch(supportInboxProvider)
-                        .unreadTotal,
-                  ),
-                ),
               ],
-            ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  static void _invalidateAll(WidgetRef ref) {
+    ref.invalidate(moderationQueueProvider);
+    ref.invalidate(musicModerationQueueProvider);
+    ref.invalidate(assetModerationQueueProvider);
+    ref.invalidate(adminStatsProvider);
+    ref.invalidate(adminActivityProvider);
+    ref.invalidate(reportsProvider);
+    ref.invalidate(blockedUsersProvider);
+    ref.read(supportInboxProvider.notifier).load();
+  }
+}
+
+class _AdminNavEntry {
+  const _AdminNavEntry({
+    required this.section,
+    required this.title,
+    required this.icon,
+    required this.count,
+    required this.container,
+    required this.onContainer,
+  });
+
+  final AdminSection section;
+  final String title;
+  final IconData icon;
+  final int count;
+  final Color container;
+  final Color onContainer;
+}
+
+class _AdminNavCard extends StatelessWidget {
+  const _AdminNavCard({
+    required this.entry,
+    required this.textTheme,
+    required this.onTap,
+  });
+
+  final _AdminNavEntry entry;
+  final TextTheme textTheme;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: ValueKey('admin-section-${entry.section.name}'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: entry.container,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(entry.icon, color: entry.onContainer, size: 22),
+                  ),
+                  const Spacer(),
+                  if (entry.count > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        entry.count > 99 ? '99+' : '${entry.count}',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: scheme.onPrimary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                entry.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Один раздел центра управления. Своя шапка, свой refresh — остальные
+/// разделы не грузятся и не перерисовываются.
+class AdminSectionScreen extends ConsumerStatefulWidget {
+  const AdminSectionScreen({super.key, required this.section});
+
+  final AdminSection section;
+
+  @override
+  ConsumerState<AdminSectionScreen> createState() => _AdminSectionState();
+}
+
+class _AdminSectionState extends ConsumerState<AdminSectionScreen> {
+  /// Перечитать списки выдачи по кнопке «Обновить» в шапке.
+  int _cosmeticsNonce = 0;
+
+  /// Тип жалоб, который сейчас показан. `all` — без фильтра.
+  String _reportFilter = 'all';
+
+  String get _title => switch (widget.section) {
+    AdminSection.reports => tr('Жалобы'),
+    AdminSection.moderation => tr('Модерация'),
+    AdminSection.activity => tr('Активность'),
+    AdminSection.music => tr('Музыка'),
+    AdminSection.assets => tr('Ассеты'),
+    AdminSection.bans => tr('Баны'),
+    AdminSection.cosmetics => tr('Оформление'),
+    AdminSection.support => tr('Обращения'),
+  };
+
+  Future<void> _refresh() async {
+    switch (widget.section) {
+      case AdminSection.reports:
+        ref.invalidate(reportsProvider);
+      case AdminSection.moderation:
+        ref.invalidate(moderationQueueProvider);
+        ref.invalidate(adminStatsProvider);
+      case AdminSection.activity:
+        ref.invalidate(adminActivityProvider);
+      case AdminSection.music:
+        ref.invalidate(musicModerationQueueProvider);
+      case AdminSection.assets:
+        ref.invalidate(assetModerationQueueProvider);
+      case AdminSection.bans:
+        ref.invalidate(blockedUsersProvider);
+      case AdminSection.cosmetics:
+        setState(() => _cosmeticsNonce++);
+      case AdminSection.support:
+        ref.read(supportInboxProvider.notifier).load();
+    }
+  }
+
+  Widget _body() {
+    switch (widget.section) {
+      case AdminSection.reports:
+        return _buildReportsTab(ref.watch(reportsProvider));
+      case AdminSection.moderation:
+        return _buildModerationTab(
+          ref.watch(adminStatsProvider),
+          ref.watch(moderationQueueProvider),
+        );
+      case AdminSection.activity:
+        return _buildActivityTab(ref.watch(adminActivityProvider));
+      case AdminSection.music:
+        return _buildMusicModerationTab();
+      case AdminSection.assets:
+        return _buildAssetModerationTab();
+      case AdminSection.bans:
+        return _buildBlockedUsersTab();
+      case AdminSection.cosmetics:
+        return AdminCosmeticsPanel(nonce: _cosmeticsNonce);
+      case AdminSection.support:
+        return SupportInboxBody();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      appBar: AppBar(
+        title: Text(
+          _title,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: tr('Обновить'),
+            onPressed: _refresh,
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: AdaptiveContent(
         maxWidth: 1100,
         child: RefreshIndicator(
-          onRefresh: () async => _refreshAll(),
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildReportsTab(reportsAsync),
-              _buildModerationTab(statsAsync, queueAsync),
-              _buildActivityTab(activityAsync),
-              _buildMusicModerationTab(),
-              _buildAssetModerationTab(),
-              _buildBlockedUsersTab(),
-              AdminCosmeticsPanel(nonce: _cosmeticsNonce),
-              SupportInboxBody(),
-            ],
-          ),
+          onRefresh: () async => _refresh(),
+          child: _body(),
         ),
       ),
     );
@@ -230,7 +458,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     return activityAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, _) =>
-          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+          _ErrorBlock(error: err.toString(), onRetry: _refresh),
       data: (data) {
         final summary =
             (data['summary'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -557,7 +785,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
             child: Center(child: CircularProgressIndicator()),
           ),
           error: (err, _) => SliverFillRemaining(
-            child: _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+            child: _ErrorBlock(error: err.toString(), onRetry: _refresh),
           ),
           data: (quests) {
             if (quests.isEmpty) {
@@ -586,7 +814,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     return musicAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, _) =>
-          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+          _ErrorBlock(error: err.toString(), onRetry: _refresh),
       data: (tracks) {
         if (tracks.isEmpty) {
           return _EmptyBlock(
@@ -609,7 +837,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     return assetAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, _) =>
-          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+          _ErrorBlock(error: err.toString(), onRetry: _refresh),
       data: (assets) {
         if (assets.isEmpty) {
           return _EmptyBlock(
@@ -633,7 +861,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     return reportsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, _) =>
-          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+          _ErrorBlock(error: err.toString(), onRetry: _refresh),
       data: (reports) {
         if (reports.isEmpty) {
           return _EmptyBlock(
@@ -732,7 +960,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
     return blockedUsersAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, _) =>
-          _ErrorBlock(error: err.toString(), onRetry: _refreshAll),
+          _ErrorBlock(error: err.toString(), onRetry: _refresh),
       data: (users) {
         if (users.isEmpty) {
           return _EmptyBlock(
@@ -753,32 +981,6 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
 // ============================================================================
 //  ВСПОМОГАТЕЛЬНЫЕ ВИДЖЕТЫ
 // ============================================================================
-
-class _AdminTabLabel extends StatelessWidget {
-  final String label;
-  final int count;
-
-  const _AdminTabLabel({required this.label, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label),
-        if (count > 0) ...[
-          const SizedBox(width: 6),
-          Badge.count(
-            count: count,
-            backgroundColor: scheme.error,
-            textColor: scheme.onError,
-          ),
-        ],
-      ],
-    );
-  }
-}
 
 class _ReportFilterChip extends StatelessWidget {
   final String label;
