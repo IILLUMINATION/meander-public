@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:file_picker/file_picker.dart';
 import 'package:mnd_core/mnd_core.dart';
+import 'package:canvas_app/features/editor/workspace/editor_screen_tabs.dart';
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
@@ -274,12 +275,7 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
         await Directory(p.dirname(destPath)).create(recursive: true);
         await tmpFile.copy(destPath);
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(trf('Добавлено: {p0}', {'p0': a.title}))),
-        );
-        if (widget.pickerMode) Navigator.pop(context, destRel);
-      }
+      if (mounted && widget.pickerMode) Navigator.pop(context, destRel);
       try {
         tmpDir.deleteSync(recursive: true);
       } catch (_) {}
@@ -727,14 +723,11 @@ class _AssetMarketScreenState extends ConsumerState<AssetMarketScreen> {
                                       Padding(
                                         padding: const EdgeInsets.only(top: 4),
                                         child: InkWell(
-                                          onTap: () => Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => ProfileScreen(
-                                                userId: a.authorId!,
+                                          onTap: () =>
+                                              EditorScreenTabs.openProfile(
+                                                context,
+                                                a.authorId!,
                                               ),
-                                            ),
-                                          ),
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ),

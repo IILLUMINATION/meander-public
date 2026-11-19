@@ -183,10 +183,6 @@ class _MusicDetailsScreenState extends ConsumerState<MusicDetailsScreen> {
         return;
       }
       if (mounted) setState(() => _inLibrary = true);
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(trf('Добавлено в библиотеку: {p0}', {'p0': _track.title}))),
-        );
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(

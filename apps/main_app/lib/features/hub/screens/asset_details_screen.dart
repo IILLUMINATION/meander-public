@@ -360,13 +360,6 @@ class _AssetDetailsScreenState extends ConsumerState<AssetDetailsScreen> {
         return;
       }
       if (mounted) setState(() => _inLibrary = true);
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(trf('Добавлено в библиотеку: {p0}', {'p0': _asset.title})),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(

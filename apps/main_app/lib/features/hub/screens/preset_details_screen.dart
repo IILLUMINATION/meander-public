@@ -282,12 +282,6 @@ class _PresetDetailsScreenState extends ConsumerState<PresetDetailsScreen> {
           return;
         }
         if (mounted) setState(() => _inLibrary = true);
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(trf('Добавлено в библиотеку: {p0}', {'p0': asset.title})),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
       }
     } catch (e) {
       messenger.showSnackBar(

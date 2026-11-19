@@ -30,10 +30,9 @@ class PluginManagerScreen extends ConsumerWidget {
     }
 
     try {
-      final entry = await ref
+      await ref
           .read(pluginRegistryProvider.notifier)
           .importPluginFile(File(path));
-      _showSnack(context, trf('Плагин «{p0}» импортирован', {'p0': entry.name}));
     } catch (e) {
       _showSnack(context, trf('Ошибка импорта: {e}', {'e': e}));
     }

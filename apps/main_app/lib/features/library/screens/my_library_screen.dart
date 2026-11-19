@@ -103,9 +103,6 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
       final dest = await MyLibraryService.copyAssetToQuest(item, questId);
       if (!mounted) return;
       if (dest != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(trf('Добавлено: {p0}', {'p0': item.title}))),
-        );
         if (widget.pickerMode) Navigator.pop(context, dest);
       } else {
         ScaffoldMessenger.of(
@@ -539,14 +536,10 @@ class _MyLibraryScreenState extends ConsumerState<MyLibraryScreen>
       );
       if (selected != null) {
         final dest = await MyLibraryService.copyAssetToQuest(item, selected);
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                dest != null ? tr('Добавлено в квест') : tr('Ошибка'),
-              ),
-            ),
-          );
+        if (mounted && dest == null)
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(tr('Ошибка'))));
       }
     }
   }
