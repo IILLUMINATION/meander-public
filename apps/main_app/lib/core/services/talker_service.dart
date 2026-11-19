@@ -1,12 +1,9 @@
-import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart'; // Нужно для kDebugMode
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/services/diagnostics_export.dart';
 
 /// Глобальный инстанс Talker
 final talker = TalkerFlutter.init(
@@ -43,44 +40,27 @@ class TalkerExportService {
         buffer.writeln('-' * 20);
       }
 
-      final dir = await getTemporaryDirectory();
       final fileName =
           'meander_logs_${DateTime.now().millisecondsSinceEpoch}.txt';
-      final file = File('${dir.path}/$fileName');
-
-      await file.writeAsString(buffer.toString());
-
-      // share_plus на десктопе файлы не отдаёт: Linux кидает
-      // UnimplementedError, ошибка проваливалась в общий catch ниже, и
-      // человек не видел ничего. Тот же путь, что у экспорта .mnd —
-      // системный «сохранить как».
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        final saved = await FilePicker.saveFile(
-          dialogTitle: tr('Сохранить логи'),
-          fileName: fileName,
-          bytes: await file.readAsBytes(),
-          type: FileType.custom,
-          allowedExtensions: ['txt'],
-        );
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                saved == null
-                    ? tr('Сохранение отменено')
-                    : trf('Логи сохранены: {saved}', {'saved': saved}),
-              ),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        return;
-      }
-
-      final xFile = XFile(file.path);
+      // Единый путь с записью сессии: на мобильных — «поделиться», на
+      // десктопе — файловый диалог (share_plus файлы там не отдаёт).
+      final saved = await DiagnosticsExport.saveOrShareText(
+        fileName: fileName,
+        content: buffer.toString(),
+        shareSubject: tr('Логи приложения Meander'),
+      );
 
       if (context.mounted) {
-        await Share.shareXFiles([xFile], text: tr('Логи приложения Meander'));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              saved == null
+                  ? tr('Сохранение отменено')
+                  : trf('Логи сохранены: {saved}', {'saved': saved}),
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e, st) {
       // Используем handle, он безопасен

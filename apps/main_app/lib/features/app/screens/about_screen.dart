@@ -2,7 +2,10 @@
 //
 // О приложении — Material You / Material 3 редизайн.
 
+import 'dart:async';
+
 import 'package:canvas_app/core/services/build_info_service.dart';
+import 'package:canvas_app/core/services/session_recorder.dart';
 import 'package:canvas_app/core/services/talker_service.dart';
 import 'package:canvas_app/features/app/data/about_content.dart';
 import 'package:flutter/material.dart';
@@ -722,6 +725,149 @@ class _AboutProject extends StatelessWidget {
 //  ОТЛАДКА
 // ============================================================================
 
+/// Запись сессии тестировщика: старт/стоп и отправка файлов.
+///
+/// Отчёт «не сохраняется скрипт» без журнала не воспроизвести: нужно знать,
+/// по каким экранам шли, какие вкладки были открыты и чем закончились
+/// сохранения. Здесь это включается одной кнопкой.
+class _SessionRecordingTiles extends StatefulWidget {
+  _SessionRecordingTiles();
+
+  @override
+  State<_SessionRecordingTiles> createState() => _SessionRecordingTilesState();
+}
+
+class _SessionRecordingTilesState extends State<_SessionRecordingTiles> {
+  Timer? _ticker;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTicker();
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  void _syncTicker() {
+    if (SessionRecorder.instance.isRecording) {
+      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      _ticker?.cancel();
+      _ticker = null;
+    }
+  }
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final recorder = SessionRecorder.instance;
+    try {
+      if (recorder.isRecording) {
+        await recorder.stop('manual');
+      } else {
+        await recorder.start();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(tr('Запись сессии начата'))),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': '$e'}))),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+        _syncTicker();
+      }
+    }
+  }
+
+  Future<void> _send() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final saved = await SessionRecorder.instance.exportAndShare();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved == null
+                ? tr('Записи сессии нет')
+                : saved.isEmpty
+                ? tr('Запись сессии отправлена')
+                : trf('Запись сессии сохранена: {saved}', {'saved': saved}),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(trf('Ошибка: {p0}', {'p0': '$e'}))),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+        _syncTicker();
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final recorder = SessionRecorder.instance;
+    final recording = recorder.isRecording;
+    final hasSession = recorder.currentFilePath != null;
+    return Column(
+      children: [
+        ListTile(
+          key: const ValueKey('session-recording-toggle'),
+          leading: Icon(
+            recording
+                ? Icons.fiber_manual_record_rounded
+                : Icons.radio_button_unchecked_rounded,
+            color: recording ? scheme.error : scheme.primary,
+          ),
+          title: Text(tr('Запись сессии тестировщика')),
+          subtitle: Text(
+            recording
+                ? trf('Идёт запись: {count} событий', {
+                    'count': recorder.eventCount,
+                  })
+                : tr('Лог нажатий и ответов приложения — приложите файл к отчёту'),
+          ),
+          trailing: Icon(
+            recording ? Icons.stop_rounded : Icons.play_arrow_rounded,
+            color: recording ? scheme.error : scheme.primary,
+          ),
+          onTap: _busy ? null : _toggle,
+        ),
+        if (hasSession)
+          ListTile(
+            key: const ValueKey('session-recording-send'),
+            leading: Icon(Icons.save_alt_rounded, color: scheme.primary),
+            title: Text(tr('Отправить запись сессии')),
+            subtitle: Text(tr('Журнал событий и сводка — два файла')),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _busy ? null : _send,
+          ),
+      ],
+    );
+  }
+}
+
 class _DebugSection extends StatelessWidget {
   const _DebugSection();
 
@@ -761,6 +907,12 @@ class _DebugSection extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => TalkerExportService.exportAndShareLogs(context),
             ),
+            Divider(
+              height: 1,
+              indent: 60,
+              color: scheme.outlineVariant.withOpacity(0.4),
+            ),
+            _SessionRecordingTiles(),
           ],
         ),
       ),

@@ -9,6 +9,7 @@ import 'package:canvas_app/core/theme/init_provider.dart';
 import 'package:canvas_app/core/theme/theme_preset_provider.dart';
 import 'package:canvas_app/core/theme/theme_provider.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
+import 'package:canvas_app/core/services/session_recorder.dart';
 import 'package:canvas_app/core/services/streak_service.dart';
 import 'package:canvas_app/features/app/screens/splash_screen.dart';
 import 'package:canvas_app/features/onboarding/widgets/tutorial_host.dart';
@@ -71,17 +72,22 @@ class _AppState extends ConsumerState<App> {
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeMode,
-      navigatorObservers: [],
+      // Журнал «экран → экран» для отчётов тестировщика (см. SessionRecorder).
+      navigatorObservers: [SessionRecorderNavigatorObserver()],
       builder: (context, child) => RepaintBoundary(
         key: AppScreenshot.boundaryKey,
-        child: Listener(
-          behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
-          child: MouseRegion(
-            onHover: (_) => ref.read(playtimeServiceProvider).registerInteraction(),
-            child: PluginHostRunner(
-              child: DesktopNavigationWrapper(
-                child: TutorialHost(child: child ?? const SizedBox.shrink()),
+        child: SessionTapRecorder(
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) =>
+                ref.read(playtimeServiceProvider).registerInteraction(),
+            child: MouseRegion(
+              onHover: (_) =>
+                  ref.read(playtimeServiceProvider).registerInteraction(),
+              child: PluginHostRunner(
+                child: DesktopNavigationWrapper(
+                  child: TutorialHost(child: child ?? const SizedBox.shrink()),
+                ),
               ),
             ),
           ),
