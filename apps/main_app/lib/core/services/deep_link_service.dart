@@ -224,7 +224,6 @@ class DeepLinkService {
         return true;
       }
 
-      _showMessage(nav, tr('Квест импортирован'));
       nav.push(
         MaterialPageRoute(
           builder: (_) => QuestDetailsScreen(questId: importedQuestId),

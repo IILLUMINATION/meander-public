@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:canvas_app/core/services/export_service.dart';
+import 'package:canvas_app/core/services/txt_quest_exporter.dart';
+import 'package:canvas_app/core/services/quest_mnd_share.dart';
 import 'package:canvas_app/features/quests/widgets/quest_export_format_dialog.dart';
 import 'package:canvas_app/core/services/offline_apk_builder.dart';
 import 'package:canvas_app/core/services/offline_web_builder.dart';
@@ -13,6 +15,7 @@ import 'package:mnd_player/utils/quest_store.dart';
 import 'package:canvas_app/features/editor/screens/node_selection_screen.dart';
 import 'package:canvas_app/features/editor/workspace/editor_document.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_controller.dart';
+import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_session.dart';
 import 'package:canvas_app/core/services/quest_data_guard.dart';
 import 'package:canvas_app/features/editor/workspace/quest_editor_shell.dart';
@@ -23,6 +26,7 @@ import 'package:canvas_app/features/quests/providers/quest_provider.dart';
 import 'package:canvas_app/features/quests/screens/apk_build_options_screen.dart';
 import 'package:canvas_app/features/quests/screens/quest_history_screen.dart';
 import 'package:canvas_app/features/quests/screens/quest_publish_screen.dart';
+import 'package:canvas_app/features/quests/screens/txt_export_screen.dart';
 import 'package:canvas_app/features/quests/widgets/pdf_export_options_sheet.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:flutter/foundation.dart';
@@ -158,14 +162,53 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     }
   }
 
+  /// Быстро отправить `.mnd` в системную шторку, минуя «Сохранить как».
+  Future<void> _shareQuestMnd(Quest quest) async {
+    if (_isExporting) return;
+    setState(() => _isExporting = true);
+    try {
+      // Тот же снимок вкладок, что и у обычного экспорта: делиться должны
+      // актуальные правки, а не состояние на момент последнего автосохранения.
+      try {
+        final wsState = ref.read(editorWorkspaceControllerProvider(quest.id));
+        await const EditorWorkspaceSessionStore().save(quest.id, wsState);
+      } catch (_) {}
+      final result = await QuestMndShare.shareQuest(quest.id, quest.title);
+      if (!mounted) return;
+      switch (result) {
+        case QuestMndShareResult.shared:
+          _showSnack(tr('Готово'), success: true);
+        case QuestMndShareResult.saved:
+          _showSnack(tr('Квест успешно экспортирован'), success: true);
+        case QuestMndShareResult.cancelled:
+          _showSnack(tr('Экспорт отменён'));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(
+        trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
   Future<void> _exportQuestTxt(Quest quest) async {
     if (_isExportingTxt) return;
+    final options = await Navigator.of(context).push<TxtExportOptions>(
+      MaterialPageRoute(
+        builder: (_) => TxtExportScreen(questTitle: quest.title),
+      ),
+    );
+    if (options == null || !mounted) return;
     setState(() => _isExportingTxt = true);
 
     try {
       final success = await ExportService.exportQuestAsTxt(
         quest.id,
         quest.title,
+        options: options,
       );
       if (!mounted) return;
       if (success) _showSnack(tr('Квест экспортирован в .txt'), success: true);
@@ -481,6 +524,14 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
     if (!mounted) return;
     await notifyQuestDataProtection(context, protection);
     if (!mounted) return;
+    // Меню квеста уже живёт вкладкой воркспейса: его кнопки должны
+    // открывать документы в том же окне, а не поднимать второй шелл
+    // внутри вкладки меню.
+    final scope = EditorWorkspaceScope.maybeOf(context);
+    if (scope != null && initialDocument.id.questId == scope.questId) {
+      scope.openDocument(initialDocument);
+      return;
+    }
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -513,10 +564,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
 
   void _openResources(Quest quest) {
     unawaited(
-      _openWorkspace(
-        quest.id,
-        EditorDocumentDescriptor.resources(quest.id),
-      ),
+      _openWorkspace(quest.id, EditorDocumentDescriptor.resources(quest.id)),
     );
   }
 
@@ -547,6 +595,19 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              ListTile(
+                leading: const Icon(Icons.send_rounded),
+                title: Text(tr('Отправить .mnd')),
+                subtitle: Text(
+                  QuestMndShare.canShareFiles
+                      ? tr('Сразу в мессенджер или почту')
+                      : tr('На компьютере — сохранить файл'),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _shareQuestMnd(quest);
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.archive_outlined),
                 title: Text(tr('Экспорт в .mnd')),
@@ -580,7 +641,7 @@ class _QuestDetailsScreenState extends ConsumerState<QuestDetailsScreen> {
               ListTile(
                 leading: const Icon(Icons.description_outlined),
                 title: Text(tr('Экспорт в .txt')),
-                subtitle: Text(tr('Текстовый дамп квеста')),
+                subtitle: Text(tr('Настройки для ИИ и технический дамп')),
                 onTap: () {
                   Navigator.pop(ctx);
                   _exportQuestTxt(quest);

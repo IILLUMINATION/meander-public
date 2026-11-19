@@ -11,7 +11,8 @@ import 'package:canvas_app/features/editor/screens/button_style_presets_screen.d
 import 'package:canvas_app/features/editor/workspace/editor_back_handler.dart';
 import 'package:canvas_app/features/editor/workspace/editor_workspace_scope.dart';
 import 'package:canvas_app/features/editor/services/script_providers.dart';
-import 'package:canvas_app/features/quests/providers/quest_provider.dart' as canvas_qp;
+import 'package:canvas_app/features/quests/providers/quest_provider.dart'
+    as canvas_qp;
 import 'package:mnd_core/models/quest_descriptor.dart';
 import 'package:mnd_player/providers/quest_provider.dart' as player_qp;
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
@@ -19,6 +20,7 @@ import 'package:canvas_app/features/resources/services/resource_providers.dart';
 import 'package:canvas_app/models/content_item_model.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/features/editor/workspace/editor_nested_documents.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:mnd_player/widgets/content_display_factory.dart';
 import 'package:file_picker/file_picker.dart';
@@ -87,8 +89,11 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
   bool _hideNodeTitles = false;
   bool _hideTopPanel = false;
   bool _allowStepBack = false;
+  bool _allowTextCopy = false;
+  bool _allowImagePreview = true;
   bool _wrapButtonText = true;
   bool _allowOpenContent = false;
+
   /// Языки квеста в порядке автора: первый — основной. Мультивыбор, потому
   /// что историю переводят, и маркет поднимает её для игрока на любом из
   /// заявленных языков.
@@ -134,7 +139,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
 
   Future<void> _loadQuestData() async {
     try {
-      final quest = await ref.read(canvas_qp.questProvider(widget.questId).future);
+      final quest = await ref.read(
+        canvas_qp.questProvider(widget.questId).future,
+      );
 
       if (quest != null && mounted) {
         _titleController.text = quest.title;
@@ -159,6 +166,8 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         _hideNodeTitles = quest.hideNodeTitles;
         _hideTopPanel = quest.hideTopPanel;
         _allowStepBack = quest.allowStepBack;
+        _allowTextCopy = quest.allowTextCopy;
+        _allowImagePreview = quest.allowImagePreview;
         _wrapButtonText = quest.wrapButtonText;
         _allowOpenContent = quest.allowOpenContent;
         _questLanguages = List<String>.of(quest.languages);
@@ -251,6 +260,8 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
       config['hideNodeTitles'] = _hideNodeTitles;
       config['hideTopPanel'] = _hideTopPanel;
       config['allowStepBack'] = _allowStepBack;
+      config['allowTextCopy'] = _allowTextCopy;
+      config['allowImagePreview'] = _allowImagePreview;
       config['wrapButtonText'] = _wrapButtonText;
       config['defaultButtonPresetName'] = _defaultButtonPresetName;
       config['musicInBackground'] = _musicInBackground;
@@ -259,7 +270,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
       config['scriptEngineMode'] = kScriptEngineModeNew;
       config['allowOpenContent'] = _allowOpenContent;
       config['languages'] = _questLanguages;
-      config['language'] = _questLanguages.isEmpty ? null : _questLanguages.first;
+      config['language'] = _questLanguages.isEmpty
+          ? null
+          : _questLanguages.first;
 
       if (_newPreviewFile != null) {
         final extension = p.extension(_newPreviewFile!.path);
@@ -295,7 +308,10 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
     } catch (e, stack) {
       debugPrint('[EDIT_QUEST] Ошибка сохранения: $e\n$stack');
       if (mounted) {
-        _showSnack(trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)}), error: true);
+        _showSnack(
+          trf('Ошибка сохранения: {p0}', {'p0': friendlyError(e)}),
+          error: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -405,11 +421,12 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
   }
 
   Future<void> _openButtonPresetsEditor() async {
-    await Navigator.push(
+    await EditorNestedDocuments.open<void>(
       context,
-      MaterialPageRoute(
-        builder: (_) => ButtonStylePresetsScreen(questId: widget.questId),
-      ),
+      questId: widget.questId,
+      identity: 'button-presets:quest:${widget.questId}',
+      title: tr('Кастомные кнопки'),
+      builder: (_) => ButtonStylePresetsScreen(questId: widget.questId),
     );
     await _reloadButtonPresets();
   }
@@ -445,11 +462,12 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
   /// Пикер стиля по умолчанию для всего квеста (#159). Лист отдаёт `''` для
   /// встроенного стекла и `null`, если его закрыли без выбора.
   Future<void> _pickDefaultButtonPreset() async {
-    final names = _buttonStylePresets
-        .map((p) => p.presetName?.trim() ?? '')
-        .where((n) => n.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final names =
+        _buttonStylePresets
+            .map((p) => p.presetName?.trim() ?? '')
+            .where((n) => n.isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     final chosen = await showAdaptiveSheet<String>(
       context: context,
@@ -677,7 +695,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         return AlertDialog(
           title: Text(tr('Несохранённые изменения')),
           content: Text(
-            tr('У вас есть несохранённые изменения. Уверены, что хотите выйти?'),
+            tr(
+              'У вас есть несохранённые изменения. Уверены, что хотите выйти?',
+            ),
           ),
           actions: [
             TextButton(
@@ -869,8 +889,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
           controller: _titleController,
           label: tr('Название квеста'),
           icon: Icons.title_rounded,
-          validator: (v) =>
-              (v == null || v.trim().isEmpty) ? tr('Название обязательно') : null,
+          validator: (v) => (v == null || v.trim().isEmpty)
+              ? tr('Название обязательно')
+              : null,
         ),
         const SizedBox(height: 12),
         _styledField(
@@ -987,7 +1008,7 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         _buildSwitchCard(
           title: tr('Разрешить шаг назад'),
           subtitle: tr(
-            'В меню игры появится «Шаг назад» — возврат на предыдущую ноду. Переменные и таблицы при этом не откатываются.',
+            'В меню игры появится «Шаг назад» — возврат на предыдущую ноду вместе с переменными и таблицами. Системная кнопка «назад» тоже откатывает шаг.',
           ),
           value: _allowStepBack,
           onChanged: (v) => setState(() {
@@ -997,8 +1018,34 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         ),
         const SizedBox(height: 8),
         _buildSwitchCard(
+          title: tr('Разрешить копировать текст'),
+          subtitle: tr(
+            'Игрок сможет выделять и копировать текст нод, модальных окон и чата. По умолчанию выключено.',
+          ),
+          value: _allowTextCopy,
+          onChanged: (v) => setState(() {
+            _allowTextCopy = v;
+            _isDirty = true;
+          }),
+        ),
+        const SizedBox(height: 8),
+        _buildSwitchCard(
+          title: tr('Открывать изображения по нажатию'),
+          subtitle: tr(
+            'Изображения без скрипта или перехода открывают полноэкранный просмотр. Выключите, если по сценарию на них нельзя нажимать.',
+          ),
+          value: _allowImagePreview,
+          onChanged: (v) => setState(() {
+            _allowImagePreview = v;
+            _isDirty = true;
+          }),
+        ),
+        const SizedBox(height: 8),
+        _buildSwitchCard(
           title: tr('Переносить текст на кнопках'),
-          subtitle: tr('Длинный текст на кнопках будет идти на нескольких строках'),
+          subtitle: tr(
+            'Длинный текст на кнопках будет идти на нескольких строках',
+          ),
           value: _wrapButtonText,
           onChanged: (v) => setState(() {
             _wrapButtonText = v;
@@ -1008,8 +1055,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         const SizedBox(height: 8),
         _buildSwitchCard(
           title: tr('Открытый контент'),
-          subtitle:
-              tr('Скачавшие квест смогут просматривать его структуру в редакторе. Полезно для обучающих квестов.'),
+          subtitle: tr(
+            'Скачавшие квест смогут просматривать его структуру в редакторе. Полезно для обучающих квестов.',
+          ),
           value: _allowOpenContent,
           onChanged: (v) => setState(() {
             _allowOpenContent = v;
@@ -1067,8 +1115,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
             _isDirty = true;
           }),
           title: tr('Масштабировать (сжимать)'),
-          subtitle:
-              tr('Текст в одну строку, уменьшается, чтобы влезть. Идеально для статов и коротких лейблов.'),
+          subtitle: tr(
+            'Текст в одну строку, уменьшается, чтобы влезть. Идеально для статов и коротких лейблов.',
+          ),
         ),
         _RadioCard(
           value: 'wrap',
@@ -1078,8 +1127,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
             _isDirty = true;
           }),
           title: tr('Переносить (много строк)'),
-          subtitle:
-              tr('Текст переносится на новую строку. Хорошо для описаний внутри столбцов.'),
+          subtitle: tr(
+            'Текст переносится на новую строку. Хорошо для описаний внутри столбцов.',
+          ),
         ),
 
         const SizedBox(height: 24),
@@ -1169,7 +1219,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
             _isDirty = true;
           }),
           title: tr('Размытие'),
-          subtitle: tr('Старая нода уходит в размытие, новая проявляется резкой'),
+          subtitle: tr(
+            'Старая нода уходит в размытие, новая проявляется резкой',
+          ),
         ),
         _RadioCard(
           value: 'wipe',
@@ -1193,7 +1245,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
           groupValue: _scriptEngineMode,
           onChanged: null, // только новый режим
           title: tr('Новый (совместимость)'),
-          subtitle: tr('Включает новые фиксы и fallback для битых onAppear-target'),
+          subtitle: tr(
+            'Включает новые фиксы и fallback для битых onAppear-target',
+          ),
         ),
       ],
     );
@@ -1214,8 +1268,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
         const SizedBox(height: 12),
         _buildSwitchCard(
           title: tr('Музыка при сворачивании'),
-          subtitle:
-              tr('Продолжать ли играть музыку, когда приложение свёрнуто. По умолчанию музыка ставится на паузу.'),
+          subtitle: tr(
+            'Продолжать ли играть музыку, когда приложение свёрнуто. По умолчанию музыка ставится на паузу.',
+          ),
           value: _musicInBackground,
           onChanged: (v) => setState(() {
             _musicInBackground = v;
@@ -1352,17 +1407,19 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
     final query = _genreQuery.trim().toLowerCase();
     // Выбранные жанры держим сверху: иначе после поиска чип, который нужно
     // снять, уезжает в невидимую часть списка.
-    final rest = kQuestGenreIds
-        .where((id) => !_selectedGenres.contains(id))
-        .where(
-          (id) => query.isEmpty ||
-              genreLabel(id).toLowerCase().contains(query),
-        )
-        .toList()
-      ..sort(
-        (a, b) =>
-            genreLabel(a).toLowerCase().compareTo(genreLabel(b).toLowerCase()),
-      );
+    final rest =
+        kQuestGenreIds
+            .where((id) => !_selectedGenres.contains(id))
+            .where(
+              (id) =>
+                  query.isEmpty || genreLabel(id).toLowerCase().contains(query),
+            )
+            .toList()
+          ..sort(
+            (a, b) => genreLabel(
+              a,
+            ).toLowerCase().compareTo(genreLabel(b).toLowerCase()),
+          );
     final visible = <String>[..._selectedGenres, ...rest];
 
     return Column(
@@ -1394,9 +1451,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
             const SizedBox(width: 12),
             Text(
               '${_selectedGenres.length}/3',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -1432,9 +1489,9 @@ class _EditQuestScreenState extends ConsumerState<EditQuestScreen>
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               trf('Ничего не найдено по запросу «{p0}».', {'p0': _genreQuery}),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
       ],

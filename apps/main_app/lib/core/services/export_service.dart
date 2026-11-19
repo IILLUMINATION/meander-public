@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_core/src/gen/api/quest_archive.dart' as rust_archive;
 import 'package:canvas_app/core/l10n/l10n.dart';
+import 'package:canvas_app/core/services/txt_quest_exporter.dart';
 
 /// Формат нод внутри экспортного `.mnd`.
 enum QuestArchiveNodesFormat {
@@ -55,15 +56,20 @@ class ExportService {
   /// Содержит: конфиг, ноды, все скрипты с заменой UUID на короткие ID
   static Future<bool> exportQuestAsTxt(
     String questId,
-    String questTitle,
-  ) async {
+    String questTitle, {
+    TxtExportOptions options = const TxtExportOptions(),
+  }) async {
     try {
       final questPath = QuestPaths.questRoot(questId);
       if (!await FileStorage.exists(questPath)) {
         throw Exception(tr('Квест не найден для экспорта'));
       }
 
-      final txtContent = await _buildTxtContent(questId, questTitle);
+      final txtContent = await buildTxtContent(
+        questId,
+        questTitle,
+        options: options,
+      );
       final success = await _saveTxtFile(txtContent, questTitle);
       return success;
     } catch (e) {
@@ -72,10 +78,22 @@ class ExportService {
     }
   }
 
-  /// Построение содержимого TXT файла
-  static Future<String> _buildTxtContent(
+  /// Содержимое `.txt` без сохранения файла: удобно для предпросмотра и тестов.
+  static Future<String> buildTxtContent(
+    String questId,
+    String questTitle, {
+    TxtExportOptions options = const TxtExportOptions(),
+  }) {
+    return options.readable
+        ? TxtQuestExporter.build(questId, questTitle, options)
+        : _buildTxtContentRaw(questId, questTitle, options);
+  }
+
+  /// Прежний технический дамп: JSON-разделы как есть.
+  static Future<String> _buildTxtContentRaw(
     String questId,
     String questTitle,
+    TxtExportOptions options,
   ) async {
     final buffer = StringBuffer();
     final questBasePath = QuestPaths.questRoot(questId);
@@ -89,55 +107,69 @@ class ExportService {
     buffer.writeln();
 
     // === CONFIG ===
-    buffer.writeln('═' * 80);
-    buffer.writeln('РАЗДЕЛ 1: КОНФИГУРАЦИЯ (config.json)');
-    buffer.writeln('═' * 80);
-    final configPath = p.join(questBasePath, 'config.json');
-    if (await FileStorage.exists(configPath)) {
-      final configData = await FileStorage.readJsonFile(configPath);
-      final configWithShortIds = _replaceUuidsWithShortIds(configData);
-      final encoder = JsonEncoder.withIndent('  ');
-      buffer.writeln(encoder.convert(configWithShortIds));
-    } else {
-      buffer.writeln('❌ config.json не найден');
+    if (options.includeConfig) {
+      buffer.writeln('═' * 80);
+      buffer.writeln('РАЗДЕЛ 1: КОНФИГУРАЦИЯ (config.json)');
+      buffer.writeln('═' * 80);
+      final configPath = p.join(questBasePath, 'config.json');
+      if (await FileStorage.exists(configPath)) {
+        final configData = await FileStorage.readJsonFile(configPath);
+        final configWithShortIds = _replaceUuidsWithShortIds(
+          configData,
+          shorten: options.shortenIds,
+        );
+        final encoder = JsonEncoder.withIndent('  ');
+        buffer.writeln(encoder.convert(configWithShortIds));
+      } else {
+        buffer.writeln('❌ config.json не найден');
+      }
+      buffer.writeln();
     }
-    buffer.writeln();
 
     // === NODES ===
-    buffer.writeln('═' * 80);
-    buffer.writeln('РАЗДЕЛ 2: НОДЫ (nodes.json)');
-    buffer.writeln('═' * 80);
-    bool hasNodes = false;
-    Map<String, dynamic>? nodesData;
-    if (await QuestNodesStore.hasPerNodeIndex(questId)) {
-      nodesData = await QuestNodesStore.readAll(questId);
-    } else {
-      const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
-      for (final nodeRelPath in nodeCandidates) {
-        final filePath = p.join(questBasePath, nodeRelPath);
-        if (await FileStorage.exists(filePath)) {
-          nodesData = await FileStorage.readJsonFile(filePath);
-          break;
+    if (options.includeNodes) {
+      buffer.writeln('═' * 80);
+      buffer.writeln('РАЗДЕЛ 2: НОДЫ (nodes.json)');
+      buffer.writeln('═' * 80);
+      bool hasNodes = false;
+      Map<String, dynamic>? nodesData;
+      if (await QuestNodesStore.hasPerNodeIndex(questId)) {
+        nodesData = await QuestNodesStore.readAll(questId);
+      } else {
+        const nodeCandidates = ['nodes.json', 'nodes/nodes.json'];
+        for (final nodeRelPath in nodeCandidates) {
+          final filePath = p.join(questBasePath, nodeRelPath);
+          if (await FileStorage.exists(filePath)) {
+            nodesData = await FileStorage.readJsonFile(filePath);
+            break;
+          }
         }
       }
+      if (nodesData != null) {
+        final nodesWithShortIds = _replaceUuidsWithShortIds(
+          nodesData,
+          shorten: options.shortenIds,
+        );
+        final encoder = JsonEncoder.withIndent('  ');
+        buffer.writeln(encoder.convert(nodesWithShortIds));
+        hasNodes = true;
+      }
+      if (!hasNodes) {
+        buffer.writeln('⚠️ nodes.json не найден');
+      }
+      buffer.writeln();
     }
-    if (nodesData != null) {
-      final nodesWithShortIds = _replaceUuidsWithShortIds(nodesData);
-      final encoder = JsonEncoder.withIndent('  ');
-      buffer.writeln(encoder.convert(nodesWithShortIds));
-      hasNodes = true;
-    }
-    if (!hasNodes) {
-      buffer.writeln('⚠️ nodes.json не найден');
-    }
-    buffer.writeln();
 
     // === SCRIPTS ===
+    if (!options.includeScripts) return _finishRaw(buffer);
     buffer.writeln('═' * 80);
     buffer.writeln('РАЗДЕЛ 3: СКРИПТЫ');
     buffer.writeln('═' * 80);
 
-    const scriptFolders = ['scripts', '_internal_scripts'];
+    final scriptFolders = [
+      'scripts',
+      if (options.includeSystemScripts) '_internal_scripts',
+    ];
     int scriptCount = 0;
 
     for (final folderName in scriptFolders) {
@@ -152,7 +184,10 @@ class ExportService {
           if (entity is File && entity.path.endsWith('.json')) {
             final fileName = p.basename(entity.path);
             final scriptData = jsonDecode(await entity.readAsString());
-            final scriptWithShortIds = _replaceUuidsWithShortIds(scriptData);
+            final scriptWithShortIds = _replaceUuidsWithShortIds(
+              scriptData,
+              shorten: options.shortenIds,
+            );
             final encoder = JsonEncoder.withIndent('  ');
 
             buffer.writeln();
@@ -170,12 +205,15 @@ class ExportService {
       buffer.writeln('⚠️ Скрипты не найдены');
     }
 
+    buffer.writeln('Всего скриптов: $scriptCount');
+    return _finishRaw(buffer);
+  }
+
+  static String _finishRaw(StringBuffer buffer) {
     buffer.writeln();
     buffer.writeln('═' * 80);
     buffer.writeln('КОНЕЦ ЭКСПОРТА');
-    buffer.writeln('Всего скриптов: $scriptCount');
     buffer.writeln('═' * 80);
-
     return buffer.toString();
   }
 
@@ -183,8 +221,10 @@ class ExportService {
   /// UUID формат: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 символов)
   /// Заменяем на: ID_1, ID_2, и т.д.
   static Map<String, dynamic> _replaceUuidsWithShortIds(
-    Map<String, dynamic> data,
-  ) {
+    Map<String, dynamic> data, {
+    required bool shorten,
+  }) {
+    if (!shorten) return data;
     final uuidMap = <String, String>{};
     int counter = 0;
 
@@ -288,7 +328,7 @@ class ExportService {
         isProtected: isProtected,
         nodesFormat: nodesFormat,
       );
-      final success = await _saveMndFileFromTemp(tempFile, questTitle);
+      final success = await saveMndFileFromTemp(tempFile, questTitle);
 
       try {
         if (await tempFile.exists()) await tempFile.delete();
@@ -662,7 +702,11 @@ class ExportService {
     }
   }
 
-  static Future<bool> _saveMndFileFromTemp(
+  /// Отдать готовый временный `.mnd` системному диалогу сохранения.
+  ///
+  /// Публичный, потому что «Отправить» на десктопе падает в тот же путь:
+  /// share_plus файлы на Linux/Windows не отдаёт.
+  static Future<bool> saveMndFileFromTemp(
     File tempFile,
     String questTitle,
   ) async {

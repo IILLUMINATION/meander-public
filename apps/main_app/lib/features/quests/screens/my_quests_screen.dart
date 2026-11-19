@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:canvas_app/core/services/async_backup_service.dart';
 import 'package:canvas_app/core/services/async_import_service.dart';
 import 'package:canvas_app/core/services/export_service.dart';
+import 'package:canvas_app/core/services/quest_mnd_share.dart';
 import 'package:canvas_app/features/quests/widgets/quest_export_format_dialog.dart';
 import 'package:canvas_app/core/services/onboarding_service.dart';
 import 'package:canvas_app/core/services/playtime_service.dart';
@@ -317,6 +318,36 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
     }
   }
 
+  /// Быстро отправить `.mnd` в системную шторку, минуя «Сохранить как».
+  Future<void> _shareQuestMnd(Quest quest) async {
+    if (_isOperationInProgress) return;
+    setState(() => _isOperationInProgress = true);
+    try {
+      try {
+        final wsState = ref.read(editorWorkspaceControllerProvider(quest.id));
+        await const EditorWorkspaceSessionStore().save(quest.id, wsState);
+      } catch (_) {}
+      final result = await QuestMndShare.shareQuest(quest.id, quest.title);
+      if (!mounted) return;
+      switch (result) {
+        case QuestMndShareResult.shared:
+          _showSnack(tr('Готово'), success: true);
+        case QuestMndShareResult.saved:
+          _showSnack(tr('Квест успешно экспортирован'), success: true);
+        case QuestMndShareResult.cancelled:
+          _showSnack(tr('Экспорт отменён'));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(
+        trf('Ошибка экспорта: {p0}', {'p0': friendlyError(e)}),
+        error: true,
+      );
+    } finally {
+      if (mounted) setState(() => _isOperationInProgress = false);
+    }
+  }
+
   Future<void> _exportQuestAsPdf(Quest quest) async {
     if (_isOperationInProgress) return;
 
@@ -554,6 +585,20 @@ class _MyQuestsScreenState extends ConsumerState<MyQuestsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (!quest.isReadOnly || quest.isCorrupted)
+              ListTile(
+                leading: Icon(Icons.send_rounded, color: scheme.onSurface),
+                title: Text(tr('Отправить .mnd')),
+                subtitle: Text(
+                  QuestMndShare.canShareFiles
+                      ? tr('Сразу в мессенджер или почту')
+                      : tr('На компьютере — сохранить файл'),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareQuestMnd(quest);
+                },
+              ),
             if (!quest.isReadOnly || quest.isCorrupted)
               ListTile(
                 leading: Icon(Icons.share_rounded, color: scheme.onSurface),
