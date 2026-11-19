@@ -30,6 +30,54 @@ Map<String, dynamic>? _findNodeJson(List<dynamic> raw, String nodeId) {
   return null;
 }
 
+/// Выдать контенту копии собственные id.
+///
+/// `id` айтема — не только адрес внутри ноды. По нему движок пишет
+/// переопределения картинки и видимости в служебные переменные состояния
+/// игры (`_internal_item_sources`, `_internal_item_hidden`), а клиент ищет их
+/// по одному id во всех нодах. Пока копия носит те же id, что и оригинал,
+/// «экипировать оружие» в одной ноде меняет картинку в обеих — скрипт
+/// адресует картинку по id и не может различить две ноды.
+///
+/// Мастер-элемент шаблона при копировании отвязывается: тот же инвариант
+/// «один шаблон ↔ один мастер», что у копирования отдельного айтема
+/// (`ContentItemUtils.duplicate`) — иначе у шаблона появляется второй мастер.
+void _reIdContentItems(List<dynamic> items) {
+  const uuid = Uuid();
+  for (final raw in items) {
+    if (raw is! Map) continue;
+    raw['id'] = uuid.v4();
+    if (raw['isTemplateMaster'] == true) {
+      raw.remove('templateRef');
+      raw.remove('templateVersion');
+      raw.remove('isTemplateMaster');
+    }
+    final children = raw['children'];
+    if (children is List) _reIdContentItems(children);
+    final buttons = raw['modalButtons'];
+    if (buttons is List) {
+      for (final button in buttons) {
+        if (button is Map) button['id'] = uuid.v4();
+      }
+    }
+  }
+}
+
+/// Перегенерировать id всех элементов контента ноды на месте.
+void _reIdNodeContent(Map<String, dynamic> nodeJson) {
+  // Копия мастер-ноды становится обычным snapshot, как и копия мастер-
+  // айтема: два мастера одного шаблона нарушили бы синхронизацию источника.
+  if (nodeJson['isTemplateMaster'] == true) {
+    nodeJson.remove('templateRef');
+    nodeJson.remove('templateVersion');
+    nodeJson.remove('isTemplateMaster');
+  }
+  final content = nodeJson['content'];
+  if (content is! Map) return;
+  final items = content['items'];
+  if (items is List) _reIdContentItems(items);
+}
+
 // План 020-C4.3: чтение/запись квеста — через ядро.
 Future<QuestStore> _qs() => QuestStore.defaultInstance();
 Future<Map<String, dynamic>> _readMap(String rel) async =>
@@ -672,9 +720,11 @@ Future<String?> duplicateNode(String questId, String originalNodeId) async {
 
       final copyId = const Uuid().v4();
       deepCopy['id'] = copyId;
-      deepCopy['title'] = trf('{p0} (Копия)', {
-        'p0': deepCopy['title'] ?? '',
-      });
+      deepCopy['title'] = trf('{p0} (Копия)', {'p0': deepCopy['title'] ?? ''});
+      // Копия — самостоятельная нода: её контент живёт под своими id, иначе
+      // скрипт «заменить картинку», адресующий айтем оригинала, меняет и
+      // картинку в копии.
+      _reIdNodeContent(deepCopy);
       // Нода из старого документа могла прийти без координат: копия должна
       // появиться на холсте, а не уронить всё дублирование.
       deepCopy['x'] = ((deepCopy['x'] as num?)?.toDouble() ?? 0.0) + 30.0;
@@ -713,6 +763,8 @@ Future<bool> copyNodeToChapter(
       copiedNode['id'] = const Uuid().v4();
       copiedNode['chapterId'] = targetChapterId;
       copiedNode['title'] = trf('{p0} (Копия)', {'p0': copiedNode['title']});
+      // То же, что у дублирования: копия не делит id айтемов с оригиналом.
+      _reIdNodeContent(copiedNode);
 
       allNodesJson.add(copiedNode);
       nodesData['nodes'] = allNodesJson;
