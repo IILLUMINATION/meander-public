@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnd_core/mnd_core.dart';
+import 'package:mnd_player/providers/quest_provider.dart';
 import 'package:mnd_player/widgets/items/modal_item_widget.dart';
 
 /// Модалка живёт в списке ноды, а окно — отдельным маршрутом поверх экрана.
@@ -17,8 +18,13 @@ void main() {
     modalButtons: const [ModalButtonConfig(id: 'b1', text: 'Понятно')],
   );
 
-  Widget wrap({required bool show}) {
+  Widget wrap({required bool show, bool allowTextCopy = false}) {
     return ProviderScope(
+      overrides: [
+        questProvider('q1').overrideWith(
+          (ref) => Quest(id: 'q1', title: 'Тест', allowTextCopy: allowTextCopy),
+        ),
+      ],
       child: MaterialApp(
         home: Scaffold(
           body: show
@@ -48,6 +54,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Дверь заперта'), findsNothing);
     expect(barriers(tester), withoutDialog);
+  });
+
+  testWidgets('по умолчанию текст модалки не выделяется', (tester) async {
+    await tester.pumpWidget(wrap(show: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Дверь заперта'), findsOneWidget);
+    expect(find.byType(SelectableText), findsNothing);
+  });
+
+  testWidgets('автор включил копирование — текст модалки выделяется', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(show: true, allowTextCopy: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Дверь заперта'), findsOneWidget);
+    expect(find.byType(SelectableText), findsOneWidget);
   });
 
   testWidgets('закрытая кнопкой модалка не снимается второй раз', (

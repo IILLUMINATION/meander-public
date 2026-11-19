@@ -73,6 +73,12 @@ pub struct PlanQuest {
     /// Разрешить игроку возврат на предыдущую ноду.
     #[serde(alias = "allow_step_back")]
     pub allow_step_back: Option<bool>,
+    /// Разрешить игроку копировать текст в нодах.
+    #[serde(alias = "allow_text_copy")]
+    pub allow_text_copy: Option<bool>,
+    /// Открывать изображения без действия по нажатию.
+    #[serde(alias = "allow_image_preview")]
+    pub allow_image_preview: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -741,6 +747,12 @@ pub(crate) fn build_plan(
         }
         if let Some(allow) = quest.allow_step_back {
             config.insert("allowStepBack".into(), json!(allow));
+        }
+        if let Some(allow) = quest.allow_text_copy {
+            config.insert("allowTextCopy".into(), json!(allow));
+        }
+        if let Some(allow) = quest.allow_image_preview {
+            config.insert("allowImagePreview".into(), json!(allow));
         }
     }
 
@@ -1881,7 +1893,7 @@ mod tests {
     fn apply_writes_top_panel_setting() {
         let (root, builder) = new_quest();
         let plan = json!({
-            "quest": {"hideTopPanel": true, "allowStepBack": true},
+            "quest": {"hideTopPanel": true, "allowStepBack": true, "allowTextCopy": true, "allowImagePreview": false},
             "nodes": [{"title": "Старт", "items": [{"type": "text", "text": "Тьма"}]}]
         });
         let report = apply(&builder, plan);
@@ -1899,6 +1911,16 @@ mod tests {
             config["allowStepBack"].as_bool(),
             Some(true),
             "шаг назад включается из плана"
+        );
+        assert_eq!(
+            config["allowTextCopy"].as_bool(),
+            Some(true),
+            "копирование текста включается из плана"
+        );
+        assert_eq!(
+            config["allowImagePreview"].as_bool(),
+            Some(false),
+            "просмотр изображений выключается из плана"
         );
     }
 

@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnd_core/mnd_core.dart';
+import 'package:mnd_player/providers/quest_provider.dart';
 import 'package:mnd_player/providers/text_reveal_preference.dart';
 import 'package:mnd_player/widgets/content_display_factory.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,8 +41,17 @@ ContentItem _item({
   revealSpeed: revealSpeed,
 );
 
-Widget _host(ContentItem item, {bool suppressInteractions = false}) {
+Widget _host(
+  ContentItem item, {
+  bool suppressInteractions = false,
+  bool allowTextCopy = false,
+}) {
   return ProviderScope(
+    overrides: [
+      questProvider('q1').overrideWith(
+        (ref) => Quest(id: 'q1', title: 'Тест', allowTextCopy: allowTextCopy),
+      ),
+    ],
     child: MaterialApp(
       home: Scaffold(
         body: TextRevealHost(
@@ -205,5 +215,16 @@ void main() {
     await _mount(tester, _host(_item(textReveal: 'typewriter')));
     await tester.pump(const Duration(milliseconds: 150));
     expect(_visibleTexts(tester), ['АБВ']);
+  });
+  testWidgets('по умолчанию текст нельзя выделить и скопировать', (
+    tester,
+  ) async {
+    await _mount(tester, _host(_item()));
+    expect(find.byType(SelectionArea), findsNothing);
+  });
+
+  testWidgets('автор включил копирование — текст выделяется', (tester) async {
+    await _mount(tester, _host(_item(), allowTextCopy: true));
+    expect(find.byType(SelectionArea), findsOneWidget);
   });
 }

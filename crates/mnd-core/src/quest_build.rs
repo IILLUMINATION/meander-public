@@ -239,6 +239,8 @@ impl QuestBuilder {
             "hideNodeTitles": false,
             "hideTopPanel": false,
             "allowStepBack": false,
+            "allowTextCopy": false,
+            "allowImagePreview": true,
             "nodeTransitionMode": "none",
             "scriptEngineMode": "new",
             "pluginDependencies": [],

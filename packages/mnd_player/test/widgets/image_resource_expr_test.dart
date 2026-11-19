@@ -15,8 +15,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnd_core/mnd_core.dart';
 import 'package:mnd_player/providers/game_state_provider.dart';
+import 'package:mnd_player/providers/quest_provider.dart';
 import 'package:mnd_player/widgets/content_display_factory.dart'
     show ImageItemWidget;
+import 'package:photo_view/photo_view.dart';
 
 /// Формулы подставляет Rust-ядро, поэтому этим тестам нужен собранный `.so`
 /// (как в `packages/mnd_core/test/engine/brace_collapse_test.dart`).
@@ -77,7 +79,9 @@ void main() {
     // Картинка узла декодируется под экран, поэтому файл лежит под
     // `ResizeImage` — тест проверяет именно выбранный файл, а обёртка для
     // декода здесь не предмет проверки.
-    ImageProvider provider = tester.widget<Image>(find.byType(Image).first).image;
+    ImageProvider provider = tester
+        .widget<Image>(find.byType(Image).first)
+        .image;
     while (provider is ResizeImage) {
       provider = provider.imageProvider;
     }
@@ -108,10 +112,20 @@ void main() {
 
   Future<ProviderContainer> render(
     WidgetTester tester,
-    ContentItem item,
-  ) async {
-    final container = ProviderContainer()
-      ..listen(gameStateProvider, (_, __) {});
+    ContentItem item, {
+    bool allowImagePreview = true,
+  }) async {
+    final container = ProviderContainer(
+      overrides: [
+        questProvider('q1').overrideWith(
+          (ref) => Quest(
+            id: 'q1',
+            title: 'Тест',
+            allowImagePreview: allowImagePreview,
+          ),
+        ),
+      ],
+    )..listen(gameStateProvider, (_, __) {});
     addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -263,6 +277,36 @@ void main() {
       await settleWithIo(tester);
 
       expect(paintedFile(tester), endsWith('res/images/b.png'));
+    });
+  }, skip: _soPath == null);
+
+  group('нажатие на изображение', () {
+    testWidgets('по умолчанию открывает полноэкранный просмотр', (
+      tester,
+    ) async {
+      stubPathProvider();
+      await render(tester, image(path: 'res/images/a.png'));
+
+      await tester.tap(find.byType(Image).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PhotoView), findsOneWidget);
+    });
+
+    testWidgets('автор выключил просмотр — нажатие ничего не делает', (
+      tester,
+    ) async {
+      stubPathProvider();
+      await render(
+        tester,
+        image(path: 'res/images/a.png'),
+        allowImagePreview: false,
+      );
+
+      await tester.tap(find.byType(Image).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PhotoView), findsNothing);
     });
   }, skip: _soPath == null);
 }

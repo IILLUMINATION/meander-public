@@ -124,6 +124,12 @@ pub struct Quest {
     pub hide_top_panel: bool,
     /// Разрешить игроку вернуться на предыдущую ноду.
     pub allow_step_back: bool,
+    /// Разрешить игроку выделять и копировать текст в нодах (текст,
+    /// модальные окна, чат). По умолчанию выключено.
+    pub allow_text_copy: bool,
+    /// Открывать полноэкранный просмотр по нажатию на изображение без
+    /// скрипта/перехода. По умолчанию включено: обратная совместимость.
+    pub allow_image_preview: bool,
     pub genres: Vec<String>,
     pub default_text_fit: String,
     pub is_read_only: bool,
@@ -170,6 +176,14 @@ impl Quest {
             .get("allowStepBack")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let allow_text_copy = obj
+            .get("allowTextCopy")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let allow_image_preview = obj
+            .get("allowImagePreview")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let text_fit = obj
             .get("defaultTextFit")
             .and_then(Value::as_str)
@@ -287,6 +301,8 @@ impl Quest {
             hide_node_titles: is_titles_hidden,
             hide_top_panel: is_top_panel_hidden,
             allow_step_back,
+            allow_text_copy,
+            allow_image_preview,
             genres: loaded_genres,
             default_text_fit: text_fit,
             is_read_only: read_only,
@@ -327,6 +343,11 @@ impl Quest {
         map.insert("hideNodeTitles".into(), json!(self.hide_node_titles));
         map.insert("hideTopPanel".into(), json!(self.hide_top_panel));
         map.insert("allowStepBack".into(), json!(self.allow_step_back));
+        map.insert("allowTextCopy".into(), json!(self.allow_text_copy));
+        map.insert(
+            "allowImagePreview".into(),
+            json!(self.allow_image_preview),
+        );
         map.insert("genres".into(), json!(self.genres));
         map.insert("defaultTextFit".into(), json!(self.default_text_fit));
         map.insert("isReadOnly".into(), json!(self.is_read_only));
@@ -421,17 +442,25 @@ mod tests {
             "title": "Квест",
             "hideTopPanel": true,
             "allowStepBack": true,
+            "allowTextCopy": true,
+            "allowImagePreview": false,
         }));
         assert!(q.hide_top_panel);
         assert!(q.allow_step_back);
+        assert!(q.allow_text_copy);
+        assert!(!q.allow_image_preview);
         let round = q.to_json();
         assert_eq!(round["hideTopPanel"], json!(true));
         assert_eq!(round["allowStepBack"], json!(true));
+        assert_eq!(round["allowTextCopy"], json!(true));
+        assert_eq!(round["allowImagePreview"], json!(false));
 
         // По умолчанию оба выключены: старые квесты не меняют поведение.
         let plain = Quest::from_json(&json!({"id": "q2", "title": "Без"}));
         assert!(!plain.hide_top_panel);
         assert!(!plain.allow_step_back);
+        assert!(!plain.allow_text_copy);
+        assert!(plain.allow_image_preview);
     }
 
     #[test]

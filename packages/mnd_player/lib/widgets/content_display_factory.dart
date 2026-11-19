@@ -1345,6 +1345,7 @@ class TextItemWidget extends ConsumerWidget {
           config: markdownConfigFor(stroke, outlineOnly: outlineOnly),
         );
       }
+
       return Container(
         width: isInsideRow ? null : double.infinity,
         padding: backgroundColor != null
@@ -1610,20 +1611,30 @@ class _TextRevealHostState extends ConsumerState<TextRevealHost>
       revealFraction: (_isFade || !preference.isEnabled) ? null : _fraction,
     );
 
-    if (!preference.isEnabled || _fraction >= 1.0) return child;
+    final allowTextCopy =
+        ref.watch(questProvider(widget.questId)).valueOrNull?.allowTextCopy ??
+        false;
 
-    final revealed = _isFade
-        ? Opacity(opacity: Curves.easeOut.transform(_fraction), child: child)
-        : child;
+    Widget result;
+    if (!preference.isEnabled || _fraction >= 1.0) {
+      result = child;
+    } else {
+      final revealed = _isFade
+          ? Opacity(opacity: Curves.easeOut.transform(_fraction), child: child)
+          : child;
+      // Тап по набираемому тексту = «показать сразу». Он же гасит ссылки
+      // внутри до конца набора: иначе первый тап по ссылке спрятал бы половину
+      // сообщения.
+      result = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _skip,
+        child: revealed,
+      );
+    }
 
-    // Тап по набираемому тексту = «показать сразу». Он же гасит ссылки внутри
-    // до конца набора: иначе первый тап по ссылке спрятал бы половину
-    // сообщения.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _skip,
-      child: revealed,
-    );
+    // Выделение текста — только по явной настройке автора квеста. Без неё
+    // долгое нажатие на текст не должно открывать меню копирования.
+    return allowTextCopy ? SelectionArea(child: result) : result;
   }
 }
 
@@ -2561,6 +2572,13 @@ class _ImageItemWidgetState extends ConsumerState<ImageItemWidget> {
       _fileFuture = QuestImageSource.resolve(widget.questId, path);
     }
 
+    final allowImagePreview =
+        ref
+            .watch(questProvider(widget.questId))
+            .valueOrNull
+            ?.allowImagePreview ??
+        true;
+
     return FutureBuilder<File?>(
       future: _fileFuture,
       builder: (context, snapshot) {
@@ -2597,7 +2615,12 @@ class _ImageItemWidgetState extends ConsumerState<ImageItemWidget> {
                 : rawImage,
           );
 
-          if (widget.suppressInteractions) return imageWidget;
+          // Изображение без скрипта/перехода открывает просмотр только если
+          // автор не выключил это в настройках квеста. Со своим действием
+          // нажатие забирает движок (см. suppressInteractions).
+          if (widget.suppressInteractions || !allowImagePreview) {
+            return imageWidget;
+          }
 
           return GestureDetector(
             onTap: () => _openFullScreen(context, file),
@@ -3274,10 +3297,14 @@ class _ChatItemWidgetState extends ConsumerState<ChatItemWidget>
       questId: widget.questId,
     );
 
-    return Column(
+    final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: generator.buildWidgets(markdownText, config: config),
     );
+    final allowTextCopy =
+        ref.watch(questProvider(widget.questId)).valueOrNull?.allowTextCopy ??
+        false;
+    return allowTextCopy ? SelectionArea(child: content) : content;
   }
 
   @override

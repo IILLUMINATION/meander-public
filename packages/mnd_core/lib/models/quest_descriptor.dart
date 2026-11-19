@@ -65,6 +65,7 @@ class Quest {
   final String? startNodeId;
   final String? password;
   final DateTime? created;
+
   /// Последнее изменение содержимого или настроек локального квеста.
   final DateTime? lastEditedAt;
   final DateTime? lastOpened;
@@ -81,27 +82,42 @@ class Quest {
 
   /// Разрешить игроку вернуться на предыдущую ноду.
   final bool allowStepBack;
+
+  /// Разрешить игроку выделять и копировать текст в нодах (текст, модальные
+  /// окна, чат). По умолчанию выключено: квесты не должны отдавать текст
+  /// в буфер обмена без согласия автора.
+  final bool allowTextCopy;
+
+  /// Открывать полноэкранный просмотр по нажатию на изображение без скрипта
+  /// или перехода. По умолчанию включено: так работали все прежние квесты.
+  final bool allowImagePreview;
   final List<String> genres;
   final String defaultTextFit;
   final bool isReadOnly;
   final bool isMarketDownloaded;
   final String? marketQuestId;
+
   /// ID автора в базе, если квест пришёл из маркета.
   final String? authorId;
+
   /// Сохранённая серверная метка верификации (не используется для обхода
   /// онлайн-проверки безопасности, нужна для offline-диагностики).
   final bool authorIsVerified;
+
   /// Дата последнего обновления версии квеста на сервере.
   final DateTime? marketUpdatedAt;
   final String? marketVersion;
   final String? customFontFileName;
   final bool wrapButtonText;
+
   /// Имя пресета из `buttonStylePresets`, который играет роль оформления
   /// кнопок по умолчанию для всего квеста (#159).
   final String? defaultButtonPresetName;
+
   /// Тот же пресет, найденный в списке пресетов квеста. `null` — значит
   /// встроенный стеклянный вид: либо стиль не назначен, либо пресет удалили.
   final ButtonStyleConfig? defaultButtonStyle;
+
   /// Продолжать ли играть музыку (и звуки) при сворачивании приложения.
   /// По умолчанию — нет: сворачивание ставит аудио на паузу.
   final bool musicInBackground;
@@ -111,6 +127,7 @@ class Quest {
   final String? loadError;
   final List<String> pluginDependencies;
   final bool allowOpenContent;
+
   /// Язык, на котором написан квест (код из реестра интерфейсных языков:
   /// `ru`, `en`, `ja`, `pt-BR`). `null` — автор не указал. Нужен, чтобы в
   /// маркете первыми показывать квесты на языке игрока.
@@ -140,6 +157,8 @@ class Quest {
     this.hideNodeTitles = false,
     this.hideTopPanel = false,
     this.allowStepBack = false,
+    this.allowTextCopy = false,
+    this.allowImagePreview = true,
     this.genres = const [],
     this.defaultTextFit = 'scale',
     this.isReadOnly = false,
@@ -169,6 +188,8 @@ class Quest {
     final bool isTitlesHidden = json['hideNodeTitles'] as bool? ?? false;
     final bool isTopPanelHidden = json['hideTopPanel'] as bool? ?? false;
     final bool allowStepBack = json['allowStepBack'] as bool? ?? false;
+    final bool allowTextCopy = json['allowTextCopy'] as bool? ?? false;
+    final bool allowImagePreview = json['allowImagePreview'] as bool? ?? true;
     final String textFit = json['defaultTextFit'] as String? ?? 'scale';
     final bool readOnly = json['isReadOnly'] as bool? ?? false;
     final bool isMarketDownloaded =
@@ -177,8 +198,7 @@ class Quest {
         false;
     final String? marketQuestId = json['marketQuestId'] as String?;
     final bool buttonWrapText = json['wrapButtonText'] as bool? ?? true;
-    final bool musicInBackground =
-        json['musicInBackground'] as bool? ?? false;
+    final bool musicInBackground = json['musicInBackground'] as bool? ?? false;
     final String transitionMode =
         json['nodeTransitionMode'] as String? ?? 'none';
     final String scriptEngineMode = normalizeScriptEngineMode(
@@ -235,13 +255,16 @@ class Quest {
       hideNodeTitles: isTitlesHidden,
       hideTopPanel: isTopPanelHidden,
       allowStepBack: allowStepBack,
+      allowTextCopy: allowTextCopy,
+      allowImagePreview: allowImagePreview,
       genres: loadedGenres,
       defaultTextFit: textFit,
       isReadOnly: readOnly,
       isMarketDownloaded: isMarketDownloaded,
       marketQuestId: marketQuestId,
       authorId: _stringOrNull(json['authorId'] ?? json['author_id']),
-      authorIsVerified: json['authorIsVerified'] as bool? ??
+      authorIsVerified:
+          json['authorIsVerified'] as bool? ??
           json['author_is_verified'] as bool? ??
           false,
       marketUpdatedAt: _parseDate(
@@ -275,14 +298,15 @@ class Quest {
     'startNodeId': startNodeId,
     'password': password,
     'created': created?.toIso8601String(),
-    if (lastEditedAt != null)
-      'lastEditedAt': lastEditedAt!.toIso8601String(),
+    if (lastEditedAt != null) 'lastEditedAt': lastEditedAt!.toIso8601String(),
     'lastOpened': lastOpened?.toIso8601String(),
     'version': version,
     'dimBackground': dimBackground,
     'hideNodeTitles': hideNodeTitles,
     'hideTopPanel': hideTopPanel,
     'allowStepBack': allowStepBack,
+    'allowTextCopy': allowTextCopy,
+    'allowImagePreview': allowImagePreview,
     'genres': genres,
     'defaultTextFit': defaultTextFit,
     'isReadOnly': isReadOnly,
@@ -328,6 +352,8 @@ class Quest {
     bool? hideNodeTitles,
     bool? hideTopPanel,
     bool? allowStepBack,
+    bool? allowTextCopy,
+    bool? allowImagePreview,
     List<String>? genres,
     String? defaultTextFit,
     bool? isReadOnly,
@@ -370,6 +396,8 @@ class Quest {
       hideNodeTitles: hideNodeTitles ?? this.hideNodeTitles,
       hideTopPanel: hideTopPanel ?? this.hideTopPanel,
       allowStepBack: allowStepBack ?? this.allowStepBack,
+      allowTextCopy: allowTextCopy ?? this.allowTextCopy,
+      allowImagePreview: allowImagePreview ?? this.allowImagePreview,
       genres: genres ?? this.genres,
       defaultTextFit: defaultTextFit ?? this.defaultTextFit,
       isReadOnly: isReadOnly ?? this.isReadOnly,

@@ -6,6 +6,7 @@ import 'package:mnd_player/services/trigger_pipeline.dart';
 import 'package:mnd_player/providers/game_screen_provider.dart';
 import 'package:mnd_player/providers/game_session_scope.dart';
 import 'package:mnd_player/providers/game_state_provider.dart';
+import 'package:mnd_player/providers/quest_provider.dart';
 import 'package:mnd_player/widgets/glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -99,6 +100,9 @@ class _ModalItemWidgetState extends ConsumerState<ModalItemWidget>
       widget.item.contentMarkdown ?? '',
       gameStateNotifier,
     );
+    final allowTextCopy =
+        ref.read(questProvider(widget.questId)).valueOrNull?.allowTextCopy ??
+        false;
 
     if (!mounted) return;
 
@@ -154,7 +158,10 @@ class _ModalItemWidgetState extends ConsumerState<ModalItemWidget>
               backgroundColor: const Color(0xFF2D2D2D),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
-                side: BorderSide(color: Colors.white.withOpacity(0.15), width: 1),
+                side: BorderSide(
+                  color: Colors.white.withOpacity(0.15),
+                  width: 1,
+                ),
               ),
               title: title.isNotEmpty
                   ? Row(
@@ -193,18 +200,29 @@ class _ModalItemWidgetState extends ConsumerState<ModalItemWidget>
                   if (content.isNotEmpty)
                     ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxHeight: MediaQuery.of(dialogContext).size.height * 0.4,
+                        maxHeight:
+                            MediaQuery.of(dialogContext).size.height * 0.4,
                       ),
                       child: SingleChildScrollView(
-                        child: SelectableText(
-                          content,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 15,
-                            height: 1.5,
-                            fontFamily: widget.fontFamily,
-                          ),
-                        ),
+                        child: allowTextCopy
+                            ? SelectableText(
+                                content,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 15,
+                                  height: 1.5,
+                                  fontFamily: widget.fontFamily,
+                                ),
+                              )
+                            : Text(
+                                content,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 15,
+                                  height: 1.5,
+                                  fontFamily: widget.fontFamily,
+                                ),
+                              ),
                       ),
                     ),
                   // Визуальный таймер
