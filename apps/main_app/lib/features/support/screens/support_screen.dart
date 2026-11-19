@@ -25,6 +25,15 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   int _lastCount = 0;
 
   @override
+  void initState() {
+    super.initState();
+    // Окно открыто — ответы команды, которые уже лежат в истории, прочитаны.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(supportChatProvider.notifier).markRead();
+    });
+  }
+
+  @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
@@ -102,6 +111,11 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     if (state.messages.length != _lastCount) {
       _lastCount = state.messages.length;
       _scrollToBottom();
+      if (state.unread != 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) ref.read(supportChatProvider.notifier).markRead();
+        });
+      }
     }
 
     return Scaffold(

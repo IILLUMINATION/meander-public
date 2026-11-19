@@ -51,7 +51,72 @@ class _FakeApi extends ApiService {
       const {};
 }
 
+class _UnreadSupportApi extends _FakeApi {
+  @override
+  Future<dynamic> get(
+    String endpoint, {
+    Map<String, String>? queryParams,
+  }) async {
+    if (endpoint == 'support/chat') {
+      return {
+        'language': 'ru',
+        'messages': [
+          {
+            'id': 'm-bot',
+            'role': 'bot',
+            'body': 'Чем помочь?',
+            'created_at': '2026-11-14T09:00:00.000Z',
+          },
+          {
+            'id': 'm-staff',
+            'role': 'staff',
+            'body': 'Проверили, всё готово.',
+            'created_at': '2026-11-14T10:00:00.000Z',
+          },
+        ],
+        'active_ticket': null,
+      };
+    }
+    return super.get(endpoint, queryParams: queryParams);
+  }
+}
+
 void main() {
+  testWidgets('ответ команды в поддержке виден в ленте как непрочитанный', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({
+      'user_id': 'me-1',
+      'jwt_token': 't',
+      'support_read_at_me-1': '2026-11-14T09:30:00.000Z',
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiServiceProvider.overrideWithValue(_UnreadSupportApi())],
+        child: const MaterialApp(home: ChatsScreen()),
+      ),
+    );
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    final entry = find.byKey(const ValueKey('support-entry'));
+    expect(entry, findsOneWidget);
+    expect(
+      find.descendant(of: entry, matching: find.text('Проверили, всё готово.')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: entry, matching: find.text('1')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('поддержка и каналы доступны из ленты без переписок', (
     tester,
   ) async {

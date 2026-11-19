@@ -8,6 +8,7 @@ import 'package:canvas_app/features/channels/providers/channels_provider.dart';
 import 'package:canvas_app/features/channels/screens/channel_screen.dart';
 import 'package:canvas_app/features/channels/screens/channels_screen.dart';
 import 'package:canvas_app/features/profile/providers/profile_provider.dart';
+import 'package:canvas_app/features/support/providers/support_provider.dart';
 import 'package:canvas_app/features/support/screens/support_inbox_screen.dart';
 import 'package:canvas_app/features/support/screens/support_screen.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
@@ -304,11 +305,18 @@ class _SupportEntryCard extends ConsumerWidget {
                     profile.role == 'admin' || profile.role == 'moderator',
                 orElse: () => false,
               );
+    final support = ref.watch(supportChatProvider);
+    final last = support.messages.isEmpty ? null : support.messages.last;
+    final preview = last == null
+        ? tr('Бот ответит сразу, команда — когда прочитает')
+        : (last.body.trim().isNotEmpty ? last.body.trim() : tr('Фото'));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
       child: Material(
-        color: scheme.secondaryContainer.withValues(alpha: 0.45),
+        color: support.unread > 0
+            ? scheme.secondaryContainer
+            : scheme.secondaryContainer.withValues(alpha: 0.45),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -342,15 +350,50 @@ class _SupportEntryCard extends ConsumerWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        tr('Бот ответит сразу, команда — когда прочитает'),
+                        preview,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                          color: support.unread > 0
+                              ? scheme.onSurface
+                              : scheme.onSurfaceVariant,
                         ),
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      last == null
+                          ? ''
+                          : formatRelativeTime(last.createdAt),
+                      style: textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    if (support.unread > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          support.unread > 99 ? '99+' : '${support.unread}',
+                          style: textTheme.labelSmall?.copyWith(
+                            color: scheme.onPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 if (staff) ...[
                   const SizedBox(width: 4),

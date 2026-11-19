@@ -7,6 +7,7 @@ import 'package:canvas_app/core/services/socket_service.dart';
 import 'package:canvas_app/features/messages/models/dm_models.dart';
 import 'package:canvas_app/features/support/models/support_models.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Окно «Поддержка» у обычного человека.
 ///
@@ -22,6 +23,7 @@ class SupportChatState {
     this.isSending = false,
     this.error,
     this.sendError,
+    this.unread = 0,
   });
 
   final List<SupportMessage> messages;
@@ -31,6 +33,10 @@ class SupportChatState {
   final bool isSending;
   final String? error;
   final String? sendError;
+
+  /// Ответы команды, которых человек ещё не видел в окне поддержки.
+  /// Считает клиент: у обращения нет пользовательской отметки прочтения.
+  final int unread;
 
   bool get hasOpenTicket => activeTicket != null;
 
@@ -45,6 +51,7 @@ class SupportChatState {
     String? sendError,
     bool clearError = false,
     bool clearSendError = false,
+    int? unread,
   }) {
     return SupportChatState(
       messages: messages ?? this.messages,
@@ -56,6 +63,7 @@ class SupportChatState {
       isSending: isSending ?? this.isSending,
       error: clearError ? null : (error ?? this.error),
       sendError: clearSendError ? null : (sendError ?? this.sendError),
+      unread: unread ?? this.unread,
     );
   }
 }
@@ -68,6 +76,39 @@ class SupportChatNotifier extends StateNotifier<SupportChatState> {
 
   final Ref ref;
 
+  /// Ключ отметки «докуда прочитано» — свой у каждого аккаунта на устройстве.
+  String _readKey = 'support_read_at';
+  DateTime? _readAt;
+
+  Future<void> _loadReadMarker() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id') ?? '';
+    _readKey = 'support_read_at_$userId';
+    _readAt = DateTime.tryParse(prefs.getString(_readKey) ?? '');
+  }
+
+  int _countUnread(List<SupportMessage> messages) {
+    final marker = _readAt;
+    return messages
+        .where(
+          (m) => m.role == 'staff' && (marker == null || m.createdAt.isAfter(marker)),
+        )
+        .length;
+  }
+
+  /// Открыли окно поддержки — всё, что уже пришло, прочитано.
+  Future<void> markRead() async {
+    final newest = state.messages.isEmpty
+        ? DateTime.now()
+        : state.messages.last.createdAt;
+    final now = DateTime.now();
+    final at = newest.isAfter(now) ? newest : now;
+    _readAt = at;
+    if (state.unread != 0) state = state.copyWith(unread: 0);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_readKey, at.toIso8601String());
+  }
+
   @override
   void dispose() {
     SocketService().removeSupportListener(_onIncoming);
@@ -77,19 +118,22 @@ class SupportChatNotifier extends StateNotifier<SupportChatState> {
   Future<void> load({bool silent = false}) async {
     if (!mounted) return;
     if (!silent) state = state.copyWith(isLoading: true, clearError: true);
+    await _loadReadMarker();
     try {
       final api = ref.read(apiServiceProvider);
       final response = await api.get('support/chat');
       if (!mounted || response is! Map) return;
       final rows = (response['messages'] as List?) ?? const [];
       final rawTicket = response['active_ticket'];
+      final loaded = [
+        for (final row in rows)
+          if (row is Map) SupportMessage.fromJson(row),
+      ];
       state = state.copyWith(
         isLoading: false,
         language: (response['language'] ?? 'ru').toString(),
-        messages: [
-          for (final row in rows)
-            if (row is Map) SupportMessage.fromJson(row),
-        ],
+        messages: loaded,
+        unread: _countUnread(loaded),
         activeTicket: rawTicket is Map
             ? SupportTicket.fromJson(rawTicket)
             : null,
@@ -200,6 +244,7 @@ class SupportChatNotifier extends StateNotifier<SupportChatState> {
     if (state.messages.any((m) => m.id == message.id)) return;
     state = state.copyWith(
       messages: [...state.messages, message],
+      unread: message.role == 'staff' ? state.unread + 1 : state.unread,
       activeTicket: message.ticketId == null
           ? state.activeTicket
           : SupportTicket(
