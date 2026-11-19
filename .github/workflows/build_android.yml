@@ -35,8 +35,9 @@ jobs:
       # Gradle видит хост через переменную окружения (см. build.gradle.kts).
       MEANDER_API_BASE: ${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}
       MEANDER_PUBLIC_HOST: ${{ vars.MEANDER_HOST || 'meander.illuminat.dev' }}
-      # Слепые ретрансляторы TLS (host:port через запятую). Пустое значение
-      # выключает режим: приложение работает напрямую или через зеркало.
+      # Слепые ретрансляторы TLS (host:port через запятую) — значение по
+      # умолчанию; пользователь включает и добавляет свои в настройках.
+      # Пустое значение оставляет только прямое соединение.
       MEANDER_RELAYS: ${{ vars.MEANDER_RELAYS || '194.31.223.9:8443' }}
     timeout-minutes: 75
     steps:

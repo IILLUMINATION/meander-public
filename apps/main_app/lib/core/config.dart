@@ -1,13 +1,17 @@
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 
 enum BackendType { local, vps }
 
 /// Конфигурация подключения к бэкенду.
 ///
-/// Бэкенд может быть недоступен из отдельных сетей (блокировка домена):
-/// приложение перебирает зеркала ([defaultMirrorUrls]) и пользовательское
-/// зеркало из настроек. Активный URL хранится в [MirrorRegistry]
-/// (SharedPreferences), поэтому `apiUrl` — runtime-значение, а не const.
+/// Оригинальный сервер один — [vpsApiBaseUrl]. Если его блокирует провайдер,
+/// доступ дают **слепые ретрансляторы TLS** ([relayUrls]): они перекладывают
+/// байты, а TLS терминирует сам клиент, поэтому посредник не видит ни токен,
+/// ни переписку. Шлюзов-прокси, которые расшифровывают трафик, приложение
+/// больше не использует ни при каких условиях.
+///
+/// Активный URL — [ServerRegistry] (SharedPreferences), поэтому `apiUrl` —
+/// runtime-значение, а не const.
 class AppConfig {
   static const BackendType currentBackend = BackendType.vps;
 
@@ -28,18 +32,13 @@ class AppConfig {
       '$vpsApiBaseUrl/share/$kind/$id';
   static const String localApiBaseUrl = 'http://192.168.0.101:3000';
 
-  /// Зеркала в порядке приоритета: основной домен первым, дальше публичные
-  /// зеркала сообщества.
+  /// Устаревшие адреса зеркал-прокси, которые раньше стояли в переборе.
   ///
-  /// Основной домен могут блокировать в сети пользователя (в РФ — решением
-  /// РКН), поэтому встроены три зеркала: каждое отдаёт тот же API, и
-  /// [MirrorRegistry] переходит к следующему только после реального отказа
-  /// (сеть, таймаут или 5xx), а не «на всякий случай». Проверено 14.11.2026:
-  /// все три отдают `GET /quests` → 200 с тем же каталогом.
-  ///
-  /// Свои зеркала пользователь добавляет в настройках.
-  static const List<String> defaultMirrorUrls = [
-    vpsApiBaseUrl,
+  /// Каждый из них терминировал TLS (nginx/uvicorn, CF worker) или работал по
+  /// открытому `http:` — значит, видел `Authorization` и переписку. Теперь
+  /// такие адреса не используются и вычищаются из сохранённого списка при
+  /// обновлении: `ServerRegistry._ensureLoaded`.
+  static const List<String> retiredProxyUrls = [
     'http://78.154.103.40:14175',
     'https://meander.elitrycraft.workers.dev',
     'https://meander.hashai.cc.cd',
@@ -63,13 +62,12 @@ class AppConfig {
         .toList();
   }
 
-  /// Текущий базовый URL API. При следующей неудачной попытке подключения
-  /// [MirrorRegistry] переключит зеркало, и последующие запросы пойдут
-  /// уже на него.
+  /// Текущий базовый URL API: оригинал или явно выбранный свой сервер.
+  /// Прокси-зеркал здесь не бывает.
   static String get apiUrl {
     switch (currentBackend) {
       case BackendType.vps:
-        return MirrorRegistry.instance.activeUrl;
+        return ServerRegistry.instance.activeUrl;
       case BackendType.local:
         return localApiBaseUrl;
     }

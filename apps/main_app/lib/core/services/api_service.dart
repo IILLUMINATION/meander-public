@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:canvas_app/core/net/blind_tunnel.dart';
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/device_identity.dart';
@@ -47,36 +47,37 @@ class ApiService {
     return Future<dynamic>.value(_decodeJsonBytes(bytes));
   }
 
-  /// Выполнить запрос с перебором зеркал бэкенда.
+  /// Выполнить запрос с перебором путей к бэкенду.
   ///
   /// Основной домен может быть заблокирован в сети пользователя (РКН):
-  /// тогда сетевой отказ на активном зеркале триггерит поиск живого
-  /// ([MirrorRegistry.ensureReachable]) и один повтор запроса уже на
-  /// новом зеркале. Если живых нет вовсе — маркер [MirrorRegistry.allMirrorsDownMarker],
-  /// который UI разворачивает в подсказку про «ускоритель интернета».
+  /// тогда сетевой отказ на текущем пути триггерит поиск живого
+  /// ([ServerRegistry.ensureReachable] — прямое соединение, затем
+  /// ретрансляторы) и один повтор запроса уже на новом пути. Если живых нет
+  /// вовсе — маркер [ServerRegistry.allServersDownMarker], который UI
+  /// разворачивает в подсказку про «ускоритель интернета».
   /// Ошибки протокола (403/404/401) ретраев не дают — это ответ бэкенда,
-  /// значит зеркало живое.
-  Future<T> _withMirrorFallback<T>(Future<T> Function() action) async {
+  /// значит путь живой.
+  Future<T> _withPathFallback<T>(Future<T> Function() action) async {
     try {
       return await action();
     } on Exception catch (e) {
       if (e.toString().contains('SERVER_MAINTENANCE')) {
         BlindTunnel.reportFailure();
-        final ok = await MirrorRegistry.instance.ensureReachable();
+        final ok = await ServerRegistry.instance.ensureReachable();
         if (!ok) {
-          throw Exception(MirrorRegistry.allMirrorsDownMarker);
+          throw Exception(ServerRegistry.allServersDownMarker);
         }
         return await action();
       }
       rethrow;
     } catch (e) {
       // TimeoutException и транспортные ошибки — тоже кандидат на
-      // заблокированное зеркало. Если виноват ретранслятор, он сам
-      // выключится после нескольких отказов, и перебор пойдёт по зеркалам.
+      // заблокированный домен. Если виноват ретранслятор, он сам выключится
+      // после нескольких отказов, и перебор пойдёт по следующему пути.
       BlindTunnel.reportFailure();
-      final ok = await MirrorRegistry.instance.ensureReachable();
+      final ok = await ServerRegistry.instance.ensureReachable();
       if (!ok) {
-        throw Exception(MirrorRegistry.allMirrorsDownMarker);
+        throw Exception(ServerRegistry.allServersDownMarker);
       }
       return await action();
     }
@@ -201,7 +202,7 @@ class ApiService {
     String endpoint, {
     Map<String, String>? queryParams,
   }) {
-    return _withMirrorFallback(() async {
+    return _withPathFallback(() async {
       final baseUrl = AppConfig.apiUrl;
       final url = Uri.parse(
         '$baseUrl/$endpoint',
@@ -239,7 +240,7 @@ class ApiService {
   }
 
   Future<dynamic> post(String endpoint, {Map<String, dynamic>? body}) {
-    return _withMirrorFallback(() async {
+    return _withPathFallback(() async {
       final baseUrl = AppConfig.apiUrl;
       final url = Uri.parse('$baseUrl/$endpoint');
       final headers = await _getHeaders();
@@ -277,7 +278,7 @@ class ApiService {
   }
 
   Future<dynamic> put(String endpoint, {Map<String, dynamic>? body}) {
-    return _withMirrorFallback(() async {
+    return _withPathFallback(() async {
       final baseUrl = AppConfig.apiUrl;
       final url = Uri.parse('$baseUrl/$endpoint');
       final headers = await _getHeaders();
@@ -317,7 +318,7 @@ class ApiService {
   /// описание и «пишут только участники», не затыкая пустотой остальные
   /// колонки.
   Future<dynamic> patch(String endpoint, {Map<String, dynamic>? body}) {
-    return _withMirrorFallback(() async {
+    return _withPathFallback(() async {
       final baseUrl = AppConfig.apiUrl;
       final url = Uri.parse('$baseUrl/$endpoint');
       final headers = await _getHeaders();
@@ -357,7 +358,7 @@ class ApiService {
     String endpoint, {
     Map<String, dynamic>? body,
   }) {
-    return _withMirrorFallback(() async {
+    return _withPathFallback(() async {
       final baseUrl = AppConfig.apiUrl;
       final url = Uri.parse('$baseUrl/$endpoint');
       final headers = await _getHeaders();

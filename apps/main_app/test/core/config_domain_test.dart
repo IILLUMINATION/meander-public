@@ -17,12 +17,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Файлы, где домен жить обязан или где он исторический.
 const _allowedFiles = {
-  // Единственный источник адреса (+ legacy-хосты, которые остаются
-  // карточками в старых постах).
+  // Единственный источник адреса (+ legacy-хосты и снятые зеркала, которые
+  // остаются карточками в старых постах).
   'lib/core/config.dart',
   'lib/shared/entity_links/meander_entity.dart',
-  // Список снятых зеркал — по ним ругается лог.
-  'lib/core/services/mirror_registry.dart',
 };
 
 const _allowedDirectories = [

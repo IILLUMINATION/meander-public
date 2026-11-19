@@ -1,0 +1,24 @@
+# Одна команда: `docker compose up -d` — и ретранслятор слушает 8443.
+#
+# Это не прокси: TLS терминирует клиент, контейнер видит только шифртекст.
+# Цель фиксирована окружением — открытым прокси он не станет.
+services:
+  relay:
+    build: .
+    image: meander-relay
+    container_name: meander-relay
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    environment:
+      RELAY_LISTEN_HOST: 0.0.0.0
+      RELAY_LISTEN_PORT: "8443"
+      RELAY_TARGET_HOST: meander.illuminat.dev
+      RELAY_TARGET_PORT: "443"
+      RELAY_MAX_CONN: "1024"
+      RELAY_IDLE_MS: "180000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

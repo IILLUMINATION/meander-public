@@ -7,11 +7,10 @@
 // 1) переключение на свой сервер, где входа не было, не отправляет туда
 //    чужой токен (приложение там гость);
 // 2) вход на своём сервере не затирает сессию основного домена;
-// 3) встроенные зеркала делят одну сессию с основным доменом — это один
-//    бэкенд, и переключение между ними не должно разлогинивать.
+// 3) прокси-зеркал нет, поэтому старая сессия не может утечь на посредника.
 import 'package:canvas_app/core/config.dart';
 import 'package:canvas_app/core/services/api_service.dart';
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 import 'package:canvas_app/core/services/session_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -25,14 +24,14 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    MirrorRegistry.instance.resetForTests();
+    ServerRegistry.instance.resetForTests();
     SessionStore.resetForTests();
-    MirrorRegistry.probeOverride = true;
-    MirrorRegistry.skipRealNetwork = false;
+    ServerRegistry.probeOverride = true;
+    ServerRegistry.skipRealNetwork = false;
   });
 
   tearDown(() {
-    MirrorRegistry.probeOverride = null;
+    ServerRegistry.probeOverride = null;
   });
 
   test(
@@ -58,16 +57,23 @@ void main() {
     },
   );
 
-  test('встроенное зеркало делит сессию с основным доменом', () {
-    for (final url in AppConfig.defaultMirrorUrls) {
+  test('оригинал — своя область доверия, прокси-зеркал больше нет', () {
+    // Зеркал-прокси нет: они не попадают ни в перебор, ни в области доверия,
+    // даже если остались в сохранённых настройках старой версии.
+    for (final url in AppConfig.retiredProxyUrls) {
       expect(
-        MirrorRegistry.domainFor(url),
-        SessionStore.primaryDomain,
-        reason: '$url — тот же бэкенд, вход там не должен требоваться заново',
+        ServerRegistry.instance.allUrls,
+        isNot(contains(url)),
+        reason: '$url — L7-прокси, он видел токен и больше не используется',
       );
     }
     expect(
-      MirrorRegistry.domainFor(_customServer),
+      ServerRegistry.domainFor(AppConfig.vpsApiBaseUrl),
+      SessionStore.primaryDomain,
+      reason: 'оригинал — одна область доверия',
+    );
+    expect(
+      ServerRegistry.domainFor(_customServer),
       _customServer,
       reason: 'свой сервер — отдельная область доверия',
     );
@@ -79,10 +85,10 @@ void main() {
       'user_id': 'primary-user',
     });
     SessionStore.resetForTests();
-    MirrorRegistry.instance.resetForTests();
+    ServerRegistry.instance.resetForTests();
 
-    await MirrorRegistry.instance.addCustomUrl(_customServer);
-    await MirrorRegistry.instance.setActiveUrl(_customServer);
+    await ServerRegistry.instance.addCustomUrl(_customServer);
+    await ServerRegistry.instance.setActiveUrl(_customServer);
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('jwt_token'), isNull);
@@ -100,9 +106,9 @@ void main() {
       'user_id': 'primary-user',
     });
     SessionStore.resetForTests();
-    MirrorRegistry.instance.resetForTests();
-    await MirrorRegistry.instance.addCustomUrl(_customServer);
-    await MirrorRegistry.instance.setActiveUrl(_customServer);
+    ServerRegistry.instance.resetForTests();
+    await ServerRegistry.instance.addCustomUrl(_customServer);
+    await ServerRegistry.instance.setActiveUrl(_customServer);
 
     String? seenAuth;
     final api = ApiService(
@@ -128,12 +134,12 @@ void main() {
       'user_id': 'primary-user',
     });
     SessionStore.resetForTests();
-    MirrorRegistry.instance.resetForTests();
+    ServerRegistry.instance.resetForTests();
 
-    await MirrorRegistry.instance.addCustomUrl(_customServer);
-    await MirrorRegistry.instance.setActiveUrl(_customServer);
+    await ServerRegistry.instance.addCustomUrl(_customServer);
+    await ServerRegistry.instance.setActiveUrl(_customServer);
     await SessionStore.save(
-      domain: MirrorRegistry.domainFor(_customServer),
+      domain: ServerRegistry.domainFor(_customServer),
       token: 'custom-token',
       userId: 'custom-user',
     );
@@ -141,7 +147,7 @@ void main() {
     var prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('jwt_token'), 'custom-token');
 
-    await MirrorRegistry.instance.setActiveUrl(AppConfig.vpsApiBaseUrl);
+    await ServerRegistry.instance.setActiveUrl(AppConfig.vpsApiBaseUrl);
     prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('jwt_token'), 'primary-token');
     expect(prefs.getString('user_id'), 'primary-user');
@@ -153,19 +159,19 @@ void main() {
       'user_id': 'primary-user',
     });
     SessionStore.resetForTests();
-    MirrorRegistry.instance.resetForTests();
+    ServerRegistry.instance.resetForTests();
 
-    await MirrorRegistry.instance.addCustomUrl(_customServer);
-    await MirrorRegistry.instance.setActiveUrl(_customServer);
+    await ServerRegistry.instance.addCustomUrl(_customServer);
+    await ServerRegistry.instance.setActiveUrl(_customServer);
     await SessionStore.save(
-      domain: MirrorRegistry.domainFor(_customServer),
+      domain: ServerRegistry.domainFor(_customServer),
       token: 'custom-token',
       userId: 'custom-user',
     );
 
     await SessionStore.clearActive();
 
-    await MirrorRegistry.instance.setActiveUrl(AppConfig.vpsApiBaseUrl);
+    await ServerRegistry.instance.setActiveUrl(AppConfig.vpsApiBaseUrl);
     final prefs = await SharedPreferences.getInstance();
     expect(
       prefs.getString('jwt_token'),

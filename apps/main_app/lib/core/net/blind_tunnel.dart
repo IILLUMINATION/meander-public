@@ -2,23 +2,20 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:canvas_app/core/config.dart';
+import 'package:canvas_app/core/services/relay_registry.dart';
 import 'package:flutter/foundation.dart';
 
 /// Слепой ретранслятор TLS до основного домена.
 ///
-/// Зеркало-прокси (`https://…`) расшифровывает трафик, чтобы разложить его по
-/// путям, — поэтому оно видит `Authorization`, idToken и переписку. Здесь
-/// наоборот: приложение открывает TCP до ретранслятора, а TLS-рукопожатие
-/// делает **само с основным доменом**. Сертификат проверяется по имени
-/// хоста из [AppConfig.vpsApiBaseUrl], ретранслятор видит только
-/// зашифрованные байты.
+/// Прокси обязан терминировать TLS, чтобы разложить запросы по путям, — и
+/// видит всё: токен, idToken, переписку. Ретранслятор наоборот: приложение
+/// открывает TCP до него, а TLS-рукопожатие делает **само с основным
+/// доменом**. Сертификат проверяется по имени хоста из
+/// [AppConfig.vpsApiBaseUrl], ретранслятор видит только зашифрованные байты.
 ///
-/// Так устроены прокси у Telegram: посредник перекладывает байты и не знает
-/// ключей, поэтому «украсть токен» ему не из чего.
-///
-/// Подменять можно только `https` на основном домене: tunneled `http://`
-/// означал бы, что ретранслятор видит открытый текст, а tunneled зеркало —
-/// лишний хоп.
+/// Выбор пути (прямой / какой ретранслятор) — в `ServerRegistry`; здесь только
+/// транспорт: включить конкретный адрес, выключить, прозрачно подставить его в
+/// HTTP-клиенты.
 ///
 /// [install] ставит [HttpOverrides] глобально, поэтому покрывает и `http`-пакет,
 /// и прямые `dart:io`-запросы по экранам, и websocket socket.io.
@@ -27,26 +24,22 @@ class BlindTunnel {
 
   static bool _installed = false;
   static bool _enabled = false;
-  static String? _relayHost;
-  static int? _relayPort;
+  static String? _endpoint;
   static Set<String> _tunnelHosts = {};
 
-  /// Только тесты: `true` — ретранслятор «жив», не трогая сеть.
-  static bool? probeOverride;
-
-  /// Сколько сетевых отказов подряд выключают туннель: ретранслятор мог
-  /// умереть, и тогда честнее вернуться к зеркалам, чем отдавать маркер
-  /// «все зеркала недоступны».
+  /// Сколько сетевых отказов подряд считаются падением ретранслятора.
   static const int failuresBeforeFallback = 3;
   static int _failures = 0;
-  static Timer? _retryTimer;
-  static bool _activating = false;
 
-  /// Туннель активен и запросы к основному домену идут через ретранслятор.
-  static bool get enabled => _enabled && _relayHost != null;
+  /// Что делать, когда ретранслятор признан мёртвым. Ставит `ServerRegistry`:
+  /// перебрать следующий ретранслятор, затем прямой путь.
+  static Future<void> Function()? onExhausted;
+
+  /// Запросы к основному домену идут через ретранслятор.
+  static bool get enabled => _enabled && _endpoint != null;
 
   /// `host:port` активного ретранслятора — для логов и настроек.
-  static String? get relay => enabled ? '$_relayHost:$_relayPort' : null;
+  static String? get endpoint => enabled ? _endpoint : null;
 
   /// Поставить перехват создания HTTP-клиентов. Идемпотентно; вызывается до
   /// первого кадра, чтобы все клиенты приложения уже были с фабрикой.
@@ -57,85 +50,49 @@ class BlindTunnel {
     HttpOverrides.global = _TunnelHttpOverrides();
   }
 
-  /// Проверить ретрансляторы и включить первый живой. `false` — ни один не
-  /// ответил, приложение работает напрямую, как раньше.
-  ///
-  /// Зонды идут параллельно: последовательный перебор при мёртвом первом
-  /// адресе задерживал старт на таймаут каждого.
-  static Future<bool> activate({Iterable<String>? endpoints}) async {
+  /// Проверить ретранслятор и включить его. `false` — адрес не отвечает или
+  /// записан некорректно.
+  static Future<bool> useEndpoint(String raw) async {
     install();
-    if (_activating) return enabled;
-    _activating = true;
-    try {
-      final candidates = (endpoints ?? AppConfig.relayUrls)
-          .map(parseEndpoint)
-          .whereType<(String, int)>()
-          .toList();
-      final probes = await Future.wait(
-        candidates.map((e) => _probe(e.$1, e.$2)),
-      );
-      final index = probes.indexOf(true);
-      if (index >= 0) {
-        final (host, port) = candidates[index];
-        _relayHost = host;
-        _relayPort = port;
-        _enabled = true;
-        _failures = 0;
-        _retryTimer?.cancel();
-        _retryTimer = null;
-        debugPrint('[Tunnel] relay $host:$port');
-        return true;
-      }
-      _enabled = false;
-      debugPrint('[Tunnel] no relay reachable, direct connection');
-      _scheduleRetry();
+    final parsed = RelayRegistry.parse(raw);
+    if (parsed == null) return false;
+    final ok = await RelayRegistry.instance.probe(parsed);
+    if (!ok) {
+      debugPrint('[Tunnel] $parsed не отвечает');
       return false;
-    } finally {
-      _activating = false;
     }
+    _endpoint = parsed;
+    _enabled = true;
+    _failures = 0;
+    debugPrint('[Tunnel] relay $parsed');
+    return true;
   }
 
-  /// Ретранслятор может быть просто занят или сеть медленная на старте:
-  /// пробуем ещё раз в фоне, не задерживая приложение.
-  static void _scheduleRetry() {
-    _retryTimer?.cancel();
-    _retryTimer = Timer(const Duration(minutes: 2), () {
-      unawaited(activate());
-    });
+  /// Выключить туннель: соединения идут напрямую.
+  static void disable() {
+    _enabled = false;
+    _failures = 0;
   }
 
   /// Сетевой отказ при активном туннеле. После [failuresBeforeFallback]
-  /// отказов подряд туннель выключается и пробуется снова через минуту, а
-  /// вызывающий код идёт обычным перебором зеркал.
+  /// отказов подряд ретранслятор считается мёртвым, и [onExhausted] выбирает
+  /// следующий путь (другой ретранслятор или прямое соединение).
   static void reportFailure() {
     if (!enabled) return;
     _failures += 1;
     if (_failures < failuresBeforeFallback) return;
+    final failed = _endpoint;
     _enabled = false;
     _failures = 0;
-    debugPrint('[Tunnel] relay ${relay ?? '?'} failed, falling back to mirrors');
-    _retryTimer?.cancel();
-    _retryTimer = Timer(const Duration(minutes: 1), () {
-      unawaited(activate());
-    });
+    debugPrint('[Tunnel] $failed failed, switching path');
+    final handler = onExhausted;
+    if (handler != null) unawaited(handler());
   }
 
   /// Отправлять ли запрос [uri] через ретранслятор. Вынесено ради тестов:
-  /// https + основной домен + живой ретранслятор.
+  /// только https основного домена.
   static bool shouldTunnel(Uri uri) =>
       enabled && uri.scheme == 'https' && _tunnelHosts.contains(uri.host);
-
-  /// Разобрать `host:port` из настроек сборки.
-  static (String, int)? parseEndpoint(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return null;
-    final colon = trimmed.lastIndexOf(':');
-    if (colon <= 0 || colon == trimmed.length - 1) return null;
-    final host = trimmed.substring(0, colon).trim();
-    final port = int.tryParse(trimmed.substring(colon + 1).trim());
-    if (host.isEmpty || port == null || port <= 0 || port > 65535) return null;
-    return (host, port);
-  }
 
   /// Соединение для [uri]: через ретранслятор или напрямую.
   ///
@@ -154,12 +111,40 @@ class BlindTunnel {
         : uri.port;
 
     if (shouldTunnel(uri)) {
-      try {
-        final task = await Socket.startConnect(_relayHost!, _relayPort!);
-        return _secureOver(task, uri.host);
-      } catch (e) {
+      final parsed = RelayRegistry.parse(_endpoint);
+      if (parsed != null) {
+        final colon = parsed.lastIndexOf(':');
+        final host = parsed.substring(0, colon);
+        final relayPort = int.parse(parsed.substring(colon + 1));
+        ConnectionTask<Socket>? relayTask;
+        try {
+          relayTask = _secureOver(
+            await Socket.startConnect(host, relayPort),
+            uri.host,
+          );
+        } catch (e) {
+          debugPrint('[Tunnel] connect to relay failed: $e');
+        }
+        if (relayTask != null) {
+          final relay = relayTask;
+          // Ретранслятор принял TCP, но TLS-рукопожатие через него не прошло
+          // (упал, отдал мусор, порт занят чужим): не роняем запрос, а
+          // повторяем его напрямую. Счётчик отказов переключит путь.
+          final merged = relay.socket.then<Socket>(
+            (socket) => socket,
+            onError: (Object error) {
+              reportFailure();
+              debugPrint('[Tunnel] relay handshake failed: $error');
+              return Socket.startConnect(uri.host, port).then(
+                (task) => uri.scheme == 'https'
+                    ? _secureOver(task, uri.host).socket
+                    : task.socket,
+              );
+            },
+          );
+          return ConnectionTask.fromSocket<Socket>(merged, relay.cancel);
+        }
         _enabled = false;
-        debugPrint('[Tunnel] connect to relay failed: $e');
       }
     }
 
@@ -178,34 +163,15 @@ class BlindTunnel {
     return ConnectionTask.fromSocket<Socket>(secure, task.cancel);
   }
 
-  static Future<bool> _probe(String host, int port) async {
-    if (probeOverride != null) return probeOverride!;
-    try {
-      final socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(milliseconds: 1500),
-      );
-      socket.destroy();
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
   /// Сброс состояния (только тесты).
   @visibleForTesting
   static void resetForTests() {
     _installed = false;
     _enabled = false;
-    _relayHost = null;
-    _relayPort = null;
+    _endpoint = null;
     _tunnelHosts = {};
     _failures = 0;
-    probeOverride = null;
-    _retryTimer?.cancel();
-    _retryTimer = null;
-    _activating = false;
+    onExhausted = null;
     HttpOverrides.global = null;
   }
 
@@ -217,10 +183,9 @@ class BlindTunnel {
 
   /// Включить туннель на заданный адрес без сетевой пробы (только тесты).
   @visibleForTesting
-  static void forceForTests(String host, int port) {
+  static void forceForTests(String endpoint) {
     install();
-    _relayHost = host;
-    _relayPort = port;
+    _endpoint = endpoint;
     _enabled = true;
   }
 }

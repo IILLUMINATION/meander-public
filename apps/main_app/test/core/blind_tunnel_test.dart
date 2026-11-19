@@ -5,9 +5,9 @@
 // сертификат проверяется по имени домена, ретранслятор видит только байты.
 // Поэтому тесты держат три вещи:
 //
-// 1) туннелируется только https основного домена (не http, не зеркала);
+// 1) туннелируется только https основного домена (не http, не чужие хосты);
 // 2) мёртвый ретранслятор не ломает приложение — соединение идёт напрямую;
-// 3) после серии отказов туннель выключается и перебор зеркал снова работает.
+// 3) после серии отказов туннель выключается и зовёт обработчик смены пути.
 import 'dart:io';
 
 import 'package:canvas_app/core/net/blind_tunnel.dart';
@@ -24,21 +24,8 @@ void main() {
     BlindTunnel.resetForTests();
   });
 
-  test('разбор host:port из настроек сборки', () {
-    expect(BlindTunnel.parseEndpoint('1.2.3.4:8443'), ('1.2.3.4', 8443));
-    expect(
-      BlindTunnel.parseEndpoint(' tunnel.example.com:443 '),
-      ('tunnel.example.com', 443),
-    );
-    expect(BlindTunnel.parseEndpoint('1.2.3.4'), isNull);
-    expect(BlindTunnel.parseEndpoint(':8443'), isNull);
-    expect(BlindTunnel.parseEndpoint('1.2.3.4:0'), isNull);
-    expect(BlindTunnel.parseEndpoint('1.2.3.4:70000'), isNull);
-    expect(BlindTunnel.parseEndpoint('   '), isNull);
-  });
-
   test('туннелируется только https основного домена', () {
-    BlindTunnel.forceForTests('relay.local', 8443);
+    BlindTunnel.forceForTests('relay.local:8443');
     BlindTunnel.setTunnelHostsForTests({'meander.example'});
 
     expect(
@@ -51,9 +38,9 @@ void main() {
       reason: 'через ретранслятор http пошёл бы открытым текстом',
     );
     expect(
-      BlindTunnel.shouldTunnel(Uri.parse('https://mirror.example/quests')),
+      BlindTunnel.shouldTunnel(Uri.parse('https://other.example/quests')),
       isFalse,
-      reason: 'зеркало через ретранслятор — лишний хоп без выгоды',
+      reason: 'чужой хост через наш ретранслятор — лишний хоп без выгоды',
     );
     expect(
       BlindTunnel.shouldTunnel(Uri.parse('https://accounts.google.com/o')),
@@ -84,60 +71,83 @@ void main() {
 
   test('мёртвый ретранслятор не съедает запрос: соединение идёт напрямую',
       () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    server.listen((req) {
-      req.response
-        ..statusCode = 200
-        ..write('ok')
-        ..close();
+    // Счётчик принятых соединений: TLS-рукопожатие тут заведомо провалится
+    // (сервер не TLS), важно лишь, что TCP дошёл до цели, а не до ретранслятора.
+    var accepted = 0;
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((socket) {
+      accepted++;
+      socket.destroy();
     });
 
+    // Сначала ретранслятор (install() выставляет хосты сборки), потом
+    // подмена набора хостов для теста.
+    BlindTunnel.forceForTests('127.0.0.1:1'); // порт 1: соединения нет
     BlindTunnel.setTunnelHostsForTests({'127.0.0.1'});
-    BlindTunnel.forceForTests('127.0.0.1', 1); // порт 1: соединения нет
 
-    BlindTunnel.install();
-    final client = HttpClient();
-    // http не туннелируется по правилу, поэтому проверяем именно отказ
-    // ретранслятора на разрешённом адресе: подменяем host через тестовый
-    // набор (https → 127.0.0.1). Соединение обязано уйти напрямую.
-    final request = await client.getUrl(
-      Uri.parse('http://127.0.0.1:${server.port}/ping'),
-    );
-    final response = await request.close();
-    expect(response.statusCode, 200);
-    await response.drain<void>();
-    client.close();
-  });
-
-  test('после серии отказов туннель выключается', () {
-    BlindTunnel.forceForTests('relay.local', 8443);
-    expect(BlindTunnel.enabled, isTrue);
-
-    for (var i = 0; i < BlindTunnel.failuresBeforeFallback; i++) {
-      BlindTunnel.reportFailure();
+    // connect() возвращает задачу сразу; TLS-рукопожатие падает при ожидании
+    // сокета — сервер не TLS и рвёт соединение. Каждая попытка обязана дойти
+    // до цели напрямую, а не умереть на мёртвом ретрансляторе.
+    for (var i = 1; i <= BlindTunnel.failuresBeforeFallback; i++) {
+      final task = await BlindTunnel.connect(
+        Uri.parse('https://127.0.0.1:${server.port}/'),
+      );
+      await expectLater(task.socket, throwsA(anything));
+      expect(
+        accepted,
+        i,
+        reason: 'после отказа ретранслятора соединение открывается напрямую',
+      );
     }
     expect(
       BlindTunnel.enabled,
       isFalse,
-      reason: 'иначе перебор зеркал не запустится и останется маркер '
-          '«все зеркала недоступны»',
+      reason: 'серия отказов выключает ретранслятор и запускает смену пути',
     );
+  });
+
+  test('после серии отказов туннель выключается и зовёт смену пути', () {
+    var switches = 0;
+    BlindTunnel.onExhausted = () async => switches++;
+    BlindTunnel.forceForTests('relay.local:8443');
+    expect(BlindTunnel.enabled, isTrue);
+
+    for (var i = 1; i < BlindTunnel.failuresBeforeFallback; i++) {
+      BlindTunnel.reportFailure();
+      expect(BlindTunnel.enabled, isTrue, reason: 'один сбой — ещё не приговор');
+      expect(switches, 0);
+    }
+    BlindTunnel.reportFailure();
+
+    expect(BlindTunnel.enabled, isFalse);
+    expect(switches, 1);
+    expect(BlindTunnel.endpoint, isNull);
+  });
+
+  test('отказы без туннеля игнорируются', () {
+    var switches = 0;
+    BlindTunnel.onExhausted = () async => switches++;
+    for (var i = 0; i < BlindTunnel.failuresBeforeFallback * 2; i++) {
+      BlindTunnel.reportFailure();
+    }
+    expect(switches, 0);
   });
 
   test('живой ретранслятор включается, мёртвый — нет', () async {
     final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(listener.close);
 
-    final live = await BlindTunnel.activate(
-      endpoints: ['127.0.0.1:${listener.port}'],
-    );
+    final live = await BlindTunnel.useEndpoint('127.0.0.1:${listener.port}');
     expect(live, isTrue);
-    expect(BlindTunnel.relay, '127.0.0.1:${listener.port}');
+    expect(BlindTunnel.endpoint, '127.0.0.1:${listener.port}');
+    expect(BlindTunnel.enabled, isTrue);
 
-    BlindTunnel.resetForTests();
-    final dead = await BlindTunnel.activate(endpoints: ['127.0.0.1:1', 'мусор']);
-    expect(dead, isFalse);
+    BlindTunnel.disable();
+    expect(BlindTunnel.enabled, isFalse);
+
+    expect(await BlindTunnel.useEndpoint('127.0.0.1:1'), isFalse);
+    expect(await BlindTunnel.useEndpoint('мусор'), isFalse);
     expect(BlindTunnel.enabled, isFalse);
   });
 }

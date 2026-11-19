@@ -28,7 +28,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:canvas_app/core/services/google_browser_auth.dart';
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 import 'package:canvas_app/core/services/session_store.dart';
 import 'package:telegram_login/telegram_login.dart';
 import 'package:yandex_login_sdk/yandex_login_sdk.dart';
@@ -1027,14 +1027,14 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   ///
   /// Токен приложения подписан `JWT_SECRET` этого бэкенда и на чужом
   /// сервере невалиден, поэтому кладётся в область доверия сервера
-  /// ([MirrorRegistry.domainFor]): основной домен и встроенные зеркала —
+  /// ([ServerRegistry.domainFor]): основной домен и встроенные зеркала —
   /// одна сессия, любой добавленный пользователем сервер — своя.
   Future<void> _saveSession(
     String baseUrl,
     String appToken,
     String userId,
   ) => SessionStore.save(
-    domain: MirrorRegistry.domainFor(baseUrl),
+    domain: ServerRegistry.domainFor(baseUrl),
     token: appToken,
     userId: userId,
   );
@@ -1042,7 +1042,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   Future<void> _authenticateWithBackend(String idToken) async {
     // Вход может быть первым сетевым действием сессии: проверяем зеркала
     // до запроса, чтобы не падать на заблокированном домене.
-    await MirrorRegistry.instance.ensureReachable();
+    await ServerRegistry.instance.ensureReachable();
     final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
       Uri.parse('$baseUrl/auth/google/token'),
@@ -1069,7 +1069,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   }
 
   Future<void> _authenticateWithBackendYandex(String yandexToken) async {
-    await MirrorRegistry.instance.ensureReachable();
+    await ServerRegistry.instance.ensureReachable();
     final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
       Uri.parse('$baseUrl/auth/yandex/token'),
@@ -1092,7 +1092,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
   }
 
   Future<void> _authenticateWithBackendTelegram(String idToken) async {
-    await MirrorRegistry.instance.ensureReachable();
+    await ServerRegistry.instance.ensureReachable();
     final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
       Uri.parse('$baseUrl/auth/telegram/token'),
@@ -1120,7 +1120,7 @@ class _AuthPlaceholderScreenState extends State<AuthPlaceholderScreen> {
     String? firstName,
     String? lastName,
   }) async {
-    await MirrorRegistry.instance.ensureReachable();
+    await ServerRegistry.instance.ensureReachable();
     final baseUrl = AppConfig.apiUrl;
     final response = await http.post(
       Uri.parse('$baseUrl/auth/apple/token'),

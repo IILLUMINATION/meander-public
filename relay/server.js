@@ -12,10 +12,11 @@
 // обслуживает.
 //
 // Запуск:
-//   RELAY_TARGET_HOST=127.0.0.1 RELAY_TARGET_PORT=443 node server.js
+//   node server.js                       # цель по умолчанию — основной домен
+//   RELAY_TARGET_HOST=127.0.0.1 node server.js   # если сервер стоит рядом
 // Переменные: RELAY_LISTEN_HOST (0.0.0.0), RELAY_LISTEN_PORT (8443),
-// RELAY_TARGET_HOST, RELAY_TARGET_PORT, RELAY_MAX_CONN (1024),
-// RELAY_IDLE_MS (180000).
+// RELAY_TARGET_HOST (meander.illuminat.dev), RELAY_TARGET_PORT (443),
+// RELAY_MAX_CONN (1024), RELAY_IDLE_MS (180000), RELAY_VERBOSE (0).
 
 'use strict';
 
@@ -23,7 +24,7 @@ const net = require('net');
 
 const LISTEN_HOST = process.env.RELAY_LISTEN_HOST || '0.0.0.0';
 const LISTEN_PORT = Number(process.env.RELAY_LISTEN_PORT || 8443);
-const TARGET_HOST = process.env.RELAY_TARGET_HOST || '127.0.0.1';
+const TARGET_HOST = process.env.RELAY_TARGET_HOST || 'meander.illuminat.dev';
 const TARGET_PORT = Number(process.env.RELAY_TARGET_PORT || 443);
 const MAX_CONN = Number(process.env.RELAY_MAX_CONN || 1024);
 const IDLE_MS = Number(process.env.RELAY_IDLE_MS || 180000);

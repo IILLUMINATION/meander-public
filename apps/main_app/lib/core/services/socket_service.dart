@@ -1,7 +1,8 @@
 import 'dart:io';
 
-import 'package:canvas_app/core/services/mirror_registry.dart';
+import 'package:canvas_app/core/services/server_registry.dart';
 import 'package:canvas_app/core/config.dart';
+import 'package:canvas_app/core/net/blind_tunnel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:local_notifier/local_notifier.dart';
@@ -14,6 +15,11 @@ class SocketService {
 
   io.Socket? _socket;
   bool _initialized = false;
+
+  /// Токен, с которым подключён сокет. Сервер проверяет
+  /// `socket.handshake.auth.token` (backend/src/services/socket.ts), поэтому
+  /// токен уходит в `auth` рукопожатия, а не в query.
+  String? _token;
   final Set<String> _joinedPosts = {};
   Function(dynamic)? _onNewCommentCallback;
 
@@ -25,7 +31,16 @@ class SocketService {
   final Set<void Function(Map<String, dynamic>)> _dmListeners = {};
 
   Future<void> init(String token) async {
-    if (_initialized) return;
+    // Вход другим аккаунтом: сокет держит авторизацию прежним токеном, а
+    // `_initialized` не давал переинициализироваться — следующий человек
+    // оставался в чужих личных комнатах.
+    if (_initialized && _token == token) return;
+    if (_initialized) {
+      _socket?.dispose();
+      _socket = null;
+      _initialized = false;
+    }
+    _token = token;
 
     if (Platform.isWindows || Platform.isLinux) {
       await localNotifier.setup(
@@ -34,17 +49,20 @@ class SocketService {
       );
     }
 
-    // Socket.io долгоживущий: подключаемся к живому зеркалу сразу, чтобы
-    // не гонять reconnect-цикл по заблокированному домену — активное
-    // зеркало MirrorRegistry уже проверено последним REST-запросом или
-    // будет проверено ensureReachable ниже.
-    await MirrorRegistry.instance.ensureReachable();
+    // Socket.io долгоживущий: подключаемся к живому пути сразу, чтобы не
+    // гонять reconnect-цикл по заблокированному домену — путь ServerRegistry
+    // уже проверен последним REST-запросом или проверяется здесь.
+    await ServerRegistry.instance.ensureReachable();
 
     // Configure socket.io
     _socket = io.io(
       AppConfig.apiUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          // Без `auth.token` сервер отвечает «Authentication error: No token
+          // provided» и не подписывает на `user_<id>`: реальное время
+          // (личные сообщения, уведомления) не доходило до залогиненных.
+          .setAuth({'token': token})
           .disableAutoConnect()
           // Без явного backoff socket.io при недоступном сервере долбит
           // reconnect-попытками с интервалом по умолчанию (десятки секунд,
@@ -63,6 +81,15 @@ class SocketService {
 
     _socket?.onConnectError((err) {
       debugPrint('❌ [Socket] Connection Error: $err');
+      // Socket.IO сам переподключается, но его websocket-клиент не проходит
+      // через ApiService. Считаем сетевой отказ тем же способом, чтобы
+      // мёртвый ретранслятор не держал realtime на одном адресе бесконечно.
+      // Отказ авторизации — не сетевой: переключать путь из-за просроченного
+      // токена нельзя, иначе приложение будет бесконечно менять ретрансляторы.
+      final text = err.toString();
+      if (!text.contains('Authentication') && !text.contains('No token')) {
+        BlindTunnel.reportFailure();
+      }
     });
 
     _socket?.onDisconnect((_) {
@@ -244,6 +271,7 @@ class SocketService {
     _socket?.dispose();
     _socket = null;
     _initialized = false;
+    _token = null;
     _joinedPosts.clear();
     _onNewCommentCallback = null;
     _dmListeners.clear();
