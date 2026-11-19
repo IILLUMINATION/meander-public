@@ -120,3 +120,6 @@ apps/web_player/web/pkg/
 # Веб-оболочка для in-app экспорта: ~10 МБ собранного движка, кладётся
 # scripts/build_web_template.sh (и CI) перед сборкой приложения.
 apps/main_app/assets/web_player/*.zip
+
+# Артефакты упавших golden-тестов (Flutter пишет их рядом с эталонами).
+apps/main_app/test/**/failures/
