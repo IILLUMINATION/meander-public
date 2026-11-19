@@ -72,8 +72,17 @@ class InfiniteCanvasPainter extends CustomPainter {
       size.height / state.scale,
     );
     final expandedRect = visibleRect.inflate(100);
-    final visibleNodes = state.spatialHash.query(expandedRect);
-    final visibleNodeIds = visibleNodes.map((n) => n.id).toSet();
+    final visibleNodeIds = state.spatialHash
+        .query(expandedRect)
+        .map((n) => n.id)
+        .toSet();
+    // Z-порядок — порядок в state.nodes: последняя нода рисуется поверх.
+    // SpatialHash.query возвращает Set в порядке обхода ячеек, поэтому для
+    // отрисовки он не годится: иначе нода с нижнего слоя могла перекрыть
+    // верхнюю (особенно её подпись).
+    final visibleNodes = state.nodes
+        .where((node) => visibleNodeIds.contains(node.id))
+        .toList(growable: false);
 
     // --- ГРУППЫ --- (кулл)
     for (final group in state.groups) {
@@ -213,8 +222,6 @@ class InfiniteCanvasPainter extends CustomPainter {
     final nodeIdsWithOutgoing = <String>{
       for (final connection in state.connections) connection.fromNode.id,
     };
-    final List<({Node node, bool dimmed})> priorityTitles = [];
-    final List<({Node node, bool dimmed})> otherTitles = [];
     for (final node in visibleNodes) {
       final bool isSearchDimmed =
           isSearching && !matchingNodeIds.contains(node.id);
@@ -264,37 +271,18 @@ class InfiniteCanvasPainter extends CustomPainter {
         ),
       );
 
-      final bool isPriority =
-          isSelected ||
-          node.id == state.hoveredNodeId ||
-          node.id == state.connectionStartNodeId ||
-          (isSearching && matchingNodeIds.contains(node.id));
-      final entry = (node: node, dimmed: isDimmed);
-      if (isPriority) {
-        priorityTitles.add(entry);
-      } else {
-        otherTitles.add(entry);
-      }
-    }
-
-    // Подписи — второй проход: они рисуются поверх всех тел. Каждая тоже
-    // записана в пикчу, поэтому «подписать все видимые» больше не стоит
-    // кадра: цена — только у нод, которые изменились.
-    for (final titles in [priorityTitles, otherTitles]) {
-      for (final title in titles) {
-        final signature = _titleSignature(title.node, title.dimmed);
-        canvas.drawPicture(
-          nodePictures.title(
-            title.node.id,
-            signature,
-            (recorder) => nodeRenderer.drawNodeTitle(
-              recorder,
-              title.node,
-              isDimmed: title.dimmed,
-            ),
-          ),
-        );
-      }
+      // Подпись — сразу после тела этой же ноды, а не вторым проходом
+      // поверх всех карточек. Иначе заголовок нижней ноды оказывался над
+      // телом верхней, стоило им пересечься.
+      final titleSignature = _titleSignature(node, isDimmed);
+      canvas.drawPicture(
+        nodePictures.title(
+          node.id,
+          titleSignature,
+          (recorder) =>
+              nodeRenderer.drawNodeTitle(recorder, node, isDimmed: isDimmed),
+        ),
+      );
     }
 
     // --- КОММЕНТАРИИ --- (кулл)

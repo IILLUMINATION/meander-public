@@ -21,6 +21,7 @@ import 'package:canvas_app/shared/widgets/canvas_painter.dart';
 /// Считает, что именно художник попросили нарисовать.
 class _SpyRenderer extends NodeRenderer {
   final List<String> titledNodeIds = [];
+  final List<String> events = [];
   final List<bool> showDetailsFlags = [];
   int bodyCalls = 0;
   int titleCalls = 0;
@@ -40,6 +41,7 @@ class _SpyRenderer extends NodeRenderer {
     bool showDetails = true,
   }) {
     bodyCalls++;
+    events.add('body:${node.id}');
     showDetailsFlags.add(showDetails);
     super.drawNode(
       canvas,
@@ -60,6 +62,7 @@ class _SpyRenderer extends NodeRenderer {
   void drawNodeTitle(Canvas canvas, Node node, {bool isDimmed = false}) {
     titleCalls++;
     titledNodeIds.add(node.id);
+    events.add('title:${node.id}');
     super.drawNodeTitle(canvas, node, isDimmed: isDimmed);
   }
 }
@@ -170,6 +173,38 @@ void main() {
         reason: 'подписи при обзоре остаются у всех видимых нод',
       );
     });
+  });
+
+  testWidgets('подпись нижней ноды не выходит поверх верхней', (tester) async {
+    final bottom = Node(
+      id: 'bottom',
+      position: const Offset(100, 100),
+      color: const Color(0xFF26C6DA),
+      label: 'Нижняя',
+      description: '',
+    );
+    final top = Node(
+      id: 'top',
+      position: const Offset(130, 130),
+      color: const Color(0xFF26C6DA),
+      label: 'Верхняя',
+      description: '',
+    );
+    final nodes = [bottom, top];
+    final hash = SpatialHash()..rebuild(nodes);
+    final spy = _SpyRenderer();
+
+    paintOnce(CanvasState(nodes: nodes, spatialHash: hash, scale: 1), spy);
+
+    // Порядок state.nodes — это z-порядок. Каждая подпись обязана идти
+    // сразу за своим телом, иначе заголовок нижней карточки перекрывает
+    // верхнюю, хотя та нарисована позже.
+    expect(spy.events, [
+      'body:bottom',
+      'title:bottom',
+      'body:top',
+      'title:top',
+    ]);
   });
 
   group('пикчи нод', () {
