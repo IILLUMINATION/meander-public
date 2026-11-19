@@ -246,8 +246,7 @@ impl FsQuestStore {
                             .filter(|s| !s.is_empty())
                             .map(String::from);
                         if let Some(Value::Array(blocks)) = map.get("blocks") {
-                            block_count =
-                                crate::script_format::count_action_blocks(blocks) as u32;
+                            block_count = crate::script_format::count_action_blocks(blocks) as u32;
                         }
                     }
                 }
@@ -721,9 +720,11 @@ mod tests {
         // Без разбора JSON — только файловые факты, весь каталог.
         let plain = store.scan_files("scripts", None, false);
         assert_eq!(plain.len(), 2);
-        assert!(plain
-            .iter()
-            .all(|f| f.json_name.is_none() && f.block_count == 0));
+        assert!(
+            plain
+                .iter()
+                .all(|f| f.json_name.is_none() && f.block_count == 0)
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

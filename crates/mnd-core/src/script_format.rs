@@ -562,11 +562,18 @@ pub fn count_action_blocks(blocks: &[Value]) -> usize {
             .get("type")
             .and_then(Value::as_str)
             .or_else(|| map.get("действие").and_then(Value::as_str));
-        let is_event_wrapper = ty == Some(types::EVENT) || (ty.is_none() && map.contains_key("title"));
+        let is_event_wrapper =
+            ty == Some(types::EVENT) || (ty.is_none() && map.contains_key("title"));
         if !is_event_wrapper {
             count += 1;
         }
-        for key in ["children", "then_blocks", "else_blocks", "если_да", "если_нет"] {
+        for key in [
+            "children",
+            "then_blocks",
+            "else_blocks",
+            "если_да",
+            "если_нет",
+        ] {
             if let Some(Value::Array(nested)) = map.get(key) {
                 count += count_action_blocks(nested);
             }

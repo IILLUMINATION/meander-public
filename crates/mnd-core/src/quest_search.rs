@@ -132,12 +132,7 @@ impl HitSink {
     }
 }
 
-fn search_nodes(
-    store: &dyn ScriptAssetStore,
-    prefix: &str,
-    query: &str,
-    sink: &mut HitSink,
-) {
+fn search_nodes(store: &dyn ScriptAssetStore, prefix: &str, query: &str, sink: &mut HitSink) {
     for node in load_nodes(store, prefix) {
         let title = node.title.clone();
         if title.to_lowercase().contains(query) {
@@ -171,12 +166,7 @@ fn search_nodes(
     }
 }
 
-fn search_scripts(
-    store: &dyn ScriptAssetStore,
-    prefix: &str,
-    query: &str,
-    sink: &mut HitSink,
-) {
+fn search_scripts(store: &dyn ScriptAssetStore, prefix: &str, query: &str, sink: &mut HitSink) {
     // Внутренние скрипты (`_internal_scripts`) — тоже скрипты квеста, но в
     // списке ресурсов их не видно: без второго прохода поиск по ним молчит.
     for folder in ["scripts", "_internal_scripts"] {
@@ -237,12 +227,7 @@ fn search_scripts(
     }
 }
 
-fn search_config(
-    store: &dyn ScriptAssetStore,
-    prefix: &str,
-    query: &str,
-    sink: &mut HitSink,
-) {
+fn search_config(store: &dyn ScriptAssetStore, prefix: &str, query: &str, sink: &mut HitSink) {
     let Some(config) = store.read_json(&format!("{prefix}config.json")) else {
         return;
     };
@@ -296,12 +281,7 @@ fn search_config(
     }
 }
 
-fn search_resources(
-    store: &dyn ScriptAssetStore,
-    prefix: &str,
-    query: &str,
-    sink: &mut HitSink,
-) {
+fn search_resources(store: &dyn ScriptAssetStore, prefix: &str, query: &str, sink: &mut HitSink) {
     let Some(metadata) = store.read_json(&format!("{prefix}res/metadata.json")) else {
         return;
     };
@@ -411,11 +391,7 @@ mod tests {
 
     fn fixture(files: &[(&str, &str)]) -> String {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "mnd_search_{}_{}",
-            std::process::id(),
-            n
-        ));
+        let dir = std::env::temp_dir().join(format!("mnd_search_{}_{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&dir);
         for (path, content) in files {
             let full = dir.join(path);
@@ -483,8 +459,18 @@ mod tests {
     fn finds_nodes_by_title() {
         let report = search_quest("q1", &sample_root(), "мост");
         // Нода «Мост» и переменная «флаг_моста» — разные виды, обе видны.
-        assert!(report.hits.iter().any(|h| h.kind == kind::NODE && h.id == "n2"));
-        assert!(report.hits.iter().any(|h| h.kind == kind::VARIABLE && h.id == "флаг_моста"));
+        assert!(
+            report
+                .hits
+                .iter()
+                .any(|h| h.kind == kind::NODE && h.id == "n2")
+        );
+        assert!(
+            report
+                .hits
+                .iter()
+                .any(|h| h.kind == kind::VARIABLE && h.id == "флаг_моста")
+        );
         assert_eq!(report.totals[kind::NODE], 1);
     }
 
