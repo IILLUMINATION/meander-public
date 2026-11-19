@@ -579,6 +579,13 @@ fn create_zip_streaming_full(
             continue;
         }
 
+        // `_history` — локальные снимки устройства: zip-копии квеста целиком.
+        // Десять авто-снимков весили больше самого квеста и раздували пакет
+        // до сотен мегабайт, поэтому в .mnd они не попадают никогда.
+        if rel == "_history" || rel.starts_with("_history/") {
+            continue;
+        }
+
         if per_node_nodes && has_v2 {
             // Новый формат: legacy-файлы не кладём.
             if rel == "nodes.json" || rel == "nodes/nodes.json" || rel == "nodes.json.v1_backup" {
@@ -776,6 +783,46 @@ mod tests {
         assert!(dst.join("nodes/index.json").exists());
         assert!(dst.join("nodes/n1.json").exists());
         assert!(!dst.join("nodes.json").exists());
+
+        let _ = fs::remove_dir_all(&src);
+        let _ = fs::remove_dir_all(&dst);
+        let _ = fs::remove_file(&mnd);
+    }
+
+    #[test]
+    fn export_skips_local_history_snapshots() {
+        let src = temp_dir("src_history");
+        fs::create_dir_all(src.join("_history")).unwrap();
+        fs::create_dir_all(src.join("res")).unwrap();
+        fs::write(src.join("config.json"), r#"{"id":"q5","title":"H"}"#).unwrap();
+        fs::write(src.join("res/keep.bin"), vec![7u8; 32]).unwrap();
+        fs::write(
+            src.join("_history/auto_20260101_000000.zip"),
+            vec![0u8; 64 * 1024],
+        )
+        .unwrap();
+        fs::write(
+            src.join("_history/backup_20260101_000000.zip"),
+            vec![1u8; 64 * 1024],
+        )
+        .unwrap();
+
+        let mnd = std::env::temp_dir().join(format!("test_history_{}.mnd", std::process::id()));
+        quest_archive_export_full(
+            src.to_str().unwrap(),
+            mnd.to_str().unwrap(),
+            None,
+            true,
+            false,
+            false,
+        )
+        .unwrap();
+        let dst = temp_dir("dst_history");
+        quest_archive_import(mnd.to_str().unwrap(), dst.to_str().unwrap()).unwrap();
+
+        assert!(dst.join("res/keep.bin").exists());
+        assert!(!dst.join("_history").exists());
+        assert!(fs::metadata(&mnd).unwrap().len() < 32 * 1024);
 
         let _ = fs::remove_dir_all(&src);
         let _ = fs::remove_dir_all(&dst);
