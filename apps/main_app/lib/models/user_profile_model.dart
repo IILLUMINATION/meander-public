@@ -45,6 +45,9 @@ class SocialLink {
 class UserProfile {
   final String id;
   final String fullName;
+
+  /// @адрес профиля; null — ещё не задан или сервер старый.
+  final String? username;
   final String? avatarUrl;
   final DateTime createdAt;
   final int followersCount;
@@ -82,6 +85,7 @@ class UserProfile {
   UserProfile({
     required this.id,
     required this.fullName,
+    this.username,
     this.avatarUrl,
     required this.createdAt,
     required this.followersCount,
@@ -137,6 +141,10 @@ class UserProfile {
     return UserProfile(
       id: json['id'] as String,
       fullName: json['full_name'] as String? ?? tr('Пользователь'),
+      username: switch (json['username']) {
+        final String value when value.trim().isNotEmpty => value.trim(),
+        _ => null,
+      },
       avatarUrl: json['avatar_url'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       followersCount: int.tryParse(json['followers_count'].toString()) ?? 0,

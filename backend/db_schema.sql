@@ -25,8 +25,14 @@ CREATE TABLE IF NOT EXISTS profiles (
     email TEXT UNIQUE,
     last_published_at TIMESTAMPTZ,
     is_blocked BOOLEAN DEFAULT FALSE,
-    token_version INTEGER NOT NULL DEFAULT 0
+    token_version INTEGER NOT NULL DEFAULT 0,
+    username TEXT
 );
+
+-- @адрес профиля; пространство имён общее с каналами (см. migrations/add_usernames.sql).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_username_lower
+    ON profiles (lower(username))
+    WHERE username IS NOT NULL;
 
 -- 3. Таблица квестов
 CREATE TABLE IF NOT EXISTS quests (

@@ -14,6 +14,7 @@ import { isStaff } from '../services/visibility';
 import { clientIp } from '../services/client_ip';
 import { grantDueRewards, rewardProgress } from '../services/rewards';
 import { uploadImage, UnsupportedImageError, acceptsImagePartMime } from '../services/image_host';
+import { parseUsername, usernameTaken } from '../services/usernames';
 import {
     COSMETICS,
     equippedFor,
@@ -327,53 +328,72 @@ router.get('/cosmetics/mine', authMiddleware, async (req: AuthRequest, res: Resp
 });
 
 // GET /profiles/:id (Обновленный SQL запрос)
+const fetchProfileRow = async (column: 'id' | 'username', value: string) => {
+    const profileQuery = `
+        SELECT
+            p.id, p.full_name, p.username, p.avatar_url, p.created_at, p.bio,
+            p.is_verified, p.role, p.ad_free_until,
+            p.streak_count, p.last_activity_date, p.last_seen_at,
+            p.banner_style, p.social_links, p.show_nsfw, p.cosmetics,
+            p.quiet_hours_enabled, p.timezone_offset,
+            p.total_playtime_seconds,
+            (SELECT COUNT(*)::int FROM user_followers WHERE user_id = p.id) as followers_count,
+            (SELECT COUNT(*)::int FROM user_followers WHERE follower_id = p.id) as following_count,
+            (SELECT COALESCE(SUM(like_count), 0)::int FROM quests WHERE author_id = p.id) as total_likes,
+            (SELECT COALESCE(SUM(downloads_count), 0)::int FROM quests WHERE author_id = p.id) as total_downloads,
+            (SELECT COALESCE(SUM(playtime_seconds), 0)::int FROM user_quest_playtime WHERE user_id = p.id) as total_quests_playtime_seconds
+        FROM profiles p
+        WHERE p.${column} = $1;
+    `;
+    const profile = await pool.query(profileQuery, [value]);
+    return profile.rows[0] ?? null;
+};
+
+/**
+ * Своя карточка и стафф видят полный профиль; остальным отдаём только
+ * публичные поля — без роли, приватности, последней активности и playtime.
+ */
+const visibleProfile = async (row: any, req: AuthRequest) => {
+    if (req.user?.id === row.id || (await isStaff(req))) return row;
+    const publicProfile: any = { ...row };
+    for (const field of [
+        'role',
+        'last_seen_at',
+        'timezone_offset',
+        'quiet_hours_enabled',
+        'show_nsfw',
+        'ad_free_until',
+        'total_playtime_seconds',
+        'total_quests_playtime_seconds',
+    ]) {
+        delete publicProfile[field];
+    }
+    return publicProfile;
+};
+
 router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     if (!uuidValidate(id)) return res.status(400).json({ error: "Invalid ID format" });
 
     try {
-        // ДОБАВЛЕНЫ ПОЛЯ: streak_count, last_activity_date, banner_style, social_links
-        const profileQuery = `
-            SELECT 
-                p.id, p.full_name, p.avatar_url, p.created_at, p.bio, 
-                p.is_verified, p.role, p.ad_free_until,
-                p.streak_count, p.last_activity_date, p.last_seen_at,
-                p.banner_style, p.social_links, p.show_nsfw, p.cosmetics,
-                p.quiet_hours_enabled, p.timezone_offset,
-                p.total_playtime_seconds,
-                (SELECT COUNT(*)::int FROM user_followers WHERE user_id = p.id) as followers_count,
-                (SELECT COUNT(*)::int FROM user_followers WHERE follower_id = p.id) as following_count,
-                (SELECT COALESCE(SUM(like_count), 0)::int FROM quests WHERE author_id = p.id) as total_likes,
-                (SELECT COALESCE(SUM(downloads_count), 0)::int FROM quests WHERE author_id = p.id) as total_downloads,
-                (SELECT COALESCE(SUM(playtime_seconds), 0)::int FROM user_quest_playtime WHERE user_id = p.id) as total_quests_playtime_seconds
-            FROM profiles p
-            WHERE p.id = $1;
-        `;
-        const profile = await pool.query(profileQuery, [id]);
+        const row = await fetchProfileRow('id', id);
+        if (!row) return res.status(404).json({ error: 'Profile not found' });
+        return res.json(await visibleProfile(row, req));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error getting profile' });
+    }
+});
 
-        if (profile.rows.length === 0) {
-            return res.status(404).json({ error: 'Profile not found' });
-        }
-        const row = profile.rows[0];
-        // Своя карточка и стафф видят полный профиль; остальным отдаём только
-        // публичные поля — без роли, приватности, последней активности и playtime.
-        if (req.user?.id === id || (await isStaff(req))) {
-            return res.json(row);
-        }
-        const publicProfile: any = { ...row };
-        for (const field of [
-            'role',
-            'last_seen_at',
-            'timezone_offset',
-            'quiet_hours_enabled',
-            'show_nsfw',
-            'ad_free_until',
-            'total_playtime_seconds',
-            'total_quests_playtime_seconds',
-        ]) {
-            delete publicProfile[field];
-        }
-        return res.json(publicProfile);
+// GET /profiles/by-username/:username — карточка по @адресу.
+router.get('/by-username/:username', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
+    const username = String(req.params.username || '').trim().replace(/^@+/, '').toLowerCase();
+    if (!username) return res.status(400).json({ error: 'Некорректный юзернейм' });
+
+    try {
+        const row = await fetchProfileRow('username', username);
+        if (!row) return res.status(404).json({ error: 'Profile not found' });
+        return res.json(await visibleProfile(row, req));
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error getting profile' });
@@ -475,6 +495,17 @@ router.post('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
         const updates: string[] = [];
         const values: any[] = [];
         let paramIndex = 1;
+
+        if (req.body.username !== undefined) {
+            const parsed = parseUsername(req.body.username);
+            if (parsed.error) return res.status(400).json({ error: parsed.error });
+            if (parsed.username && (await usernameTaken(parsed.username, userId))) {
+                return res.status(409).json({ error: 'Юзернейм занят' });
+            }
+            updates.push(`username = $${paramIndex}`);
+            values.push(parsed.username ?? null);
+            paramIndex++;
+        }
 
         if (full_name !== undefined) {
             updates.push(`full_name = $${paramIndex}`);

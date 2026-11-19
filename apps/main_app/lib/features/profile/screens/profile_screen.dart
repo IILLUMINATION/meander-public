@@ -1739,6 +1739,17 @@ class _ProfileHeader extends ConsumerWidget {
                 ),
             ],
           ),
+          if (profile.username != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              '@${profile.username}',
+              style: TextStyle(
+                color: scheme.primary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 6,
