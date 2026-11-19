@@ -12,8 +12,10 @@ TARGET_DIR="$ROOT/apps/main_app/assets/web_player"
 TARGET="$TARGET_DIR/quest_web_template.zip"
 
 echo "==> сборка оболочки: flutter build web"
+# MSYS/Git Bash на Windows иначе превращает «/» в «C:/Program Files/Git/»:
+# аргумент --base-href приходит во Flutter уже путём и сборка падает.
 (cd "$PLAYER" && flutter pub get >/dev/null && \
-  flutter build web --release --base-href / --no-web-resources-cdn)
+  MSYS_NO_PATHCONV=1 flutter build web --release --base-href / --no-web-resources-cdn)
 
 BUILD="$PLAYER/build/web"
 if [[ ! -f "$BUILD/index.html" ]]; then
