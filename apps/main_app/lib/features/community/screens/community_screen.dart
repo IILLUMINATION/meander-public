@@ -1,3 +1,4 @@
+import 'package:canvas_app/features/editor/workspace/editor_screen_tabs.dart';
 import 'package:canvas_app/features/community/models/community_user_model.dart';
 import 'package:canvas_app/features/community/providers/community_feed_provider.dart';
 import 'package:canvas_app/features/community/providers/community_users_provider.dart';
@@ -9,7 +10,6 @@ import 'package:canvas_app/features/forums/screens/forums_catalog_screen.dart';
 import 'package:canvas_app/features/forums/widgets/forum_topic_tile.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_model.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
-import 'package:canvas_app/features/profile/screens/profile_screen.dart';
 import 'package:canvas_app/features/wall/widgets/post_card.dart';
 import 'package:canvas_app/features/wall/screens/create_post_screen.dart';
 import 'package:canvas_app/core/l10n/l10n.dart';
@@ -54,7 +54,10 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     super.dispose();
   }
 
-  Future<void> _showCreatePostBottomSheet(BuildContext context, WidgetRef ref) async {
+  Future<void> _showCreatePostBottomSheet(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final localId = prefs.getString('user_id');
     if (localId == null || localId.isEmpty) {
@@ -67,12 +70,12 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     }
 
     if (!context.mounted) return;
-    
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => CreatePostScreen()),
     );
-    
+
     if (result == true && mounted) {
       _refreshAll();
     }
@@ -115,7 +118,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
   Widget _buildDesktopLayout(BuildContext context, ColorScheme scheme) {
     return Scaffold(
       backgroundColor: scheme.surface,
-      floatingActionButton: FloatingActionButton(heroTag: null, onPressed: () => _showCreatePostBottomSheet(context, ref),
+      floatingActionButton: FloatingActionButton(
+        heroTag: null,
+        onPressed: () => _showCreatePostBottomSheet(context, ref),
         child: const Icon(Icons.add_rounded),
       ),
       body: SafeArea(
@@ -126,9 +131,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Основная лента
-              Expanded(
-                child: _buildFeedColumn(context, scheme),
-              ),
+              Expanded(child: _buildFeedColumn(context, scheme)),
               // Боковая панель
               SizedBox(
                 width: kCommunitySidebarWidth,
@@ -184,7 +187,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
   Widget _buildMobileLayout(BuildContext context, ColorScheme scheme) {
     return Scaffold(
       backgroundColor: scheme.surface,
-      floatingActionButton: FloatingActionButton(heroTag: null, onPressed: () => _showCreatePostBottomSheet(context, ref),
+      floatingActionButton: FloatingActionButton(
+        heroTag: null,
+        onPressed: () => _showCreatePostBottomSheet(context, ref),
         child: const Icon(Icons.add_rounded),
       ),
       body: SafeArea(
@@ -238,17 +243,17 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: scheme.onSurface,
-                      ),
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onSurface,
+                  ),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ],
@@ -272,10 +277,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           context,
           title: tr('Активны на этой неделе'),
           subtitle: onlineAsync.maybeWhen(
-            data: (u) =>
-                u.isEmpty
-                    ? null
-                    : trf('{n} участников за неделю', {'n': u.length}),
+            data: (u) => u.isEmpty
+                ? null
+                : trf('{n} участников за неделю', {'n': u.length}),
             orElse: () => null,
           ),
         ),
@@ -370,9 +374,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
       avatar: Icon(
         icon,
         size: 16,
-        color: selected
-            ? scheme.onSecondaryContainer
-            : scheme.onSurfaceVariant,
+        color: selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
       ),
       label: Text(label),
       labelStyle: TextStyle(
@@ -404,8 +406,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     final metricLabel = _topFilter == 'followers'
         ? tr('подписч.')
         : _topFilter == 'likes'
-            ? tr('лайков')
-            : tr('квестов');
+        ? tr('лайков')
+        : tr('квестов');
     return Container(
       width: 156,
       margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -414,10 +416,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.id)),
-          ),
+          onTap: () => EditorScreenTabs.openProfile(context, user.id),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -550,15 +549,15 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                       Text(
                         tr('Сообщества'),
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         tr('Форумы по темам и обсуждение каждого квеста'),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -668,9 +667,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           Expanded(
             child: Text(
               tr('Лента активности'),
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
           ),
           SegmentedButton<String>(
@@ -682,9 +681,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             onSelectionChanged: (set) =>
                 setState(() => _feedFilter = set.first),
             showSelectedIcon: false,
-            style: const ButtonStyle(
-              visualDensity: VisualDensity.compact,
-            ),
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
           ),
         ],
       ),
@@ -719,9 +716,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             context,
             title: tr('Не удалось загрузить ленту'),
             detail: '${state.error}',
-            onRetry: () => ref
-                .read(communityFeedProvider(_feedFilter).notifier)
-                .refresh(),
+            onRetry: () =>
+                ref.read(communityFeedProvider(_feedFilter).notifier).refresh(),
           ),
         ),
       ];
@@ -758,7 +754,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     if (chunk1Count > 0) {
       slivers.add(_buildPostSliverList(posts.sublist(0, chunk1Count)));
     }
-    
+
     // Инъекция "Онлайн"
     slivers.add(SliverToBoxAdapter(child: const SizedBox(height: 24)));
     slivers.add(SliverToBoxAdapter(child: _buildOnlineSection(context)));
@@ -833,9 +829,8 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             context,
             title: tr('Не удалось загрузить ленту'),
             detail: '${state.error}',
-            onRetry: () => ref
-                .read(communityFeedProvider(_feedFilter).notifier)
-                .refresh(),
+            onRetry: () =>
+                ref.read(communityFeedProvider(_feedFilter).notifier).refresh(),
           ),
         ),
       ];
@@ -890,23 +885,20 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
 
   Widget _buildPostSliverList(List<dynamic> chunk) {
     return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          final post = chunk[index];
-          return PostCard(
-            key: ValueKey(post.id),
-            post: post,
-            isOwn: false,
-            onPostUpdated: (updated) => ref
-                .read(communityFeedProvider(_feedFilter).notifier)
-                .updatePostLocally(updated),
-            onPostDeleted: () => ref
-                .read(communityFeedProvider(_feedFilter).notifier)
-                .removePostLocally(post.id),
-          );
-        },
-        childCount: chunk.length,
-      ),
+      delegate: SliverChildBuilderDelegate((context, index) {
+        final post = chunk[index];
+        return PostCard(
+          key: ValueKey(post.id),
+          post: post,
+          isOwn: false,
+          onPostUpdated: (updated) => ref
+              .read(communityFeedProvider(_feedFilter).notifier)
+              .updatePostLocally(updated),
+          onPostDeleted: () => ref
+              .read(communityFeedProvider(_feedFilter).notifier)
+              .removePostLocally(post.id),
+        );
+      }, childCount: chunk.length),
     );
   }
 
@@ -921,10 +913,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
         child: Text(
           text,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: scheme.onSurfaceVariant,
-            fontSize: 13,
-          ),
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
         ),
       ),
     );
@@ -953,17 +942,17 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           const SizedBox(height: 16),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -985,9 +974,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           const SizedBox(height: 12),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Text(
@@ -995,9 +984,9 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             textAlign: TextAlign.center,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 16),
           FilledButton.tonalIcon(
@@ -1105,15 +1094,13 @@ class CommunityOnlineTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isOnline = user.lastSeenAt != null &&
+    final isOnline =
+        user.lastSeenAt != null &&
         DateTime.now().difference(user.lastSeenAt!).inMinutes < 15;
     final frameDef = cosmeticById(user.equipped.avatarFrame);
     final avatarRadius = (28 - avatarFrameOutset(frameDef)).clamp(16.0, 28.0);
     return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => ProfileScreen(userId: user.id)),
-      ),
+      onTap: () => EditorScreenTabs.openProfile(context, user.id),
       borderRadius: BorderRadius.circular(20),
       child: SizedBox(
         width: 80,
@@ -1152,8 +1139,7 @@ class CommunityOnlineTile extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: Colors.green,
                           shape: BoxShape.circle,
-                          border:
-                              Border.all(color: scheme.surface, width: 2),
+                          border: Border.all(color: scheme.surface, width: 2),
                         ),
                       ),
                     ),
@@ -1168,9 +1154,9 @@ class CommunityOnlineTile extends StatelessWidget {
                   def: cosmeticById(user.nameStyle),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface,
-                      ),
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
                 ),
               ),
             ],

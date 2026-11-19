@@ -5,6 +5,9 @@
 // ответа сервера попадают в модель (по ним резервируется место в пузыре).
 
 import 'package:canvas_app/features/messages/models/dm_models.dart';
+import 'package:canvas_app/features/messages/widgets/chat_attachments.dart';
+import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:canvas_app/shared/widgets/app_markdown_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -121,6 +124,55 @@ void main() {
 
     test('переносы строк схлопываются в пробел', () {
       expect(AppMarkdownInline.plain('раз\n\nдва'), 'раз два');
+    });
+  });
+
+  group('просмотрщик фото', () {
+    Future<void> openViewer(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: ChatAttachmentGrid(
+                attachments: DmAttachment.listFrom([_attachment()]),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byType(CachedNetworkImage));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    testWidgets('жест перетаскивания не закрывает фото', (tester) async {
+      await openViewer(tester);
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+
+      await tester.drag(find.byType(InteractiveViewer), const Offset(80, 40));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+      expect(find.byKey(const ValueKey('photo-viewer-close')), findsOneWidget);
+    });
+
+    testWidgets('закрывается кнопкой', (tester) async {
+      await openViewer(tester);
+
+      await tester.tap(find.byKey(const ValueKey('photo-viewer-close')));
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      expect(find.byType(InteractiveViewer), findsNothing);
+      expect(find.byType(ChatAttachmentGrid), findsOneWidget);
     });
   });
 }

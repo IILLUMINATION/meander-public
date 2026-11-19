@@ -45,7 +45,11 @@ class ChannelsNotifier extends StateNotifier<ChannelsState> {
 
   final Ref ref;
 
-  Future<void> load({String? query, bool? mineOnly, bool silent = false}) async {
+  Future<void> load({
+    String? query,
+    bool? mineOnly,
+    bool silent = false,
+  }) async {
     final nextQuery = query ?? state.query;
     final nextMine = mineOnly ?? state.mineOnly;
     if (!silent) {
@@ -192,6 +196,26 @@ class ChannelNotifier extends StateNotifier<ChannelState> {
     }
   }
 
+  /// Меняет @адрес канала. Возвращает текст ошибки или null.
+  Future<String?> setSlug(String slug) async {
+    try {
+      final api = ref.read(apiServiceProvider);
+      final response = await api.patch(
+        'channels/$channelId',
+        body: {'slug': slug},
+      );
+      final raw = response is Map ? response['channel'] : null;
+      if (raw is Map) {
+        state = state.copyWith(channel: Channel.fromJson(raw));
+      } else if (state.channel != null) {
+        state = state.copyWith(channel: state.channel!.copyWith(slug: slug));
+      }
+      return null;
+    } catch (e) {
+      return e.toString().replaceFirst('Exception: ', '');
+    }
+  }
+
   Future<String?> toggleSubscription() async {
     final channel = state.channel;
     if (channel == null) return tr('Канал не загружен');
@@ -216,7 +240,11 @@ class ChannelNotifier extends StateNotifier<ChannelState> {
       }
       return null;
     } catch (e, s) {
-      CrashLogService.log('channel: подписка не переключилась', error: e, stack: s);
+      CrashLogService.log(
+        'channel: подписка не переключилась',
+        error: e,
+        stack: s,
+      );
       return e.toString().replaceFirst('Exception: ', '');
     }
   }
@@ -225,7 +253,9 @@ class ChannelNotifier extends StateNotifier<ChannelState> {
     String body, {
     List<DmAttachment> attachments = const [],
   }) async {
-    if (!(state.channel?.canPost ?? false)) return tr('Писать может только владелец');
+    if (!(state.channel?.canPost ?? false)) {
+      return tr('Писать может только владелец');
+    }
     final text = body.trim();
     if (text.isEmpty && attachments.isEmpty) return null;
     state = state.copyWith(isSending: true);
@@ -251,10 +281,7 @@ class ChannelNotifier extends StateNotifier<ChannelState> {
       final raw = response is Map ? response['post'] : null;
       state = state.copyWith(
         isSending: false,
-        posts: [
-          if (raw is Map) ChannelPost.fromJson(raw),
-          ...state.posts,
-        ],
+        posts: [if (raw is Map) ChannelPost.fromJson(raw), ...state.posts],
         channel: state.channel?.copyWith(
           subscribersCount: state.channel?.subscribersCount,
         ),
@@ -283,6 +310,20 @@ class ChannelNotifier extends StateNotifier<ChannelState> {
     }
   }
 
+  /// Счётчик комментариев под постом после отправки: перезагружать всю ленту
+  /// ради +1 нельзя — человек вернётся к началу списка.
+  void noteCommentAdded(String postId) {
+    if (!mounted) return;
+    state = state.copyWith(
+      posts: [
+        for (final post in state.posts)
+          post.id == postId
+              ? post.copyWith(commentsCount: post.commentsCount + 1)
+              : post,
+      ],
+    );
+  }
+
   /// Отметка просмотра: один раз на человека, поэтому ошибку молча глотаем.
   Future<void> markViewed(String postId) async {
     try {
@@ -304,27 +345,37 @@ class ChannelCommentsState {
     this.comments = const [],
     this.isLoading = true,
     this.isSending = false,
+    this.error,
   });
 
   final List<ChannelComment> comments;
   final bool isLoading;
   final bool isSending;
 
+  /// Сбой загрузки. Показывается тем же экраном «Не удалось загрузить»,
+  /// что и в остальных комментариях: молчаливо пустой список выглядел как
+  /// «комментарии пропали».
+  final String? error;
+
   ChannelCommentsState copyWith({
     List<ChannelComment>? comments,
     bool? isLoading,
     bool? isSending,
+    String? error,
+    bool clearError = false,
   }) {
     return ChannelCommentsState(
       comments: comments ?? this.comments,
       isLoading: isLoading ?? this.isLoading,
       isSending: isSending ?? this.isSending,
+      error: clearError ? null : (error ?? this.error),
     );
   }
 }
 
 class ChannelCommentsNotifier extends StateNotifier<ChannelCommentsState> {
-  ChannelCommentsNotifier(this.ref, this.postId) : super(const ChannelCommentsState()) {
+  ChannelCommentsNotifier(this.ref, this.postId)
+    : super(const ChannelCommentsState()) {
     load();
   }
 
@@ -344,16 +395,24 @@ class ChannelCommentsNotifier extends StateNotifier<ChannelCommentsState> {
             if (row is Map) ChannelComment.fromJson(row),
         ],
       );
-    } catch (_) {
+    } catch (e, s) {
+      CrashLogService.log(
+        'channel: комментарии не загрузились',
+        error: e,
+        stack: s,
+      );
       if (!mounted) return;
-      state = state.copyWith(isLoading: false);
+      state = state.copyWith(
+        isLoading: false,
+        error: e.toString().replaceFirst('Exception: ', ''),
+      );
     }
   }
 
   Future<bool> send(String body) async {
     final text = body.trim();
     if (text.isEmpty || state.isSending) return false;
-    state = state.copyWith(isSending: true);
+    state = state.copyWith(isSending: true, clearError: true);
     try {
       final api = ref.read(apiServiceProvider);
       final response = await api.post(
@@ -379,8 +438,9 @@ class ChannelCommentsNotifier extends StateNotifier<ChannelCommentsState> {
   }
 }
 
-final channelCommentsProvider = StateNotifierProvider.family<
-  ChannelCommentsNotifier,
-  ChannelCommentsState,
-  String
->((ref, postId) => ChannelCommentsNotifier(ref, postId));
+final channelCommentsProvider =
+    StateNotifierProvider.family<
+      ChannelCommentsNotifier,
+      ChannelCommentsState,
+      String
+    >((ref, postId) => ChannelCommentsNotifier(ref, postId));

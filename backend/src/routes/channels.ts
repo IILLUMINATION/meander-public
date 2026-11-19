@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { validate as uuidValidate } from 'uuid';
 
 import pool from '../config/database';
+import { parseUsername, usernameTaken } from '../services/usernames';
 import {
   canCommentInChannel,
   canManageChannel,
@@ -95,7 +96,9 @@ router.post('/', authMiddleware, limitWrite, async (req: AuthRequest, res: Respo
   const description = text(req.body?.description).trim();
   const avatarUrl = text(req.body?.avatar_url).trim();
   const isPublic = req.body?.is_public !== false;
+  const parsedSlug = parseUsername(req.body?.slug);
 
+  if (parsedSlug.error) return res.status(400).json({ error: parsedSlug.error });
   if (title.length < 2 || title.length > CHANNEL_TITLE_MAX) {
     return res.status(400).json({ error: `Название от 2 до ${CHANNEL_TITLE_MAX} символов` });
   }
@@ -117,11 +120,16 @@ router.post('/', authMiddleware, limitWrite, async (req: AuthRequest, res: Respo
       return res.status(429).json({ error: `Не больше ${MAX_CHANNELS_PER_USER} каналов на аккаунт` });
     }
 
+    if (parsedSlug.username && (await usernameTaken(parsedSlug.username))) {
+      return res.status(409).json({ error: 'Юзернейм занят' });
+    }
+
     const created = await pool.query(
-      `INSERT INTO channels (owner_id, title, description, avatar_url, is_public)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, title, description, avatar_url, is_public, subscribers_count, posts_count, created_at`,
-      [me, title, description, avatarUrl || null, isPublic],
+      `INSERT INTO channels (owner_id, title, description, avatar_url, is_public, slug)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, title, slug, description, avatar_url, is_public, comments_enabled,
+                 subscribers_count, posts_count, created_at`,
+      [me, title, description, avatarUrl || null, isPublic, parsedSlug.username ?? null],
     );
     const channel = created.rows[0];
     await pool.query(
@@ -138,6 +146,37 @@ router.post('/', authMiddleware, limitWrite, async (req: AuthRequest, res: Respo
   } catch (error) {
     console.error('channel create:', error);
     res.status(500).json({ error: 'Не удалось создать канал' });
+  }
+});
+
+router.get('/by-slug/:slug', optionalAuthMiddleware, async (req: AuthRequest, res: Response) => {
+  const slug = String(req.params.slug || '').trim().replace(/^@+/, '').toLowerCase();
+  if (!slug) return res.status(400).json({ error: 'Некорректный адрес канала' });
+  try {
+    const found = await pool.query(
+      `SELECT id FROM channels WHERE lower(slug) = $1`,
+      [slug],
+    );
+    if (found.rows.length === 0) return res.status(404).json({ error: 'Канал не найден' });
+    const channelId = found.rows[0].id;
+    const result = await pool.query(
+      `SELECT c.id, c.title, c.slug, c.description, c.avatar_url, c.is_public,
+              c.comments_enabled, c.subscribers_count, c.posts_count,
+              c.created_at, c.last_post_at, c.owner_id,
+              s.role AS my_role, s.muted AS my_muted
+         FROM channels c
+         LEFT JOIN channel_subscribers s ON s.channel_id = c.id AND s.user_id = $2
+        WHERE c.id = $1`,
+      [channelId, req.user?.id ?? null],
+    );
+    const channel = result.rows[0];
+    if (!channel || !canReadChannel(channel.is_public, channel.my_role)) {
+      return res.status(404).json({ error: 'Канал не найден' });
+    }
+    res.json({ channel });
+  } catch (error) {
+    console.error('channel by slug:', error);
+    res.status(500).json({ error: 'Не удалось открыть канал' });
   }
 });
 
@@ -190,6 +229,16 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
     const isPublic = typeof req.body?.is_public === 'boolean' ? req.body.is_public : null;
     const commentsEnabled =
       typeof req.body?.comments_enabled === 'boolean' ? req.body.comments_enabled : null;
+    const slugProvided = req.body?.slug !== undefined;
+    let slug: string | null = null;
+    if (slugProvided) {
+      const parsed = parseUsername(req.body.slug);
+      if (parsed.error) return res.status(400).json({ error: parsed.error });
+      slug = parsed.username ?? null;
+      if (slug && (await usernameTaken(slug))) {
+        return res.status(409).json({ error: 'Юзернейм занят' });
+      }
+    }
 
     const updated = await pool.query(
       `UPDATE channels
@@ -198,11 +247,12 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
               avatar_url = COALESCE($4, avatar_url),
               is_public = COALESCE($5, is_public),
               comments_enabled = COALESCE($6, comments_enabled),
+              slug = CASE WHEN $7::boolean THEN $8 ELSE slug END,
               updated_at = NOW()
         WHERE id = $1
-        RETURNING id, title, description, avatar_url, is_public, comments_enabled,
+        RETURNING id, title, slug, description, avatar_url, is_public, comments_enabled,
                   subscribers_count, posts_count`,
-      [id, title, description, avatarUrl, isPublic, commentsEnabled],
+      [id, title, description, avatarUrl, isPublic, commentsEnabled, slugProvided, slug],
     );
     res.json({ channel: updated.rows[0] });
   } catch (error) {

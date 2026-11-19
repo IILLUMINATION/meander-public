@@ -35,9 +35,7 @@ class _ChannelsScreenState extends ConsumerState<ChannelsScreen> {
     ref.read(channelsProvider.notifier).load();
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ChannelScreen(channelId: created.id),
-      ),
+      MaterialPageRoute(builder: (_) => ChannelScreen(channelId: created.id)),
     );
   }
 
@@ -91,8 +89,9 @@ class _ChannelsScreenState extends ConsumerState<ChannelsScreen> {
                   child: FilterChip(
                     label: Text(tr('Только мои')),
                     selected: state.mineOnly,
-                    onSelected: (value) =>
-                        ref.read(channelsProvider.notifier).load(mineOnly: value),
+                    onSelected: (value) => ref
+                        .read(channelsProvider.notifier)
+                        .load(mineOnly: value),
                   ),
                 ),
               ],
@@ -143,7 +142,9 @@ class _ChannelsScreenState extends ConsumerState<ChannelsScreen> {
                 const SizedBox(height: 6),
                 Text(
                   state.error ??
-                      tr('Канал — это лента постов от одного автора. Подпишись, чтобы читать, или создай свой.'),
+                      tr(
+                        'Канал — это лента постов от одного автора. Подпишись, чтобы читать, или создай свой.',
+                      ),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
@@ -242,7 +243,11 @@ class _ChannelRow extends StatelessWidget {
                 ),
               ),
               if (channel.isSubscribed)
-                Icon(Icons.check_circle_rounded, size: 18, color: scheme.primary),
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: scheme.primary,
+                ),
             ],
           ),
         ),
@@ -261,6 +266,7 @@ class _CreateChannelSheet extends ConsumerStatefulWidget {
 
 class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
   final TextEditingController _title = TextEditingController();
+  final TextEditingController _slug = TextEditingController();
   final TextEditingController _description = TextEditingController();
   bool _isPublic = true;
   bool _saving = false;
@@ -269,6 +275,7 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
   @override
   void dispose() {
     _title.dispose();
+    _slug.dispose();
     _description.dispose();
     super.dispose();
   }
@@ -277,6 +284,16 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
     final title = _title.text.trim();
     if (title.length < 2) {
       setState(() => _error = tr('Название минимум два символа'));
+      return;
+    }
+    final slug = _slug.text
+        .trim()
+        .replaceFirst(RegExp(r'^@+'), '')
+        .toLowerCase();
+    if (slug.isNotEmpty && !RegExp(r'^[a-z][a-z0-9_]{2,31}$').hasMatch(slug)) {
+      setState(
+        () => _error = tr('Латинские буквы, цифры и _, от 3 до 32 символов'),
+      );
       return;
     }
     setState(() {
@@ -289,16 +306,14 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
         'channels',
         body: {
           'title': title,
+          'slug': slug,
           'description': _description.text.trim(),
           'is_public': _isPublic,
         },
       );
       if (!mounted) return;
       final raw = response is Map ? response['channel'] : null;
-      Navigator.pop(
-        context,
-        raw is Map ? Channel.fromJson(raw) : null,
-      );
+      Navigator.pop(context, raw is Map ? Channel.fromJson(raw) : null);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -322,7 +337,10 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(tr('Новый канал'), style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            tr('Новый канал'),
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 16),
           TextField(
             controller: _title,
@@ -330,6 +348,17 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
             maxLength: 80,
             decoration: InputDecoration(
               labelText: tr('Название'),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          TextField(
+            controller: _slug,
+            maxLength: 32,
+            decoration: InputDecoration(
+              labelText: tr('Адрес канала'),
+              prefixText: '@',
+              hintText: 'meander',
+              helperText: tr('Латинские буквы, цифры и _, от 3 до 32 символов'),
               border: const OutlineInputBorder(),
             ),
           ),
@@ -348,7 +377,9 @@ class _CreateChannelSheetState extends ConsumerState<_CreateChannelSheet> {
             contentPadding: EdgeInsets.zero,
             title: Text(tr('Публичный')),
             subtitle: Text(
-              tr('Публичный канал видно в поиске, приватный — только по ссылке'),
+              tr(
+                'Публичный канал видно в поиске, приватный — только по ссылке',
+              ),
             ),
           ),
           if (_error != null)

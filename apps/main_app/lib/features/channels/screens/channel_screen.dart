@@ -5,10 +5,11 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/utils/date_format.dart';
 import 'package:canvas_app/features/channels/models/channel_models.dart';
 import 'package:canvas_app/features/channels/providers/channels_provider.dart';
-import 'package:canvas_app/features/messages/models/dm_models.dart';
-import 'package:canvas_app/features/messages/services/chat_media_service.dart';
+import 'package:canvas_app/features/channels/screens/channel_comments_screen.dart';
+import 'package:canvas_app/features/channels/screens/channel_post_editor_screen.dart';
 import 'package:canvas_app/features/messages/widgets/chat_attachments.dart';
 import 'package:canvas_app/features/profile/cosmetics/cosmetic_widgets.dart';
+import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:canvas_app/shared/widgets/adaptive_ui.dart';
 import 'package:canvas_app/shared/widgets/app_markdown_config.dart';
 import 'package:flutter/foundation.dart';
@@ -29,19 +30,14 @@ class ChannelScreen extends ConsumerStatefulWidget {
 }
 
 class _ChannelScreenState extends ConsumerState<ChannelScreen> {
-  final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
-  final List<DmAttachment> _draft = [];
-  bool _uploading = false;
-  bool _composerOpen = false;
   final Set<String> _viewed = {};
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(() {
-      if (_scroll.position.pixels >
-          _scroll.position.maxScrollExtent - 400) {
+      if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 400) {
         ref.read(channelProvider(widget.channelId).notifier).loadOlder();
       }
     });
@@ -49,57 +45,21 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
 
   @override
   void dispose() {
-    _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<void> _publish() async {
-    final text = _input.text.trim();
-    if (text.isEmpty && _draft.isEmpty) return;
-    final notifier = ref.read(channelProvider(widget.channelId).notifier);
-    final outgoing = List<DmAttachment>.of(_draft);
-    final error = await notifier.publish(text, attachments: outgoing);
+  /// Новый пост пишется на отдельном экране — тем же редактором, что пост
+  /// сообщества. Возврат `true` — пост ушёл, лента уже обновлена провайдером.
+  Future<void> _compose() async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChannelPostEditorScreen(channelId: widget.channelId),
+      ),
+    );
     if (!mounted) return;
-    if (error == null) {
-      _input.clear();
-      setState(() {
-        _draft.clear();
-        _composerOpen = false;
-      });
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
-    }
-  }
-
-  Future<void> _pickPhotos() async {
-    if (_uploading || _draft.length >= ChatMediaService.albumLimit) return;
-    try {
-      final picked = await ChatMediaService.pickAlbum(
-        remaining: ChatMediaService.albumLimit - _draft.length,
-      );
-      if (picked.isEmpty || !mounted) return;
-      for (final file in picked) {
-        if (await file.length() > ChatMediaService.maxBytes) continue;
-        if (!mounted) return;
-        setState(() => _uploading = true);
-        final attachment = await ChatMediaService.upload(file);
-        if (!mounted) return;
-        setState(() => _draft.add(attachment));
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-    }
+    if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
   /// Ссылка на канал — публичная страница сайта: по ней канал открывается и
@@ -125,6 +85,62 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
   }
 
+  /// Владелец задаёт @адрес канала — короткую ссылку вместо uuid.
+  Future<void> _editSlug() async {
+    final channel = ref.read(channelProvider(widget.channelId)).channel;
+    if (channel == null) return;
+    final controller = TextEditingController(text: channel.slug ?? '');
+    final entered = await showAppDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr('Адрес канала')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 32,
+          decoration: InputDecoration(
+            prefixText: '@',
+            hintText: 'meander',
+            helperText: tr('Латинские буквы, цифры и _, от 3 до 32 символов'),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(tr('Отмена')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(tr('Сохранить')),
+          ),
+        ],
+      ),
+    );
+    if (entered == null) return;
+    final slug = entered.replaceFirst(RegExp(r'^@+'), '').toLowerCase();
+    if (slug == (channel.slug ?? '')) return;
+    if (slug.isNotEmpty && !RegExp(r'^[a-z][a-z0-9_]{2,31}$').hasMatch(slug)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('Латинские буквы, цифры и _, от 3 до 32 символов')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final error = await ref
+        .read(channelProvider(widget.channelId).notifier)
+        .setSlug(slug);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? tr('Адрес обновлён')),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -134,7 +150,9 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
     // Просмотр отмечаем по факту показа: первый кадр ленты = прочитано.
     for (final post in state.posts.take(3)) {
       if (_viewed.add(post.id)) {
-        ref.read(channelProvider(widget.channelId).notifier).markViewed(post.id);
+        ref
+            .read(channelProvider(widget.channelId).notifier)
+            .markViewed(post.id);
       }
     }
 
@@ -144,6 +162,13 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
         backgroundColor: scheme.surface,
         title: Text(channel?.title ?? tr('Канал')),
         actions: [
+          if (channel?.isOwner ?? false)
+            IconButton(
+              key: const ValueKey('channel-edit-slug'),
+              tooltip: tr('Адрес канала'),
+              onPressed: _editSlug,
+              icon: const Icon(Icons.alternate_email_rounded),
+            ),
           if (channel != null)
             IconButton(
               tooltip: tr('Поделиться'),
@@ -161,7 +186,8 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
       floatingActionButton: channel != null && channel.canPost
           ? FloatingActionButton(
               key: const ValueKey('channel-compose'),
-              onPressed: () => setState(() => _composerOpen = true),
+              tooltip: tr('Новый пост'),
+              onPressed: _compose,
               child: const Icon(Icons.edit_rounded),
             )
           : null,
@@ -207,33 +233,23 @@ class _ChannelScreenState extends ConsumerState<ChannelScreen> {
                     ),
                   ),
                 ),
-                if (_composerOpen && channel != null && channel.canPost)
-                  _PostComposer(
-                    controller: _input,
-                    isSending: state.isSending,
-                    draft: _draft,
-                    uploading: _uploading,
-                    onPickPhotos: _pickPhotos,
-                    onRemove: (index) =>
-                        setState(() => _draft.removeAt(index)),
-                    onPublish: _publish,
-                    onClose: () => setState(() {
-                      _composerOpen = false;
-                      _draft.clear();
-                      _input.clear();
-                    }),
-                  ),
               ],
             ),
     );
   }
 
   void _openComments(BuildContext context, ChannelPost post) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => _CommentsSheet(post: post),
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => ChannelCommentsScreen(
+          post: post,
+          channelTitle: ref
+              .read(channelProvider(widget.channelId))
+              .channel
+              ?.title,
+        ),
+      ),
     );
   }
 }
@@ -273,6 +289,16 @@ class _ChannelHeader extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                    if (channel.slug != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '@${channel.slug}',
+                        style: textTheme.labelMedium?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 2),
                     Text(
                       channelMetaLine(channel),
@@ -285,10 +311,7 @@ class _ChannelHeader extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               if (channel.canPost)
-                FilledButton.tonal(
-                  onPressed: null,
-                  child: Text(tr('Владелец')),
-                )
+                FilledButton.tonal(onPressed: null, child: Text(tr('Владелец')))
               else
                 FilledButton.tonal(
                   key: const ValueKey('channel-subscribe'),
@@ -337,9 +360,7 @@ class _PostCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -419,272 +440,6 @@ class _PostCard extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PostComposer extends StatelessWidget {
-  const _PostComposer({
-    required this.controller,
-    required this.isSending,
-    required this.draft,
-    required this.uploading,
-    required this.onPickPhotos,
-    required this.onRemove,
-    required this.onPublish,
-    required this.onClose,
-  });
-
-  final TextEditingController controller;
-  final bool isSending;
-  final List<DmAttachment> draft;
-  final bool uploading;
-  final VoidCallback onPickPhotos;
-  final void Function(int index) onRemove;
-  final VoidCallback onPublish;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        border: Border(top: BorderSide(color: scheme.outlineVariant)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AlbumDraftStrip(
-              previews: draft,
-              isUploading: uploading,
-              onRemove: onRemove,
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    onPressed: onClose,
-                    icon: Icon(Icons.close_rounded, color: scheme.onSurfaceVariant),
-                  ),
-                  IconButton(
-                    key: const ValueKey('channel-attach'),
-                    onPressed: uploading ? null : onPickPhotos,
-                    icon: Icon(
-                      Icons.add_photo_alternate_outlined,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      minLines: 1,
-                      maxLines: 8,
-                      decoration: InputDecoration(
-                        hintText: tr('Пост для подписчиков…'),
-                        filled: true,
-                        fillColor: scheme.surfaceContainerHigh,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: isSending ? null : onPublish,
-                    icon: isSending
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_rounded),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CommentsSheet extends ConsumerStatefulWidget {
-  const _CommentsSheet({required this.post});
-
-  final ChannelPost post;
-
-  @override
-  ConsumerState<_CommentsSheet> createState() => _CommentsSheetState();
-}
-
-class _CommentsSheetState extends ConsumerState<_CommentsSheet> {
-  final TextEditingController _input = TextEditingController();
-
-  @override
-  void dispose() {
-    _input.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    final text = _input.text.trim();
-    if (text.isEmpty) return;
-    final sent = await ref
-        .read(channelCommentsProvider(widget.post.id).notifier)
-        .send(text);
-    if (sent && mounted) _input.clear();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final state = ref.watch(channelCommentsProvider(widget.post.id));
-
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      maxChildSize: 0.92,
-      builder: (context, scroll) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  tr('Комментарии'),
-                  style: textTheme.titleMedium,
-                ),
-              ),
-            ),
-            Expanded(
-              child: state.isLoading
-                  ? Center(
-                      child: CircularProgressIndicator(color: scheme.primary),
-                    )
-                  : state.comments.isEmpty
-                  ? Center(
-                      child: Text(
-                        tr('Пока никто не написал'),
-                        style: textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scroll,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: state.comments.length,
-                      itemBuilder: (context, index) {
-                        final comment = state.comments[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CosmeticAvatar(
-                                frame: null,
-                                avatarUrl: comment.authorAvatarUrl,
-                                radius: 14,
-                                placeholderColor:
-                                    scheme.surfaceContainerHighest,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          comment.authorName ?? '',
-                                          style: textTheme.labelMedium
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          formatRelativeTime(
-                                            comment.createdAt,
-                                          ),
-                                          style: textTheme.labelSmall
-                                              ?.copyWith(
-                                                color:
-                                                    scheme.onSurfaceVariant,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      comment.body,
-                                      style: textTheme.bodyMedium,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        minLines: 1,
-                        maxLines: 4,
-                        decoration: InputDecoration(
-                          hintText: tr('Комментарий…'),
-                          filled: true,
-                          fillColor: scheme.surfaceContainerHigh,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      onPressed: state.isSending ? null : _send,
-                      icon: const Icon(Icons.send_rounded),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

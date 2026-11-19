@@ -40,7 +40,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: "Missing required fields" });
     }
 
-    if (!['quest', 'review', 'user', 'wall_post', 'wall_comment', 'asset', 'music', 'message'].includes(reported_type)) {
+    if (!['quest', 'review', 'user', 'wall_post', 'wall_comment', 'channel_comment', 'asset', 'music', 'message'].includes(reported_type)) {
         return res.status(400).json({ error: "Invalid reported_type" });
     }
 
@@ -78,6 +78,18 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         } else if (reported_type === 'wall_comment') {
             const commentCheck = await pool.query('SELECT id FROM author_post_comments WHERE id = $1', [reported_id]);
             if (commentCheck.rows.length === 0) {
+                return res.status(404).json({ error: "Comment not found" });
+            }
+        } else if (reported_type === 'channel_comment') {
+            // Комментарий канала живёт в другой таблице, чем комментарий
+            // стены: без отдельной ветки проверка существования отвечала
+            // «Comment not found» на живой комментарий, и пожаловаться на
+            // канал было нельзя.
+            const channelCommentCheck = await pool.query(
+                'SELECT id FROM channel_comments WHERE id = $1 AND deleted_at IS NULL',
+                [reported_id]
+            );
+            if (channelCommentCheck.rows.length === 0) {
                 return res.status(404).json({ error: "Comment not found" });
             }
         } else if (reported_type === 'asset') {

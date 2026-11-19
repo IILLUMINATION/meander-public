@@ -7,6 +7,7 @@ class Channel {
   const Channel({
     required this.id,
     required this.title,
+    this.slug,
     this.description = '',
     this.avatarUrl,
     this.isPublic = true,
@@ -20,6 +21,9 @@ class Channel {
 
   final String id;
   final String title;
+
+  /// @адрес канала; null — владелец его не задал.
+  final String? slug;
   final String description;
   final String? avatarUrl;
   final bool isPublic;
@@ -40,6 +44,10 @@ class Channel {
     return Channel(
       id: (json['id'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
+      slug: switch (json['slug']) {
+        final String value when value.trim().isNotEmpty => value.trim(),
+        _ => null,
+      },
       description: (json['description'] ?? '').toString(),
       avatarUrl: json['avatar_url']?.toString(),
       isPublic: json['is_public'] != false,
@@ -52,10 +60,16 @@ class Channel {
     );
   }
 
-  Channel copyWith({String? myRole, bool clearRole = false, int? subscribersCount}) {
+  Channel copyWith({
+    String? myRole,
+    bool clearRole = false,
+    int? subscribersCount,
+    String? slug,
+  }) {
     return Channel(
       id: id,
       title: title,
+      slug: slug ?? this.slug,
       description: description,
       avatarUrl: avatarUrl,
       isPublic: isPublic,
@@ -90,6 +104,23 @@ class ChannelPost {
   final int commentsCount;
   final DateTime? editedAt;
 
+  ChannelPost copyWith({
+    int? viewsCount,
+    int? commentsCount,
+    DateTime? editedAt,
+  }) {
+    return ChannelPost(
+      id: id,
+      channelId: channelId,
+      body: body,
+      createdAt: createdAt,
+      attachments: attachments,
+      viewsCount: viewsCount ?? this.viewsCount,
+      commentsCount: commentsCount ?? this.commentsCount,
+      editedAt: editedAt ?? this.editedAt,
+    );
+  }
+
   factory ChannelPost.fromJson(Map<dynamic, dynamic> json) {
     return ChannelPost(
       id: (json['id'] ?? '').toString(),
@@ -109,6 +140,7 @@ class ChannelComment {
     required this.id,
     required this.body,
     required this.createdAt,
+    this.authorId = '',
     this.authorName,
     this.authorAvatarUrl,
   });
@@ -116,6 +148,9 @@ class ChannelComment {
   final String id;
   final String body;
   final DateTime createdAt;
+
+  /// Пустая строка — профиль автора скрыт: карточку тогда не открываем.
+  final String authorId;
   final String? authorName;
   final String? authorAvatarUrl;
 
@@ -124,8 +159,11 @@ class ChannelComment {
       id: (json['id'] ?? '').toString(),
       body: (json['body'] ?? '').toString(),
       createdAt: _local(json['created_at']) ?? DateTime.now(),
-      authorName: json['author_name']?.toString() ?? json['full_name']?.toString(),
-      authorAvatarUrl: json['author_avatar_url']?.toString() ??
+      authorId: (json['author_id'] ?? '').toString(),
+      authorName:
+          json['author_name']?.toString() ?? json['full_name']?.toString(),
+      authorAvatarUrl:
+          json['author_avatar_url']?.toString() ??
           json['avatar_url']?.toString(),
     );
   }
@@ -148,7 +186,6 @@ String _compact(int value) {
   return '${thousands.toStringAsFixed(thousands >= 10 ? 0 : 1)}K';
 }
 
-int _int(Object? raw) =>
-    raw is int ? raw : int.tryParse('${raw ?? 0}') ?? 0;
+int _int(Object? raw) => raw is int ? raw : int.tryParse('${raw ?? 0}') ?? 0;
 
 DateTime? _local(Object? raw) => DateTime.tryParse('${raw ?? ''}')?.toLocal();

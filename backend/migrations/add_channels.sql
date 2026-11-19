@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS channels (
 );
 
 CREATE INDEX IF NOT EXISTS idx_channels_owner ON channels (owner_id);
+
+-- @адрес канала: одно пространство имён с профилями, без учёта регистра.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_slug_lower
+    ON channels (lower(slug))
+    WHERE slug IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_channels_public
     ON channels (is_public, subscribers_count DESC);
 

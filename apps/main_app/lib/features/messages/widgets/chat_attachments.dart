@@ -158,7 +158,8 @@ class _Tile extends StatelessWidget {
   }
 }
 
-/// Полноэкранный просмотр: чёрный фон, пинч-зум, «назад» по тапу.
+/// Полноэкранный просмотр с пинч-зумом. Закрытие — явной кнопкой или
+/// системным «назад»: жесты масштаба и перемещения не должны закрывать фото.
 class _PhotoViewer extends StatelessWidget {
   const _PhotoViewer({required this.url});
 
@@ -168,27 +169,52 @@ class _PhotoViewer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: () => Navigator.of(context).maybePop(),
-        child: SafeArea(
-          child: Center(
-            child: InteractiveViewer(
-              maxScale: 4,
-              child: CachedNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.contain,
-                placeholder: (context, _) => const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                ),
-                errorWidget: (context, _, _) => const Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.white70,
-                  size: 48,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: SafeArea(
+              child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                boundaryMargin: const EdgeInsets.all(80),
+                child: SizedBox.expand(
+                  child: CachedNetworkImage(
+                    imageUrl: url,
+                    fit: BoxFit.contain,
+                    placeholder: (context, _) => const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    ),
+                    errorWidget: (context, _, _) => const Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white70,
+                        size: 48,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: IconButton.filledTonal(
+                  key: const ValueKey('photo-viewer-close'),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  tooltip: tr('Закрыть'),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black54,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
