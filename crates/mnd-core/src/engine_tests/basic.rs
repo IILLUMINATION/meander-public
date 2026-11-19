@@ -92,6 +92,101 @@ fn start_from_save_drops_legacy_background_blur() {
 }
 
 #[test]
+fn restore_snapshot_replaces_state_without_running_node_enter() {
+    let nodes = vec![
+        SavedNode::from_json(&serde_json::json!({
+            "id": "node_1",
+            "title": "Start",
+            "scriptAssetId": "scripts/enter.json",
+            "content": { "items": [] },
+        })),
+        SavedNode::from_json(&serde_json::json!({
+            "id": "node_2",
+            "title": "Next",
+            "scriptAssetId": "scripts/enter.json",
+            "content": { "items": [] },
+        })),
+    ];
+    let scripts = HashMap::from([(
+        "scripts/enter.json".to_string(),
+        serde_json::json!({
+            "blocks": [{
+                "type": "event",
+                "eventType": "onNodeEnter",
+                "children": [{
+                    "type": "assign_variable",
+                    "variable": "входов",
+                    "value": 1,
+                    "операция": "прибавить",
+                }],
+            }],
+        }),
+    )]);
+    let mut engine = GameEngine::new(
+        "q1".to_string(),
+        config("q1"),
+        nodes,
+        vec![],
+        GameEngineConfig {
+            embedded_scripts: scripts,
+            ..Default::default()
+        },
+    );
+    engine.start_new(None).unwrap();
+    assert_eq!(
+        engine.state.get_variable("входов"),
+        Some(&serde_json::json!(1))
+    );
+    engine.state.set_variable("gold", serde_json::json!(7));
+    let variables = engine.state.variables().clone();
+    engine.state.set_table(
+        "лавка",
+        QuestTable::new("лавка".to_string(), vec![], vec![], serde_json::Map::new()),
+    );
+    let tables = tables_to_map(&engine.state);
+
+    engine.load_node("node_2").unwrap();
+    engine.state.set_variable("лишняя", serde_json::json!(true));
+    engine.state.set_table(
+        "лишняя",
+        QuestTable::new("лишняя".to_string(), vec![], vec![], serde_json::Map::new()),
+    );
+    assert_eq!(
+        engine.state.get_variable("входов"),
+        Some(&serde_json::json!(2)),
+        "обычный вход выполняет onNodeEnter"
+    );
+
+    let view = engine
+        .restore_snapshot("node_1", variables, tables)
+        .expect("restore");
+    assert_eq!(view.node_id, "node_1");
+    assert_eq!(
+        engine.state.get_variable("gold"),
+        Some(&serde_json::json!(7))
+    );
+    assert_eq!(
+        engine.state.get_variable("лишняя"),
+        None,
+        "переменная, появившаяся после шага, должна исчезнуть"
+    );
+    assert!(engine.state.tables().contains_key("лавка"));
+    assert!(
+        !engine.state.tables().contains_key("лишняя"),
+        "таблицы после шага должны исчезнуть"
+    );
+    assert_eq!(
+        engine.state.get_variable("входов"),
+        Some(&serde_json::json!(1)),
+        "restore не должен повторно выполнять onNodeEnter"
+    );
+    assert_eq!(
+        engine.state.get_variable("ID"),
+        Some(&serde_json::json!("node_1"))
+    );
+}
+
+#[test]
 fn next_item_reveals_items_in_order() {
     let nodes = vec![node(
         "node_1",

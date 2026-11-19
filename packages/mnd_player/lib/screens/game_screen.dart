@@ -36,6 +36,7 @@ import 'package:mnd_player/screens/load_game_screen.dart';
 import 'package:mnd_player/screens/table_viewer_screen.dart';
 import 'package:mnd_player/services/save_game_provider.dart';
 import 'package:mnd_player/utils/locale_fix.dart';
+import 'package:mnd_player/utils/load_trace.dart';
 
 /// Есть ли в ноде хоть один текст с включённой анимацией появления.
 /// Глубокий обход сырого JSON контента: elements уже разобраны только у
@@ -73,6 +74,11 @@ class GameScreen extends ConsumerStatefulWidget {
   final bool isOnboarding;
   final SaveSlot? saveSlot;
   final bool isTesting;
+
+  /// Игровая вкладка видима. Фоновая вкладка воркспейса остаётся
+  /// смонтированной, но не должна перехватывать системный «назад»:
+  /// иначе её PopScope показывает диалог выхода уже в редакторе.
+  final bool isActive;
   final VoidCallback? onEditNode;
   final VoidCallback? onFinish;
 
@@ -101,6 +107,7 @@ class GameScreen extends ConsumerStatefulWidget {
     this.isOnboarding = false,
     this.saveSlot,
     this.isTesting = false,
+    this.isActive = true,
     this.onEditNode,
     this.onFinish,
     this.shotOnly = false,
@@ -151,10 +158,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   /// Ключ игровой сессии: questId + docKey (вкладка).
   late final GameSessionKey _sessionKey;
-
-  /// История на время шага назад: возврат не должен «дописывать» ноду,
-  /// на которую вернулись, — иначе игрок ходит по кругу A↔B.
-  List<dynamic>? _historyAfterStepBack;
 
   /// Кадр сцены без верхней панели — из него собирается снимок для маркета.
   final GlobalKey _shotKey = GlobalKey();
@@ -256,15 +259,26 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (!mounted) return;
 
     final sessionStart = DateTime.now();
-    void stageLog(String stage) => debugPrint(
-      '[Perf][Game] $stage: '
-      '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
+    void stageLog(String stage) {
+      debugPrint(
+        '[Perf][Game] $stage: '
+        '${DateTime.now().difference(sessionStart).inMilliseconds}ms',
+      );
+      LoadTrace.mark('game: $stage');
+    }
+
+    LoadTrace.begin(
+      'quest=${widget.questId} node=${widget.startNodeId ?? '-'} '
+      'save=${widget.saveSlot != null}',
     );
 
     // Префлайт (safety-аудит, проверка плагинов) — main_app передаёт колбэк.
     final canStart = await widget.preflight?.call() ?? true;
     stageLog('preflight');
-    if (!canStart || !mounted) return;
+    if (!canStart || !mounted) {
+      LoadTrace.end();
+      return;
+    }
 
     final notifier = ref.read(gameScreenProvider(_key).notifier);
     await notifier.initializeGameSession();
@@ -275,6 +289,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       saveSlot: widget.saveSlot,
     );
     stageLog('initial node total');
+    LoadTrace.end();
     ref
         .read(gameScreenHooksProvider)
         .onGameSessionStarted
@@ -449,7 +464,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       // переход, а у прямой мутации канала возврата нет — забираем его здесь,
       // иначе нода не сменится, пока игрок снова ничего не нажмёт.
       final next = engine.takePendingTransition();
-      if (next != null && mounted) notifier.loadNode(next);
+      if (next != null && mounted) {
+        notifier.loadNode(next);
+      } else {
+        // Подписка на данные могла не перевести ноду, но поставить другую
+        // команду (open_saves/save_game/audio). Раньше её никто не забирал.
+        unawaited(notifier.syncEngineState());
+      }
     }
   }
 
@@ -1144,34 +1165,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     ) {
       if (!context.mounted) return;
       if (next != null && next.id != previous?.id) {
-        final gameStateNotifier = ref.read(gameStateProvider.notifier);
-        final planned = _historyAfterStepBack;
-        List<dynamic> currentHistory;
-        if (planned != null && planned.isNotEmpty && planned.last == next.id) {
-          // Шаг назад удался: история — это то, что осталось после возврата.
-          // Если нода на входе увела дальше, план не совпадёт и история
-          // честно допишется ниже.
-          currentHistory = List.from(planned);
-          _historyAfterStepBack = null;
-        } else {
-          final rawHistory = gameStateNotifier.getVariable('_SYS_HISTORY');
-          currentHistory = rawHistory is List ? List.from(rawHistory) : [];
-          currentHistory.add(next.id);
-        }
-        // Ограничиваем историю последними 100 нодами: без ограничения она
-        // растёт всю сессию, и deepEquals в GameState на каждую эмиссию
-        // становится всё дороже — длинные сессии постепенно лагают.
-        const historyCap = 100;
-        if (currentHistory.length > historyCap) {
-          currentHistory = currentHistory.sublist(
-            currentHistory.length - historyCap,
-          );
-        }
-        final engine = ref.read(gameScreenProvider(_key).notifier).engine;
-        if (engine != null && !engine.isDisposed) {
-          engine.setStateVariable('_SYS_HISTORY', currentHistory);
-        }
-
         // --- БЕЗОПАСНОЕ ОБНОВЛЕНИЕ АУДИО ---
         _updateBackgrounds(next);
       }
@@ -1195,34 +1188,37 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         ? panelHiddenByScript
         : panelHiddenByDefault;
 
-    return GameSessionScope(
-      sessionKey: _key,
-      child: PopScope(
-        canPop: false,
-        onPopInvoked: (didPop) async {
-          if (didPop) return;
-          await _exitGame();
-        },
-        child: Focus(
-          focusNode: _focusNode,
-          autofocus: true,
-          child: DefaultTextStyle(
-            style: TextStyle(
-              fontFamily: screenState.fontFamily,
-              color: Colors.white,
-            ),
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              extendBodyBehindAppBar: !hideTopPanel,
-              appBar: hideTopPanel ? null : _buildAppBar(context, screenState),
-              body: RepaintBoundary(
-                key: _shotKey,
-                child: _buildBody(screenState),
-              ),
-            ),
-          ),
+    final content = Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      child: DefaultTextStyle(
+        style: TextStyle(
+          fontFamily: screenState.fontFamily,
+          color: Colors.white,
+        ),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBodyBehindAppBar: !hideTopPanel,
+          appBar: hideTopPanel ? null : _buildAppBar(context, screenState),
+          body: RepaintBoundary(key: _shotKey, child: _buildBody(screenState)),
         ),
       ),
+    );
+
+    return GameSessionScope(
+      sessionKey: _key,
+      // Неактивная вкладка не регистрирует PopScope: «назад» в редакторе
+      // должен обрабатывать активный документ, а не фоновая симуляция.
+      child: widget.isActive
+          ? PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, result) async {
+                if (didPop) return;
+                await _handleBack();
+              },
+              child: content,
+            )
+          : content,
     );
   }
 
@@ -1326,35 +1322,74 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     return renderObject.toImage(pixelRatio: 2);
   }
 
-  /// Шаг назад: вернуться на ноду, с которой игрок пришёл.
-  ///
-  /// Откатывается только навигация: переменные, таблицы и показанные айтемы
-  /// остаются как есть — полноценный откат состояния сделал бы квест
-  /// непредсказуемым. `onNodeEnter` целевой ноды выполнится заново.
+  /// Шаг назад: откатить состояние и вернуть ноду, с которой игрок пришёл.
   Future<void> _stepBack() async {
-    final notifier = ref.read(gameStateProvider.notifier);
-    final raw = notifier.getVariable('_SYS_HISTORY');
-    final target = stepBackTarget(raw is List ? raw : const []);
-    if (target == null) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Это начало квеста — назад некуда'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(milliseconds: 1400),
-        ),
-      );
+    final notifier = ref.read(gameScreenProvider(_key).notifier);
+    if (!notifier.canStepBack) {
+      _showNothingToUndo();
       return;
     }
-    final trimmed = List<dynamic>.from(raw as List)..removeLast();
-    _historyAfterStepBack = trimmed;
-    try {
-      await ref.read(gameScreenProvider(_key).notifier).loadNode(target);
-    } finally {
-      // loadNode мог не дойти до смены ноды — тогда план не должен
-      // пережить следующий переход.
-      _historyAfterStepBack = null;
+    await notifier.stepBack();
+  }
+
+  void _showNothingToUndo() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Это начало квеста — назад некуда'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(milliseconds: 1400),
+      ),
+    );
+  }
+
+  /// Системный «назад».
+  ///
+  /// С включённым шагом назад он откатывает шаг, а не закрывает квест: игрок
+  /// не теряет прогресс от случайного свайпа. Без шага назад — спрашиваем,
+  /// потому что кнопка «назад» рядом с игровыми жестами легко нажимается
+  /// случайно.
+  Future<void> _handleBack() async {
+    if (!widget.isActive) return;
+    final quest = ref.read(questProvider(widget.questId)).value;
+    final stepBackEnabled = quest?.allowStepBack ?? false;
+    if (stepBackEnabled) {
+      final notifier = ref.read(gameScreenProvider(_key).notifier);
+      if (notifier.canStepBack) {
+        await notifier.stepBack();
+      } else {
+        _showNothingToUndo();
+      }
+      return;
     }
+    await _confirmExit();
+  }
+
+  Future<void> _confirmExit() async {
+    if (!mounted) return;
+    // Тестовый запуск из редактора и debug-сессии выходят сразу: модалка
+    // «Выйти из квеста?» нужна игроку, а не автору, который проверяет квест.
+    if (widget.isTesting) {
+      await _exitGame();
+      return;
+    }
+    final exit = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: const Text('Выйти из квеста?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Остаться'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Выйти'),
+          ),
+        ],
+      ),
+    );
+    if (exit == true) await _exitGame();
   }
 
   // --- ИСПРАВЛЕННАЯ ЛОГИКА АУДИО ---
@@ -1630,10 +1665,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                     child: ContentDisplayFactory.build(
                       item: item,
                       questId: widget.questId,
-                      onInteract:
-                          widget.shotOnly ? (_) {} : _onItemInteract,
-                      onInputSubmitted:
-                          widget.shotOnly ? (_, _) {} : _onInputSubmitted,
+                      onInteract: widget.shotOnly ? (_) {} : _onItemInteract,
+                      onInputSubmitted: widget.shotOnly
+                          ? (_, _) {}
+                          : _onInputSubmitted,
                       onComplete: widget.shotOnly
                           ? () {}
                           : () => ref
@@ -1745,8 +1780,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               fromPresentationId: screenState.presentationId,
             ),
       onTransition: widget.shotOnly ? (_) {} : (id) => notifier.loadNode(id),
-      onNavigateToNode:
-          widget.shotOnly ? (_) {} : (id) => notifier.loadNode(id),
+      onNavigateToNode: widget.shotOnly
+          ? (_) {}
+          : (id) => notifier.loadNode(id),
       audioVolume: contentVolume,
       fontFamily: fontFamily,
       scriptEngineMode: scriptEngineMode,
@@ -2218,18 +2254,6 @@ class _NodeLoadingView extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Нода, на которую ведёт шаг назад: последняя в истории, кроме текущей.
-///
-/// `null` — возвращаться некуда: история пуста или в ней только текущая нода.
-/// Пустые записи пропускаются: история могла пережить кривой сейв.
-String? stepBackTarget(List<dynamic> history) {
-  for (var i = history.length - 2; i >= 0; i--) {
-    final id = history[i]?.toString() ?? '';
-    if (id.isNotEmpty) return id;
-  }
-  return null;
 }
 
 /// `backgroundVideoFit` ноды → [BoxFit]. Имена пишутся как в Flutter, но

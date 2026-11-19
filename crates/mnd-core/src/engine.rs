@@ -992,6 +992,30 @@ impl GameEngine {
 
     /// Загрузить ноду: выполнить onNodeEnter-скрипты, разрешить контент.
     pub fn load_node(&mut self, node_id: &str) -> Option<NodeView> {
+        self.load_node_inner(node_id, true)
+    }
+
+    /// Восстановить состояние шага назад: переменные и таблицы берутся из
+    /// снимка, `onNodeEnter` целевой ноды НЕ выполняется. Иначе возврат на
+    /// предыдущую ноду применял бы её входные эффекты второй раз, а шаг назад
+    /// обязан откатывать состояние, а не прокручивать сцену заново.
+    pub fn restore_snapshot(
+        &mut self,
+        node_id: &str,
+        variables: Map<String, Value>,
+        tables: Map<String, Value>,
+    ) -> Option<NodeView> {
+        self.state.clear();
+        for (name, value) in variables {
+            self.state.set_variable(&name, value);
+        }
+        for (name, raw) in tables {
+            self.state.set_table(&name, QuestTable::from_json(&raw));
+        }
+        self.load_node_inner(node_id, false)
+    }
+
+    fn load_node_inner(&mut self, node_id: &str, run_node_enter: bool) -> Option<NodeView> {
         let raw = self.nodes.get(node_id)?.clone();
         let resolved = self.resolve_node(raw);
 
@@ -1025,21 +1049,23 @@ impl GameEngine {
 
         // Скрипт-ассет ноды (onNodeEnter) — JSON или `.lua`.
         let mut transition = None;
-        if let Some(script_id) = resolved.script_asset_id.clone()
-            && !script_id.is_empty()
-        {
-            transition = if self.is_lua_path(&script_id) {
-                self.execute_lua_file(&script_id, EventType::OnNodeEnter, None)
-            } else {
-                self.execute_script_file(&script_id, EventType::OnNodeEnter, None, None)
-            };
-        }
+        if run_node_enter {
+            if let Some(script_id) = resolved.script_asset_id.clone()
+                && !script_id.is_empty()
+            {
+                transition = if self.is_lua_path(&script_id) {
+                    self.execute_lua_file(&script_id, EventType::OnNodeEnter, None)
+                } else {
+                    self.execute_script_file(&script_id, EventType::OnNodeEnter, None, None)
+                };
+            }
 
-        // Inline onNodeEnter script-айтемы.
-        if transition.is_none()
-            && let Some(next) = self.run_inline_scripts(&resolved, EventType::OnNodeEnter)
-        {
-            transition = Some(next);
+            // Inline onNodeEnter script-айтемы.
+            if transition.is_none()
+                && let Some(next) = self.run_inline_scripts(&resolved, EventType::OnNodeEnter)
+            {
+                transition = Some(next);
+            }
         }
 
         // Фоновое изображение/видео/аудио + таймер.
@@ -1058,7 +1084,11 @@ impl GameEngine {
 
         // Граница шага: onNodeEnter мог наработать изменений. Если нода
         // уходит по переходу, диспетчер не запускаем — накопленное сгорает.
-        if transition.is_none() {
+        // При восстановлении снимка входных эффектов нет: изменения от самой
+        // установки переменных не должны выглядеть как действия игрока.
+        if !run_node_enter {
+            self.state.reset_changed_paths();
+        } else if transition.is_none() {
             transition = self.flush_data_changes();
         } else {
             self.state.reset_changed_paths();

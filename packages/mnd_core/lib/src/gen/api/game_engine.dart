@@ -38,6 +38,21 @@ Future<String?> gameEngineStartFromSave({required int handle, required String sa
 Future<String?> gameEngineLoadNode({required int handle, required String nodeId}) =>
     RustLib.instance.api.crateApiGameEngineGameEngineLoadNode(handle: handle, nodeId: nodeId);
 
+/// Шаг назад: восстановить переменные/таблицы из снимка и показать ноду
+/// без повторного `onNodeEnter`. `variables_json`/`tables_json` — объекты
+/// `имя → значение` (таблицы — `QuestTable.to_json()`).
+Future<String?> gameEngineRestoreSnapshot({
+  required int handle,
+  required String nodeId,
+  required String variablesJson,
+  required String tablesJson,
+}) => RustLib.instance.api.crateApiGameEngineGameEngineRestoreSnapshot(
+  handle: handle,
+  nodeId: nodeId,
+  variablesJson: variablesJson,
+  tablesJson: tablesJson,
+);
+
 /// Снапшот текущего состояния (для автосейва): JSON
 /// `{currentNodeId, variables, tables}`.
 Future<String> gameEngineSnapshot({required int handle}) =>

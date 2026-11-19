@@ -224,6 +224,21 @@ class GameScreenState {
 // Notifier
 // ---------------------------------------------------------------------------
 
+/// Состояние, к которому вернёт шаг назад: нода и переменные/таблицы на
+/// момент ухода из неё. Одна запись = один пройденный переход.
+@immutable
+class GameBackSnapshot {
+  final String nodeId;
+  final Map<String, dynamic> variables;
+  final Map<String, dynamic> tables;
+
+  const GameBackSnapshot({
+    required this.nodeId,
+    required this.variables,
+    required this.tables,
+  });
+}
+
 class GameScreenNotifier extends StateNotifier<GameScreenState> {
   final Ref _ref;
   final String _questId;
@@ -285,6 +300,55 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
   Future<void> _engineQueue = Future<void>.value();
   String? _currentNodeId;
   final Set<String> _armedTimers = {};
+
+  /// Стек шага назад: снимок состояния на момент ухода из ноды. Ограничен
+  /// последними 100 переходами, как и `_SYS_HISTORY`.
+  final List<GameBackSnapshot> _backStack = [];
+  bool _restoringSnapshot = false;
+
+  bool get canStepBack => _backStack.isNotEmpty;
+
+  static const int _historyCap = 100;
+
+  Map<String, dynamic> _deepCopyMap(Map<String, dynamic> source) =>
+      jsonDecode(jsonEncode(source)) as Map<String, dynamic>;
+
+  Map<String, dynamic> _captureTables(GameState state) => {
+    for (final entry in state.tables.entries)
+      entry.key: _deepCopyMap(entry.value.toJson()),
+  };
+
+  /// Снимок состояния уходящей ноды для шага назад.
+  GameBackSnapshot _captureBack(String nodeId) {
+    final state = _ref.read(gameStateProvider);
+    return GameBackSnapshot(
+      nodeId: nodeId,
+      variables: _deepCopyMap(state.variables),
+      tables: _captureTables(state),
+    );
+  }
+
+  void _pushBack(GameBackSnapshot snapshot) {
+    _backStack.add(snapshot);
+    if (_backStack.length > _historyCap) _backStack.removeAt(0);
+  }
+
+  /// История для кнопки/системного «назад»: последняя нода, кроме текущей.
+  void _appendHistory(String nodeId) {
+    final gameState = _ref.read(gameStateProvider.notifier);
+    final raw = gameState.getVariable('_SYS_HISTORY');
+    final history = raw is List ? List<dynamic>.from(raw) : <dynamic>[];
+    if (history.isNotEmpty && history.last == nodeId) return;
+    history.add(nodeId);
+    if (history.length > _historyCap) {
+      history.removeRange(0, history.length - _historyCap);
+    }
+    gameState.setVariable('_SYS_HISTORY', history);
+    final engine = _engine;
+    if (engine != null && !engine.isDisposed) {
+      engine.setStateVariable('_SYS_HISTORY', history);
+    }
+  }
 
   Timer? _contentReloadDebounce;
   DateTime? _lastReloadAt;
@@ -1129,6 +1193,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
             preservePresentation: preservePresentation,
           );
           _armPendingTimers();
+          await _drainExternal();
           return;
         }
       }
@@ -1144,6 +1209,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
         await _syncStateFromEngine();
         await _applyNodeView(view, preservePresentation: preservePresentation);
         _armPendingTimers();
+        await _drainExternal();
       }
     } catch (e, stack) {
       _log('⚠️ reloadNodeAfterEditor error: $e');
@@ -1206,10 +1272,16 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     _log('Initializing session...');
     _step('initializeGameSession: start');
     try {
-      try {
-        await WakelockPlus.enable();
-      } catch (_) {}
-      _step('initializeGameSession: wakelock');
+      // Wakelock — не условие показа сцены: на Linux/Android канал может
+      // отвечать сотни миллисекунд. Включаем фоном; если игра успела
+      // закрыться, гасим его сами, чтобы не оставить экран разбуженным.
+      unawaited(() async {
+        try {
+          await WakelockPlus.enable();
+          if (!_alive) await WakelockPlus.disable();
+        } catch (_) {}
+      }());
+      _step('initializeGameSession: wakelock started');
 
       // Аудио инициализируем на всех нативных платформах (Android/iOS/Windows/Linux/macOS).
       // kIsWeb ветка тоже инициализируется, но lifecycle-пауза для веба — no-op (см. handleAppLifecyclePaused).
@@ -1246,10 +1318,12 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       }
 
       await _loadCustomFont();
+      _step('initializeGameSession: custom font');
       // Прогреваем кэш настройки фона, чтобы первый уход в фон не ждал future с гонкой.
       try {
         await _resolveMusicInBackground();
       } catch (_) {}
+      _step('initializeGameSession: music settings');
       _step('initializeGameSession: audio+font');
       _log('✅ Audio & Font initialized');
     } catch (e) {
@@ -1288,6 +1362,8 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     // Новая игровая сессия: сбросить переменные/таблицы прошлой игры
     // (gameStateProvider не autoDispose, поэтому нужна явная очистка).
     _ref.read(gameStateProvider.notifier).clear();
+    _backStack.clear();
+    _restoringSnapshot = false;
     _pacingHeldVars = const {};
     _pacingHeldTables = const {};
     _step('loadInitialNode');
@@ -1304,6 +1380,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       state = state.copyWith(isLoading: true, clearError: true);
       final engine = await _createEngine();
       perfLog('engine created');
+      _step('loadInitialNode: engine created');
       if (engine == null) throw Exception('Не удалось создать движок.');
       _engine = engine;
 
@@ -1322,6 +1399,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
         );
       }
       perfLog('start node loaded');
+      _step('loadInitialNode: start node loaded');
 
       if (view == null) {
         throw Exception(
@@ -1364,6 +1442,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       await _applyNodeView(view, pacingSteps: pacingSteps);
       _armPendingTimers();
       perfLog('scene ready');
+      _step('loadInitialNode: scene ready');
       _log('✅ loadInitialNode complete');
     } catch (e, stack) {
       _log('❌ Error in loadInitialNode: $e\n$stack');
@@ -1385,6 +1464,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     if (!_alive) return;
     _step('applyNodeView: parse node');
     final nodeId = view['nodeId'] as String;
+    final previousNodeId = _currentNodeId;
     _currentNodeId = nodeId;
 
     final rawNode = view['node'];
@@ -1411,12 +1491,14 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       final full = await QuestImageSource.resolveOnDisk(_questId, bgVideoId);
       if (full.isNotEmpty) bgVideoPath = full;
     }
+    _step('applyNodeView: background resolved');
 
     // Шрифты айтемов (стили кнопок, item.fontFamily, инлайн-теги [font=])
     // должны быть загружены до отрисовки — family-имя резолвится
     // детерминированно, но FontLoader должен отработать, иначе текст упадёт
     // на дефолтный шрифт.
     await _ensureItemFonts(node);
+    _step('applyNodeView: fonts loaded');
 
     if (!_alive || _currentNodeId != nodeId) return;
 
@@ -1438,6 +1520,11 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
           : view['presentationId'] as String? ?? const Uuid().v4(),
       revealEpoch: state.revealEpoch + 1,
     );
+    _step('applyNodeView: state set');
+
+    if (!_restoringSnapshot && previousNodeId != nodeId) {
+      _appendHistory(nodeId);
+    }
 
     _log('   UI State updated. Starting reveal...');
     revealNextItem();
@@ -1526,13 +1613,91 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     }
   }
 
+  /// Шаг назад: вернуть состояние и ноду из последнего снимка.
+  ///
+  /// В отличие от обычного перехода, `onNodeEnter` не выполняется: это откат
+  /// уже случившегося шага, а не повторный вход. Возвращает false, если
+  /// откатывать нечего или движок не смог показать ноду.
+  Future<bool> stepBack() async {
+    final engine = _engine;
+    if (engine == null || _backStack.isEmpty || _restoringSnapshot) {
+      return false;
+    }
+    final snapshot = _backStack.last;
+    _log("<<< STEP BACK TO: '${snapshot.nodeId}'");
+
+    _loadingNodeId = snapshot.nodeId;
+    _revealGeneration++;
+    _revealSuspended = true;
+    final loadedGen = _revealGeneration;
+    _isRevealing = false;
+    _revealRequested = false;
+    _stopTimer();
+    _restoringSnapshot = true;
+
+    try {
+      await _releasePacingHold();
+      if (!_alive || _loadingNodeId != snapshot.nodeId) return false;
+      final view = await _engineCall(
+        'stepBack: restoreSnapshot',
+        () => engine.restoreSnapshot(
+          nodeId: snapshot.nodeId,
+          variables: snapshot.variables,
+          tables: snapshot.tables,
+        ),
+      );
+      if (view == null) {
+        _log('⚠️ stepBack: нода «${snapshot.nodeId}» не найдена');
+        return false;
+      }
+      // Команды ушедшей сцены не должны доиграться поверх отката, а дельта
+      // восстановления уже применена ниже целиком — сливаем её вхолостую.
+      await _drainAudio();
+      await _engineCall('stepBack: drainStateDelta', engine.drainStateDelta);
+
+      if (!_alive || _loadingNodeId != snapshot.nodeId) return false;
+      final gameState = _ref.read(gameStateProvider.notifier);
+      gameState.restoreState(
+        variables: snapshot.variables,
+        tablesJson: snapshot.tables,
+      );
+      _backStack.removeLast();
+
+      state = state.copyWith(
+        isLoading: false,
+        revealedItems: const [],
+        pinnedStacks: const [],
+        dismissedStacks: const {},
+      );
+      await _applyNodeView(view);
+      _armPendingTimers();
+      return true;
+    } catch (e, stack) {
+      _log('❌ stepBack failed: $e\n$stack');
+      _err(e, stack, 'stepBack(${snapshot.nodeId})');
+      return false;
+    } finally {
+      _restoringSnapshot = false;
+      _resumeReveal(loadedGen);
+    }
+  }
+
   Future<void> loadNode(String nodeId) async {
     _log(">>> START LOAD NODE: '$nodeId'");
 
     // Порядок контракта: transition (from→to) → node_exit (уходящей) →
     // node_enter (новой, может быть отменён) → дефолтная инициализация.
     final leftNodeId = _currentNodeId;
-    if (leftNodeId != null && leftNodeId.isNotEmpty && leftNodeId != nodeId) {
+    final isTransition =
+        leftNodeId != null && leftNodeId.isNotEmpty && leftNodeId != nodeId;
+    GameBackSnapshot? backSnapshot;
+    if (isTransition) {
+      // Снимок до node_enter новой ноды: плагин/входные скрипты не должны
+      // попасть в состояние, к которому вернёт «назад».
+      await _syncStateFromEngine();
+      backSnapshot = _captureBack(leftNodeId);
+    }
+    if (isTransition) {
       _emitPluginEventFireAndForget(
         'transition',
         payload: {'from': leftNodeId, 'to': nodeId},
@@ -1555,6 +1720,7 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       _log('🔌 node_enter отменён плагином: $nodeId');
       return;
     }
+    if (backSnapshot != null) _pushBack(backSnapshot);
 
     _loadingNodeId = nodeId;
     _revealGeneration++;
@@ -1609,6 +1775,10 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
 
       await _applyNodeView(view, pacingSteps: pacingSteps);
       _armPendingTimers();
+      // onNodeEnter мог поставить `open_saves`/`save_game`: сцена уже
+      // показана, команда должна дойти до UI и на переходе, а не только
+      // при старте квеста.
+      await _drainExternal();
     } catch (e, stack) {
       _log('❌ CRITICAL ERROR in loadNode: $e\n$stack');
       _err(e, stack, 'loadNode($nodeId)');
@@ -1778,6 +1948,10 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
       if (!_alive) return null;
       await _drainAudio();
       await _syncStateFromEngine();
+      // `save_operation`/`open_link` из нажатия лежат в очереди внешних
+      // команд: без её слива блок «Открыть сохранение» работал только на
+      // входе в ноду, где очередь успевал забрать старт/переход.
+      await _drainExternal();
       return next;
     } catch (e, stack) {
       _err(e, stack, 'handleInteraction($triggerRef)');

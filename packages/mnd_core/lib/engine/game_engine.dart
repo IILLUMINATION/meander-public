@@ -181,6 +181,24 @@ class MeanderGameEngine {
     return result;
   }
 
+  /// Шаг назад: восстановить переменные/таблицы и показать ноду без
+  /// повторного `onNodeEnter`. Возвращает `NodeView` либо null.
+  Future<Map<String, dynamic>?> restoreSnapshot({
+    required String nodeId,
+    required Map<String, dynamic> variables,
+    required Map<String, dynamic> tables,
+  }) async {
+    final json = await gen.gameEngineRestoreSnapshot(
+      handle: _handle,
+      nodeId: nodeId,
+      variablesJson: jsonEncode(variables),
+      tablesJson: jsonEncode(tables),
+    );
+    if (json == null) return null;
+    _throwIfEngineError(json, 'restoreSnapshot');
+    return jsonDecode(json) as Map<String, dynamic>;
+  }
+
   /// Один тик таймера: выполнить запланированный re-invoke функции
   /// (`scriptPath`, `entry`). Возвращает `{"ran": bool, "transition": ...}`.
   Future<Map<String, dynamic>?> runScheduledTimer(

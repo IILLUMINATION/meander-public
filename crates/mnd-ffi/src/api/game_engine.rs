@@ -26,7 +26,7 @@ use std::sync::Once;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use flutter_rust_bridge::frb;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use mnd_core::engine::{GameEngine, GameEngineConfig, NextStep, PlatformInfo};
 use mnd_core::models::{Quest, SaveSlot, SavedNode, TemplateItem};
@@ -395,6 +395,29 @@ pub fn game_engine_load_node(handle: u32, node_id: String) -> Option<String> {
     match with_engine_detached(handle, |engine| {
         engine
             .load_node(&node_id)
+            .map(|view| node_view_to_json(&view))
+    }) {
+        Ok(result) => result,
+        Err(EngineError::Poisoned | EngineError::Panicked) => Some(POISON_MARKER.to_string()),
+        Err(EngineError::NotFound) => Some(NOT_FOUND_MARKER.to_string()),
+    }
+}
+
+/// Шаг назад: восстановить переменные/таблицы из снимка и показать ноду
+/// без повторного `onNodeEnter`. `variables_json`/`tables_json` — объекты
+/// `имя → значение` (таблицы — `QuestTable.to_json()`).
+pub fn game_engine_restore_snapshot(
+    handle: u32,
+    node_id: String,
+    variables_json: String,
+    tables_json: String,
+) -> Option<String> {
+    ensure_panic_hook();
+    let variables: Map<String, Value> = serde_json::from_str(&variables_json).unwrap_or_default();
+    let tables: Map<String, Value> = serde_json::from_str(&tables_json).unwrap_or_default();
+    match with_engine_detached(handle, |engine| {
+        engine
+            .restore_snapshot(&node_id, variables, tables)
             .map(|view| node_view_to_json(&view))
     }) {
         Ok(result) => result,

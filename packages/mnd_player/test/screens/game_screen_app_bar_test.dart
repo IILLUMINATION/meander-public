@@ -16,66 +16,80 @@ import 'package:mnd_player/screens/game_screen.dart';
 
 Future<bool> _neverStart() async => false;
 
-void main() {
-  testWidgets(
-    'редкие кнопки шапки — в подменю, а не в ряд с «назад»',
-    (tester) async {
-      // Узкий телефон: ровно та ширина, на которой баг был виден.
-      await tester.binding.setSurfaceSize(const Size(320, 568));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+/// Системный «назад»: вызываем тот же колбэк, что Flutter зовёт из
+/// `handlePopRoute` у `PopScope` (сам канал в widget-тесте недоступен).
+Future<void> systemBack(WidgetTester tester) async {
+  final scope =
+      tester
+              .widgetList(
+                find.byWidgetPredicate((widget) => widget is PopScope),
+              )
+              .first
+          as PopScope;
+  scope.onPopInvokedWithResult?.call(false, null);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+}
 
-      var editTaps = 0;
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(
-            home: GameScreen(
-              questId: 'test-quest',
-              // Префлайт = false: сессия не стартует, движок/FFI не нужны.
-              preflight: _neverStart,
-              isTesting: true,
-              onEditNode: () => editTaps++,
-            ),
+void main() {
+  testWidgets('редкие кнопки шапки — в подменю, а не в ряд с «назад»', (
+    tester,
+  ) async {
+    // Узкий телефон: ровно та ширина, на которой баг был виден.
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    var editTaps = 0;
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: GameScreen(
+            questId: 'test-quest',
+            // Префлайт = false: сессия не стартует, движок/FFI не нужны.
+            preflight: _neverStart,
+            isTesting: true,
+            onEditNode: () => editTaps++,
           ),
         ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
-      // Переполнение шапки фреймворк оформляет как исключение layoutа.
-      expect(tester.takeException(), isNull);
+    // Переполнение шапки фреймворк оформляет как исключение layoutа.
+    expect(tester.takeException(), isNull);
 
-      // Сам баг: AppBar не лезет в ширину, а уводит actions влево, и
-      // «Громкость» рисуется поверх стрелки «назад».
-      expect(
-        tester.getRect(find.byTooltip('Назад')).right,
-        lessThan(tester.getRect(find.byTooltip('Громкость')).left),
-      );
+    // Сам баг: AppBar не лезет в ширину, а уводит actions влево, и
+    // «Громкость» рисуется поверх стрелки «назад».
+    expect(
+      tester.getRect(find.byTooltip('Назад')).right,
+      lessThan(tester.getRect(find.byTooltip('Громкость')).left),
+    );
 
-      // В шапке только частые кнопки.
-      expect(find.byTooltip('Громкость'), findsOneWidget);
-      expect(find.byTooltip('Сохранить'), findsOneWidget);
-      expect(find.byTooltip('Загрузить'), findsOneWidget);
-      // Редкие — не видны, пока меню не открыто.
-      expect(find.byTooltip('Переменные'), findsNothing);
-      expect(find.byTooltip('Редактировать ноду'), findsNothing);
-      expect(find.byTooltip('Ещё'), findsOneWidget);
+    // В шапке только частые кнопки.
+    expect(find.byTooltip('Громкость'), findsOneWidget);
+    expect(find.byTooltip('Сохранить'), findsOneWidget);
+    expect(find.byTooltip('Загрузить'), findsOneWidget);
+    // Редкие — не видны, пока меню не открыто.
+    expect(find.byTooltip('Переменные'), findsNothing);
+    expect(find.byTooltip('Редактировать ноду'), findsNothing);
+    expect(find.byTooltip('Ещё'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Ещё'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('Ещё'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
-      expect(find.text('Переменные'), findsOneWidget);
-      expect(find.text('Редактировать ноду'), findsOneWidget);
+    expect(find.text('Переменные'), findsOneWidget);
+    expect(find.text('Редактировать ноду'), findsOneWidget);
 
-      await tester.tap(find.text('Редактировать ноду'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(editTaps, 1);
-    },
-  );
+    await tester.tap(find.text('Редактировать ноду'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(editTaps, 1);
+  });
 
   testWidgets('скрипт прячет и возвращает верхнюю панель', (tester) async {
     // Панель — часть сцены: переменную сеет движок из настройки квеста,
@@ -111,29 +125,19 @@ void main() {
     expect(find.byTooltip('Сохранить'), findsOneWidget);
   });
 
-  test('шаг назад ведёт на предыдущую ноду истории', () {
-    // История пишется именами нод; текущая — последняя запись, шаг назад
-    // берёт предпоследнюю.
-    expect(stepBackTarget(['A', 'B']), 'A');
-    expect(stepBackTarget(['A', 'B', 'C']), 'B');
-    // В начале квеста (или в битом сейве с пустыми записями) — некуда.
-    expect(stepBackTarget([]), isNull);
-    expect(stepBackTarget(['A']), isNull);
-    expect(stepBackTarget(['A', '']), 'A');
-    expect(stepBackTarget(['', '']), isNull);
-  });
-
   /// Шапка игры с квестом, у которого включён/выключен шаг назад.
-  Future<void> pumpGameScreen(WidgetTester tester, {required bool stepBack}) async {
+  Future<void> pumpGameScreen(
+    WidgetTester tester, {
+    required bool stepBack,
+    bool isTesting = true,
+    bool isActive = true,
+  }) async {
     final container = ProviderContainer(
       overrides: [
         // Значение синхронное (FutureOr): тест про шапку, а не про загрузку.
         questProvider('test-quest').overrideWith(
-          (ref) => Quest(
-            id: 'test-quest',
-            title: 'Тест',
-            allowStepBack: stepBack,
-          ),
+          (ref) =>
+              Quest(id: 'test-quest', title: 'Тест', allowStepBack: stepBack),
         ),
       ],
     );
@@ -145,16 +149,19 @@ void main() {
           home: GameScreen(
             questId: 'test-quest',
             preflight: _neverStart,
-            isTesting: true,
+            isTesting: isTesting,
+            isActive: isActive,
           ),
         ),
       ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.byTooltip('Ещё'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    if (find.byTooltip('Ещё').evaluate().isNotEmpty) {
+      await tester.tap(find.byTooltip('Ещё'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
   }
 
   testWidgets('без настройки автора кнопки «Шаг назад» нет', (tester) async {
@@ -167,5 +174,49 @@ void main() {
   testWidgets('с настройкой автора в меню есть «Шаг назад»', (tester) async {
     await pumpGameScreen(tester, stepBack: true);
     expect(find.text('Шаг назад'), findsOneWidget);
+  });
+
+  testWidgets('системный «назад» без шага назад спрашивает подтверждение', (
+    tester,
+  ) async {
+    await pumpGameScreen(tester, stepBack: false, isTesting: false);
+    await systemBack(tester);
+    expect(find.text('Выйти из квеста?'), findsOneWidget);
+    expect(find.text('Остаться'), findsOneWidget);
+
+    await tester.tap(find.text('Остаться'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Выйти из квеста?'), findsNothing);
+  });
+
+  testWidgets('в тестовом режиме системный «назад» выходит без модалки', (
+    tester,
+  ) async {
+    await pumpGameScreen(tester, stepBack: false);
+    await systemBack(tester);
+    expect(find.text('Выйти из квеста?'), findsNothing);
+  });
+
+  testWidgets('неактивная игровая вкладка не перехватывает «назад»', (
+    tester,
+  ) async {
+    await pumpGameScreen(
+      tester,
+      stepBack: false,
+      isTesting: false,
+      isActive: false,
+    );
+    expect(find.byType(PopScope), findsNothing);
+    expect(find.text('Выйти из квеста?'), findsNothing);
+  });
+
+  testWidgets('системный «назад» с шагом назад не выходит из квеста', (
+    tester,
+  ) async {
+    await pumpGameScreen(tester, stepBack: true);
+    await systemBack(tester);
+    expect(find.text('Выйти из квеста?'), findsNothing);
+    expect(find.text('Это начало квеста — назад некуда'), findsOneWidget);
   });
 }
