@@ -82,10 +82,10 @@ extension TableOperationHelp on TableOperation {
   String hintFor(String field) => switch ((this, field)) {
     (_, 'path') when this == TableOperation.clear => tr('пусто — вся таблица'),
     (TableOperation.get, 'path') => tr(
-      'ключ (gold) или ячейка сетки ["колонка"][1]',
+      'ключ (gold), ячейка сетки ["колонка"][1] или ["колонка"][переменная]',
     ),
     (TableOperation.set, 'path') => tr(
-      'куда пишем: gold, items[0] или ["колонка"][1]',
+      'куда пишем: gold, items[0], ["колонка"][1] или ["колонка"][переменная]',
     ),
     (TableOperation.add, 'path') => tr('какой список пополняем: items'),
     (TableOperation.remove, 'path') => tr(

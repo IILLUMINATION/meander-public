@@ -858,7 +858,7 @@ fn execute_condition_prelude_table_operation(
             value_to_string(&evaluated)
         }
     };
-    let keys = parse_path(&path_str);
+    let keys = parse_path_resolved(&path_str, game_state);
     let val = match &address {
         Some(suffix) => manual_deep_lookup(&format!("{table_name}{suffix}"), game_state),
         None => get_value_at_path(Value::Object(table.unwrap().data.clone()), &keys),
@@ -2103,6 +2103,33 @@ fn manual_deep_lookup(expr: &str, game_state: &mut dyn ScriptRuntime) -> Value {
 
 /// Парс пути таблицы (паритет `_parsePath`): `a.b[0]['c']`.
 pub fn parse_path(path: &str) -> Vec<Value> {
+    parse_path_with(path, |content| Value::String(content.to_string()))
+}
+
+/// Развернуть путь таблицы для исполнения: сегмент в `[...]` **без кавычек**
+/// — это выражение (`[перем]`, `[upper("меч")]`), а не литеральное имя.
+/// Кавычки (`["перем"]`) остаются литералом: так документация отличает имя
+/// строки от переменной.
+fn parse_path_resolved(path: &str, game_state: &mut dyn ScriptRuntime) -> Vec<Value> {
+    parse_path_with(path, |content| {
+        let resolved =
+            evaluate_expression(Some(Value::String(content.to_string())), game_state);
+        match resolved {
+            // Неизвестное имя — это по-прежнему литерал: старые пути вида
+            // `[меч]` работали и должны работать дальше.
+            Value::Null => Value::String(content.to_string()),
+            Value::String(_) | Value::Number(_) | Value::Bool(_) => resolved,
+            other => Value::String(value_to_string(&other)),
+        }
+    })
+}
+
+/// Общий парсер путей. `dynamic_segment` вызывается только для содержимого
+/// `[...]` без кавычек и не числа: обычные ключи и индексы остаются как есть.
+fn parse_path_with<F>(path: &str, mut dynamic_segment: F) -> Vec<Value>
+where
+    F: FnMut(&str) -> Value,
+{
     let mut keys = Vec::new();
     let trimmed = path.trim();
     let unquoted = if (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
@@ -2152,7 +2179,7 @@ pub fn parse_path(path: &str) -> Vec<Value> {
                 if let Ok(idx) = content.parse::<i64>() {
                     keys.push(Value::from(idx));
                 } else {
-                    keys.push(Value::String(content));
+                    keys.push(dynamic_segment(&content));
                 }
                 if i < chars.len() {
                     i += 1;
@@ -2866,7 +2893,7 @@ impl ScriptExecutor {
                 value_to_string(&evaluated)
             }
         };
-        let keys = parse_path(&path_str);
+        let keys = parse_path_resolved(&path_str, game_state);
         // Пустой путь evaluator'ом превращается в литерал "null", то есть
         // `keys` непустой, хотя путь автор не заполнял. Без явной проверки
         // `set` заводит призрачный ключ «null», `clear` молча ничего не
@@ -5385,6 +5412,77 @@ mod tests {
             evaluate_expression(Some(json!("{лавка[\"цена\"][\"щит\"]}")), &mut s),
             json!(42)
         );
+    }
+
+    #[test]
+    fn table_operation_set_writes_grid_cell_by_dynamic_row() {
+        // Живой квест: адрес ячейки берёт имя строки из переменной — так же,
+        // как чтение `{лавка["цена"][Eq_Weapon]}`. Запись раньше считала
+        // `Eq_Weapon` литеральным именем строки и молча промахивалась.
+        let mut s = state();
+        let mut table = QuestTable::new(
+            "лавка".into(),
+            vec!["цена".into()],
+            vec![
+                json!({"цена": 30}).as_object().unwrap().clone(),
+                json!({"цена": 99}).as_object().unwrap().clone(),
+            ],
+            Map::new(),
+        );
+        table.set_row_names(&["меч".into(), "щит".into()]);
+        s.set_table("лавка", table);
+        s.set_variable("Eq_Weapon", json!("щит"));
+
+        let log = table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка", "path": "[\"цена\"][Eq_Weapon]", "value": "42"
+            }),
+        );
+        assert!(log.contains("rows[1]"), "лог: {log}");
+        let table = s.get_table("лавка").unwrap();
+        assert_eq!(table.rows[0]["цена"], json!(30));
+        assert_eq!(table.rows[1]["цена"], json!(42));
+        assert!(
+            table.data.is_empty(),
+            "запись в сетку не должна создавать ключи data: {:?}",
+            table.data
+        );
+
+        // Ровно тот адрес, который автор копирует из текста:
+        // `{таблица["колонка"][переменная]}`.
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка",
+                "path": "{лавка[\"цена\"][Eq_Weapon]}", "value": "55"
+            }),
+        );
+        assert_eq!(s.get_table("лавка").unwrap().rows[1]["цена"], json!(55));
+
+        // Ссылка из текста с именем таблицы и формулой в позиции строки.
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка",
+                "path": "{лавка[\"цена\"][lower(\"МЕЧ\")]}", "value": "7"
+            }),
+        );
+        assert_eq!(s.get_table("лавка").unwrap().rows[0]["цена"], json!(7));
+
+        // Номер строки тоже можно держать в переменной.
+        s.set_variable("номер", json!(2));
+        table_op_log(
+            &mut s,
+            json!({
+                "type": "table_operation", "operation": "set",
+                "tableName": "лавка", "path": "[\"цена\"][номер]", "value": "77"
+            }),
+        );
+        assert_eq!(s.get_table("лавка").unwrap().rows[1]["цена"], json!(77));
     }
 
     #[test]
