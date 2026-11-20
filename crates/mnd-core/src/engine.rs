@@ -2477,67 +2477,195 @@ fn expand_content_map(content: Map<String, Value>, instance_id: &str) -> Map<Str
     result
 }
 
-/// Пути, по которым раскрывается мастер шаблона: (id айтема мастера, путь).
-///
-/// Путь — тот же, что движок передаёт в [`derive_template_id`]: у шаблона-ноды
-/// отсчёт идёт от `content.items`, у шаблона-айтема — от самого payload.
-fn template_item_paths(template: &TemplateItem) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    match template.kind {
-        TemplateKind::Node => {
-            let content = match template.payload.get("content").and_then(Value::as_object) {
-                Some(content) => content,
-                None => return out,
-            };
-            let items = match content.get("items").and_then(Value::as_array) {
-                Some(items) => items,
-                None => return out,
-            };
-            // В шаблоне-ноде `expand_content_map` передеривирует только
-            // верхний уровень: id вложенных айтемов остаются именами мастера,
-            // и переопределение по ним и так видно в копии.
-            for (i, raw) in items.iter().enumerate() {
-                if let Some(id) = raw.get("id").and_then(Value::as_str)
-                    && !id.is_empty()
-                {
-                    out.push((id.to_string(), format!("$.items[{i}]")));
-                }
-            }
-        }
-        _ => walk_item_paths(&template.payload, "$", &mut out),
-    }
-    out
-}
-
-/// Собрать (id, путь) для айтема и его потомков.
-///
-/// Внутрь вложенного linked-инстанса не заходим: его содержимое раскрывается
-/// из другого мастера, и производные id там считаются от его собственного
-/// корня — путь относительно внешнего мастера дал бы чужие id.
-fn walk_item_paths(item: &Map<String, Value>, path: &str, out: &mut Vec<(String, String)>) {
-    if let Some(id) = item.get("id").and_then(Value::as_str)
-        && !id.is_empty()
-    {
-        out.push((id.to_string(), path.to_string()));
-    }
-    let nested_instance = item
-        .get("templateRef")
-        .and_then(Value::as_str)
-        .is_some_and(|r| !r.is_empty());
-    if nested_instance {
+/// Добавить пару «id мастера → id раскрытого айтема» без дублей.
+fn add_item_target(targets: &mut HashMap<String, Vec<String>>, master_id: &str, actual_id: &str) {
+    if master_id.is_empty() || actual_id.is_empty() {
         return;
     }
+    let entry = targets.entry(master_id.to_string()).or_default();
+    if !entry.iter().any(|id| id == actual_id) {
+        entry.push(actual_id.to_string());
+    }
+}
+
+/// Рекурсивно разложить шаблон, раскрытый под `instance_id`, в карту
+/// «id мастера → id инстанса».
+///
+/// Старого обхода по `template_item_paths` недостаточно: шаблон может
+/// содержать **другой связанный шаблон** (HUD → Img_Оружие → его копии в
+/// нодах). Вложенный инстанс получает id от корня внешнего шаблона, поэтому
+/// обходить надо с сохранением контекста, а не искать только прямые
+/// `templateRef` в нодах.
+fn add_template_targets(
+    template: &TemplateItem,
+    instance_id: &str,
+    templates: &HashMap<String, TemplateItem>,
+    targets: &mut HashMap<String, Vec<String>>,
+    visiting: &mut std::collections::HashSet<String>,
+) {
+    if instance_id.is_empty() || !visiting.insert(template.id.clone()) {
+        return;
+    }
+    match template.kind {
+        TemplateKind::Node => {
+            if let Some(id) = template.payload.get("id").and_then(Value::as_str) {
+                add_item_target(targets, id, instance_id);
+            }
+            add_node_template_targets(template, instance_id, templates, targets, visiting);
+        }
+        _ => add_content_template_targets(template, instance_id, templates, targets, visiting),
+    }
+    visiting.remove(&template.id);
+}
+
+/// Шаблон-нода: `expand_content_map` передеривирует только верхний уровень,
+/// id вложенных айтемов остаются именами мастера. Вложенные linked-шаблоны
+/// раскрываются от фактического id своего корня.
+fn add_node_template_targets(
+    template: &TemplateItem,
+    node_instance_id: &str,
+    templates: &HashMap<String, TemplateItem>,
+    targets: &mut HashMap<String, Vec<String>>,
+    visiting: &mut std::collections::HashSet<String>,
+) {
+    let Some(items) = template
+        .payload
+        .get("content")
+        .and_then(Value::as_object)
+        .and_then(|content| content.get("items"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for (i, raw) in items.iter().enumerate() {
+        let Some(item) = raw.as_object() else {
+            continue;
+        };
+        let actual = derive_template_id(node_instance_id, &format!("$.items[{i}]"));
+        add_node_item_target(item, &actual, templates, targets, visiting);
+    }
+}
+
+fn add_node_item_target(
+    item: &Map<String, Value>,
+    actual_id: &str,
+    templates: &HashMap<String, TemplateItem>,
+    targets: &mut HashMap<String, Vec<String>>,
+    visiting: &mut std::collections::HashSet<String>,
+) {
+    if let Some(id) = item.get("id").and_then(Value::as_str) {
+        add_item_target(targets, id, actual_id);
+    }
+    let linked = item
+        .get("templateRef")
+        .and_then(Value::as_str)
+        .filter(|reference| !reference.is_empty());
+    let is_master = item
+        .get("isTemplateMaster")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if let Some(reference) = linked {
+        if !is_master && let Some(nested) = templates.get(reference) {
+            add_template_targets(nested, actual_id, templates, targets, visiting);
+        }
+        return;
+    }
+    // Дети обычного айтема в шаблоне-ноде сохраняют id мастера; вложенный
+    // linked-шаблон внутри них раскрывается уже от этого сохранённого id.
+    if let Some(children) = item.get("children").and_then(Value::as_array) {
+        for raw in children {
+            let Some(child) = raw.as_object() else {
+                continue;
+            };
+            let Some(child_id) = child.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            add_node_item_target(child, child_id, templates, targets, visiting);
+        }
+    }
+}
+
+/// Шаблон-айтем: `expand_content_item` деривирует id всех потомков от
+/// `instance_id`, а nested linked-шаблон раскрывается от id своего корня.
+fn add_content_template_targets(
+    template: &TemplateItem,
+    instance_id: &str,
+    templates: &HashMap<String, TemplateItem>,
+    targets: &mut HashMap<String, Vec<String>>,
+    visiting: &mut std::collections::HashSet<String>,
+) {
+    if let Some(id) = template.payload.get("id").and_then(Value::as_str) {
+        add_item_target(targets, id, instance_id);
+    }
+    add_content_item_targets(
+        &template.payload,
+        instance_id,
+        "",
+        templates,
+        targets,
+        visiting,
+    );
+}
+
+fn add_content_item_targets(
+    item: &Map<String, Value>,
+    instance_id: &str,
+    path: &str,
+    templates: &HashMap<String, TemplateItem>,
+    targets: &mut HashMap<String, Vec<String>>,
+    visiting: &mut std::collections::HashSet<String>,
+) {
+    // Корень шаблона сохраняет id инстанса; все потомки считаются от него.
+    let actual = if path.is_empty() {
+        instance_id.to_string()
+    } else {
+        derive_template_id(instance_id, path)
+    };
+    if !path.is_empty()
+        && let Some(id) = item.get("id").and_then(Value::as_str)
+    {
+        add_item_target(targets, id, &actual);
+    }
+
+    let linked = item
+        .get("templateRef")
+        .and_then(Value::as_str)
+        .filter(|reference| !reference.is_empty());
+    let is_master = item
+        .get("isTemplateMaster")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if let Some(reference) = linked {
+        if !is_master && let Some(nested) = templates.get(reference) {
+            add_template_targets(nested, &actual, templates, targets, visiting);
+        }
+        // Дети linked-айтема берутся из его мастера, а не из payload внешнего.
+        return;
+    }
+
+    let base = if path.is_empty() { "$" } else { path };
     if let Some(children) = item.get("children").and_then(Value::as_array) {
         for (i, raw) in children.iter().enumerate() {
             if let Some(child) = raw.as_object() {
-                walk_item_paths(child, &format!("{path}.children[{i}]"), out);
+                add_content_item_targets(
+                    child,
+                    instance_id,
+                    &format!("{base}.children[{i}]"),
+                    templates,
+                    targets,
+                    visiting,
+                );
             }
         }
     }
     if let Some(buttons) = item.get("modalButtons").and_then(Value::as_array) {
         for (i, raw) in buttons.iter().enumerate() {
-            if let Some(button) = raw.as_object() {
-                walk_item_paths(button, &format!("{path}.modalButtons[{i}]"), out);
+            if let Some(button) = raw.as_object()
+                && let Some(id) = button.get("id").and_then(Value::as_str)
+            {
+                let button_id =
+                    derive_template_id(instance_id, &format!("{base}.modalButtons[{i}]"));
+                add_item_target(targets, id, &button_id);
             }
         }
     }
@@ -2574,10 +2702,6 @@ fn build_item_targets(
 ) -> HashMap<String, Vec<String>> {
     let mut targets: HashMap<String, Vec<String>> = HashMap::new();
     for (template_id, template) in templates {
-        let paths = template_item_paths(template);
-        if paths.is_empty() {
-            continue;
-        }
         let mut roots: Vec<String> = Vec::new();
         for node in nodes.values() {
             if node.is_template_instance()
@@ -2591,14 +2715,14 @@ fn build_item_targets(
         }
         roots.sort();
         roots.dedup();
-        for root in &roots {
-            for (master_id, path) in &paths {
-                let derived = derive_template_id(root, path);
-                let entry = targets.entry(master_id.clone()).or_default();
-                if !entry.contains(&derived) {
-                    entry.push(derived);
-                }
-            }
+        for root in roots {
+            add_template_targets(
+                template,
+                &root,
+                templates,
+                &mut targets,
+                &mut std::collections::HashSet::new(),
+            );
         }
     }
     targets

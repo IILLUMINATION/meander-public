@@ -8,13 +8,17 @@
 
 use super::*;
 
-fn template(kind: &str, payload: Value) -> TemplateItem {
+fn named_template(id: &str, kind: &str, payload: Value) -> TemplateItem {
     TemplateItem::from_json(&serde_json::json!({
-        "id": "tpl-hud",
-        "name": "HUD",
+        "id": id,
+        "name": id,
         "kind": kind,
         "payload": payload,
     }))
+}
+
+fn template(kind: &str, payload: Value) -> TemplateItem {
+    named_template("tpl-hud", kind, payload)
 }
 
 fn engine_with_hud(
@@ -106,6 +110,82 @@ fn set_image_from_template_master_reaches_every_instance() {
     let in_second = derive_template_id("hud-2", "$.children[0]");
     assert_eq!(source_of(&engine, &in_first).as_deref(), Some("res/b.png"));
     assert_eq!(source_of(&engine, &in_second).as_deref(), Some("res/b.png"));
+}
+
+#[test]
+fn set_image_from_image_template_nested_in_hud_reaches_instances() {
+    // HUD — шаблон-контейнер, внутри него лежит связанный шаблон картинки
+    // (`Img_Оружие`). Скрипт адресует корень картинки (`master-ico`), а в
+    // инстансе HUD картинка раскрывается под id, производным от корня HUD.
+    // Старый обход видел только прямые `templateRef` в нодах и терял этот
+    // уровень вложенности — HUD в копиях не менялся.
+    let image = named_template(
+        "tpl-img",
+        "content",
+        serde_json::json!({
+            "type": "image",
+            "id": "master-ico",
+            "resourcePath": "res/a.png"
+        }),
+    );
+    let hud = named_template(
+        "tpl-hud",
+        "column",
+        serde_json::json!({
+            "type": "column",
+            "id": "master-hud",
+            "children": [
+                {
+                    "type": "image",
+                    "id": "nested-ico",
+                    "templateRef": "tpl-img",
+                    "templateVersion": 1
+                }
+            ]
+        }),
+    );
+    let mut scripts = HashMap::new();
+    scripts.insert(
+        "scripts/swap.json".to_string(),
+        serde_json::json!({
+            "name": "swap",
+            "blocks": [{"type": "set_image", "item_id": "master-ico", "source": "res/b.png"}],
+        }),
+    );
+
+    let nodes = vec![
+        SavedNode::from_json(&serde_json::json!({
+            "id": "node_1",
+            "title": "Start",
+            "content": { "items": [
+                {"type": "column", "id": "hud-1", "templateRef": "tpl-hud"}
+            ]},
+            "scriptAssetId": "scripts/swap.json",
+        })),
+        SavedNode::from_json(&serde_json::json!({
+            "id": "node_2",
+            "title": "Second",
+            "content": { "items": [
+                {"type": "column", "id": "hud-2", "templateRef": "tpl-hud"}
+            ]},
+        })),
+    ];
+
+    let mut engine = engine_with_hud(nodes, vec![hud, image], scripts);
+    engine.start_new(None).unwrap();
+
+    assert_eq!(
+        source_of(&engine, "master-ico").as_deref(),
+        Some("res/b.png")
+    );
+    for root in ["hud-1", "hud-2"] {
+        let id = derive_template_id(root, "$.children[0]");
+        assert_eq!(
+            source_of(&engine, &id).as_deref(),
+            Some("res/b.png"),
+            "картинка в HUD инстанса {root} не обновилась"
+        );
+    }
 }
 
 #[test]
