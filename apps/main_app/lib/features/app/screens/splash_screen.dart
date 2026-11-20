@@ -4,6 +4,9 @@ import 'dart:math' as math;
 import 'dart:math';
 
 import 'package:audio_session/audio_session.dart';
+import 'package:canvas_app/app/startup_failure.dart';
+import 'package:canvas_app/core/services/crash_log_service.dart';
+import 'package:canvas_app/core/services/hang_watchdog.dart';
 import 'package:canvas_app/core/services/deep_link_service.dart';
 import 'package:canvas_app/core/services/version_check_service.dart';
 import 'package:mnd_player/utils/file_storage.dart';
@@ -27,6 +30,11 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   String _statusMessage = tr('Запуск...');
   final Random _random = Random();
+  StartupFailureInfo? _failure;
+  bool _starting = false;
+  int _startupAttempt = 0;
+
+  bool _isCurrent(int attempt) => mounted && attempt == _startupAttempt;
 
   /// Минимальная длина сплэша.
   ///
@@ -64,7 +72,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startApp();
+      unawaited(_runStartup());
     });
   }
 
@@ -72,12 +80,74 @@ class _SplashScreenState extends State<SplashScreen> {
     return _loadingMessages[_random.nextInt(_loadingMessages.length)];
   }
 
-  Future<void> _startApp() async {
+  /// Запуск сплэша с общим таймаутом и аварийным экраном.
+  ///
+  /// `SharedPreferences`, `package_info` и `path_provider` — платформенные
+  /// каналы. Если плагин не зарегистрировался, вызов не бросает исключение
+  /// сразу, а может ждать ответа вечно. Раньше это выглядело как сплэш,
+  /// который никогда не заканчивается; теперь через 25 секунд появляется
+  /// экран с текстом ошибки и кнопкой «Скопировать».
+  Future<void> _runStartup() async {
+    if (_starting) return;
+    _starting = true;
+    HangWatchdog.mark('splash: start');
+    final attempt = ++_startupAttempt;
     final stopwatch = Stopwatch()..start();
 
-    if (mounted) setState(() => _statusMessage = _getRandomMessage());
+    try {
+      await _startApp(attempt).timeout(const Duration(seconds: 25));
+    } on TimeoutException catch (error, stack) {
+      _failStartup(attempt, error, stack, stopwatch.elapsed, timedOut: true);
+    } catch (error, stack) {
+      _failStartup(attempt, error, stack, stopwatch.elapsed, timedOut: false);
+    } finally {
+      _starting = false;
+    }
+  }
+
+  void _failStartup(
+    int attempt,
+    Object error,
+    StackTrace stack,
+    Duration elapsed, {
+    required bool timedOut,
+  }) {
+    if (!_isCurrent(attempt)) return;
+    // Старый запуск мог зависнуть, а не упасть: инвалидируем его, чтобы
+    // позднее завершение не увело с аварийного экрана на случайный роут.
+    _startupAttempt++;
+    CrashLogService.handle(
+      error,
+      stack,
+      timedOut ? 'Splash timeout' : 'Splash startup error',
+    );
+    setState(() {
+      _failure = StartupFailureInfo(
+        error: error,
+        stackTrace: stack,
+        elapsed: elapsed,
+        timedOut: timedOut,
+      );
+    });
+  }
+
+  void _retryStartup() {
+    if (!mounted || _starting) return;
+    setState(() => _failure = null);
+    unawaited(_runStartup());
+  }
+
+  Future<void> _startApp(int attempt) async {
+    final stopwatch = Stopwatch()..start();
+
+    if (!_isCurrent(attempt)) return;
+    setState(() => _statusMessage = _getRandomMessage());
+    HangWatchdog.mark('splash: file storage');
     await FileStorage.getAppDirectory();
+    if (!_isCurrent(attempt)) return;
+    HangWatchdog.mark('splash: audio session');
     await _initAudio();
+    if (!_isCurrent(attempt)) return;
 
     if (stopwatch.elapsedMilliseconds < _minSplashMillis) {
       await Future.delayed(
@@ -85,30 +155,35 @@ class _SplashScreenState extends State<SplashScreen> {
       );
     }
 
-    if (!mounted) return;
+    if (!mounted || !_isCurrent(attempt)) return;
 
     // Корневой навигатор перехватываем здесь: он переживает замену сплэш-роута,
     // а `context` после await'ов ниже использовать нельзя.
     final rootNavigator = Navigator.of(context);
+    HangWatchdog.mark('splash: shared preferences');
     final prefs = await SharedPreferences.getInstance();
+    if (!_isCurrent(attempt)) return;
 
+    HangWatchdog.mark('splash: package info');
     final packageInfo = await PackageInfo.fromPlatform();
+    if (!_isCurrent(attempt)) return;
     final currentAppVersion =
         '${packageInfo.version}+${packageInfo.buildNumber}';
     await prefs.setString('app_version', currentAppVersion);
+    if (!_isCurrent(attempt)) return;
 
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       // Проверка версии не должна держать первый экран: запрос ждёт ответа до
       // 8 секунд, и на слабой сети человек висел бы на сплэше. Окно обновления
       // догонит уже открытый экран.
-      unawaited(_showUpdateIfAny(rootNavigator));
+      unawaited(_showUpdateIfAny(rootNavigator, attempt));
     }
 
     final policyAccepted = prefs.getBool('policy_accepted') ?? false;
 
     if (!policyAccepted) {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
+      if (_isCurrent(attempt)) {
+        rootNavigator.pushReplacement(
           MaterialPageRoute(builder: (_) => PolicyScreen()),
         );
         Future.delayed(const Duration(milliseconds: 350), () {
@@ -122,8 +197,8 @@ class _SplashScreenState extends State<SplashScreen> {
         prefs.getBool('has_completed_onboarding') ?? false;
 
     if (!hasCompletedOnboarding) {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
+      if (_isCurrent(attempt)) {
+        rootNavigator.pushReplacement(
           MaterialPageRoute(builder: (_) => OnboardingScreen()),
         );
         Future.delayed(const Duration(milliseconds: 350), () {
@@ -133,11 +208,11 @@ class _SplashScreenState extends State<SplashScreen> {
       return;
     }
 
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
+    if (_isCurrent(attempt)) {
+      rootNavigator.pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (_, __, ___) => MenuScreen(),
-          transitionsBuilder: (_, anim, __, child) =>
+          pageBuilder: (_, _, _) => MenuScreen(),
+          transitionsBuilder: (_, anim, _, child) =>
               FadeTransition(opacity: anim, child: child),
           transitionDuration: const Duration(milliseconds: 800),
         ),
@@ -150,7 +225,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   /// Проверка новой версии и показ окна обновления. Отдельно от `_startApp`,
   /// чтобы сетевой запрос не блокировал переход на первый экран.
-  Future<void> _showUpdateIfAny(NavigatorState rootNavigator) async {
+  Future<void> _showUpdateIfAny(NavigatorState rootNavigator, int attempt) async {
     if (kDebugMode && !_debugForceUpdatePrompt) return;
     final updateResult = kDebugMode
         ? VersionCheckResult(
@@ -165,8 +240,9 @@ class _SplashScreenState extends State<SplashScreen> {
         : await VersionCheckService.check();
     if (!updateResult.hasUpdate) return;
     // Сплэш к этому моменту уже заменён первым экраном, поэтому ориентируемся
-    // не на себя, а на живость корневого навигатора.
-    if (!rootNavigator.mounted) return;
+    // не на себя, а на живость корневого навигатора. Если запуск уже признан
+    // зависшим/упавшим, не подменяем аварийный экран окном обновления.
+    if (!_isCurrent(attempt) || !rootNavigator.mounted) return;
     rootNavigator.push(
       MaterialPageRoute(
         builder: (_) => UpdateScreen(
@@ -188,6 +264,14 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final failure = _failure;
+    if (failure != null) {
+      return StartupFailurePane(
+        info: failure,
+        onRetry: _retryStartup,
+      );
+    }
+
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: scheme.surface,

@@ -192,6 +192,16 @@ void main() {
       expect(File('../../scripts/ios_ffi_phase.sh').existsSync(), isTrue);
     });
 
+    test('Xcode-фаза проверяет символы и архитектуру архива', () {
+      final script =
+          File('../../scripts/ios_ffi_phase.sh').readAsStringSync();
+      // Иначе пустой/чужой framework доедет до тестера и приложение
+      // остановится на launch screen.
+      expect(script, contains("grep -q 'frb_'"));
+      expect(script, contains("grep -q 'luaL_newstate'"));
+      expect(script, contains('lipo -info'));
+    });
+
     test('статический архив вшит целиком, а не выброшен линковщиком', () {
       // Символы FRB ищутся через dlsym, обычных ссылок на них нет. Без
       // -force_load и с включённым dead-strip они вылетают из бинаря:

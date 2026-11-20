@@ -35,7 +35,7 @@ void main() {
 
     test('проверка версии не блокирует переход на первый экран', () {
       final startApp = source.substring(
-        source.indexOf('Future<void> _startApp()'),
+        source.indexOf(RegExp(r'Future<void> _startApp\(')),
         source.indexOf('Future<void> _showUpdateIfAny('),
       );
       expect(

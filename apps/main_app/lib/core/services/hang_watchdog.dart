@@ -106,6 +106,10 @@ class HangWatchdog {
     _lastStep = step;
   }
 
+  /// Последний отмеченный шаг. Нужен аварийному экрану запуска: если
+  /// инициализация зависла, по этой строке видно, на чём именно.
+  static String get lastStep => _lastStep;
+
   static void _watchdogMain((String?, SendPort, bool, String?) args) {
     final (logDir, handshake, debugMemory, vmServiceWsUri) = args;
     final receivePort = ReceivePort();

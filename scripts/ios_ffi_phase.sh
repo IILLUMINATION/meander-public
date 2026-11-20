@@ -70,4 +70,27 @@ if [[ ! -s "$FRAMEWORK_BIN" ]]; then
     exit 1
 fi
 
+# Пустой или чужой архив линкуется молча: `-force_load` не жалуется, а на
+# старте FRB не находит `frb_*`/Lua и приложение остаётся на launch screen.
+# Проверяем символы прямо в фазе сборки, чтобы битый архив не доехал до тестера.
+if [[ "$(uname -s)" == "Darwin" ]] && command -v nm >/dev/null 2>&1; then
+    symbols="$(nm -g "$FRAMEWORK_BIN" 2>/dev/null || true)"
+    if ! grep -q 'frb_' <<< "$symbols"; then
+        echo "!! В $FRAMEWORK_BIN нет символов frb_* — это не собранное Rust-ядро."
+        echo "!! Пересоберите: ./scripts/build_ffi_apple.sh $mode"
+        exit 1
+    fi
+    if ! grep -q 'luaL_newstate' <<< "$symbols"; then
+        echo "!! В $FRAMEWORK_BIN нет luaL_newstate — vendored Lua не вшит."
+        echo "!! Пересоберите: ./scripts/build_ffi_apple.sh $mode"
+        exit 1
+    fi
+    arch="$(lipo -info "$FRAMEWORK_BIN" 2>/dev/null || true)"
+    if ! grep -q 'arm64' <<< "$arch"; then
+        echo "!! $FRAMEWORK_BIN собран не под arm64: $arch"
+        echo "!! Нужен срез $triple, пересоберите: ./scripts/build_ffi_apple.sh $mode"
+        exit 1
+    fi
+fi
+
 exit 0

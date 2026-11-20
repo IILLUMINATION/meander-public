@@ -7,6 +7,7 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    NSLog("[Meander] application didFinishLaunching")
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -15,6 +16,8 @@ import UIKit
   /// `didFinishLaunchingWithOptions`, и регистрация в нём же дала бы
   /// второй движок без плагина.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    NSLog("[Meander] didInitializeImplicitFlutterEngine")
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    NSLog("[Meander] GeneratedPluginRegistrant registered")
   }
 }

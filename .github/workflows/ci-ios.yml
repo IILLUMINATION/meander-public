@@ -42,6 +42,11 @@ on:
         'melos.yaml',
         '.github/workflows/ci-ios.yml',
       ]
+  # Релизный тег должен пройти ту же сборку, что и PR: иначе между мержем и
+  # TestFlight остаётся окно, в котором сломанный iOS-билд никто не поймал.
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       slices:

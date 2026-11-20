@@ -207,5 +207,12 @@ void main() {
       expect(ios, contains('grep -q frb_'));
       expect(ios, contains('grep -q luaL_newstate'));
     });
+
+    test('iOS-сборка запускается и на релизный тег', () {
+      final ios = File('../../.github/workflows/ci-ios.yml').readAsStringSync();
+      expect(ios, contains('push:'));
+      expect(ios, contains("tags:"));
+      expect(ios, contains("- 'v*'"));
+    });
   });
 }

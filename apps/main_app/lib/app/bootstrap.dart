@@ -175,7 +175,36 @@ void _setupGlobalErrorHandlers() {
 
 // ─── Main bootstrap ───────────────────────────────────────────────
 
-Future<void> bootstrap() async {
+/// Загрузчик приложения для [StartupGate].
+///
+/// Сначала инициализируется оконный менеджер на десктопе (с таймаутом, чтобы
+/// сломанный плагин не оставил пустое окно), затем — обычный [bootstrap].
+/// На iOS/Android ветка десктопа пропускается.
+Future<Widget> bootApplication() async {
+  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    try {
+      await WindowManager.instance
+          .ensureInitialized()
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // Окно уже создано нативной оболочкой; без window_manager приложение
+      // всё равно должно показать экран ошибки/загрузки, а не исчезнуть.
+      debugPrint('[startup] window_manager init failed: $e');
+    }
+  }
+  final app = await bootstrap();
+  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    try {
+      _initMainWindowLifecycle();
+    } catch (e) {
+      // Закрытие окна — не причина не показывать приложение.
+      debugPrint('[startup] window lifecycle init failed: $e');
+    }
+  }
+  return app;
+}
+
+Future<Widget> bootstrap() async {
   _setupGlobalErrorHandlers();
 
   HangWatchdog.start();
@@ -237,7 +266,7 @@ Future<void> bootstrap() async {
     };
   }
 
-  HangWatchdog.mark('bootstrap: runApp');
+  HangWatchdog.mark('bootstrap: ready');
 
   // Язык читаем до первого кадра: сплэш должен выйти уже на выбранном языке,
   // а не перекрашиваться на ходу. Импортные языки регистрируем раньше выбора —
@@ -254,34 +283,22 @@ Future<void> bootstrap() async {
     '${WidgetsBinding.instance.platformDispatcher.locales.map((l) => l.toLanguageTag()).join(", ")}',
   );
 
-  runApp(
-    ProviderScope(
-      observers: [if (kDebugMode) RebuildStormObserver()],
-      overrides: [
-        // Единый gameScreenProvider (mnd_player) использует main_app-сервисы.
-        gameScreenHooksProvider.overrideWith(
-          (ref) => ref.watch(appGameScreenHooksProvider),
-        ),
-      ],
-      child: const App(),
-    ),
+  return ProviderScope(
+    observers: [if (kDebugMode) RebuildStormObserver()],
+    overrides: [
+      // Единый gameScreenProvider (mnd_player) использует main_app-сервисы.
+      gameScreenHooksProvider.overrideWith(
+        (ref) => ref.watch(appGameScreenHooksProvider),
+      ),
+    ],
+    child: const App(),
   );
-
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    HangWatchdog.mark('app: first frame');
-    // Всё, что не нужно для первого кадра, уходит за него: Firebase умеет
-    // висеть до 10 секунд (см. таймаут), а проверка пакета — платформенный
-    // вызов. Раньше пользователь всё это время видел только фон сплэша.
-    unawaited(_initAfterFirstFrame());
-  });
-
-  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
-    _initMainWindowLifecycle();
-  }
 }
 
 /// Инициализация, которая не должна задерживать первый кадр.
-Future<void> _initAfterFirstFrame() async {
+///
+/// Вызывается [StartupGate] после того, как `App` действительно смонтирован.
+Future<void> runAfterFirstFrame() async {
   await _verifyAppIntegrity();
 
   if (kIsWeb || !Platform.isAndroid) return;
