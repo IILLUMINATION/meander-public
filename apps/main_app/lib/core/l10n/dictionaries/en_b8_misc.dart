@@ -23,6 +23,22 @@ final Map<String, String> enB8Misc = {
       'Publish your games in the market, get feedback and play other authors quests.',
   'Создавай миры': 'Create worlds',
   'Управляй логикой': 'Drive the logic',
+  // app/startup_failure.dart
+  'Запуск не завершился': "Startup didn't finish",
+  'Не удалось запустить Meander': "Couldn't start Meander",
+  'Инициализация не уложилась в отведённое время. Скорее всего, завис один из шагов запуска.':
+      'Initialization timed out. One of the startup steps is probably stuck.',
+  'При инициализации произошла ошибка. Ниже — технические детали.':
+      'An error occurred during initialization. Technical details are below.',
+  'Не удалось скопировать: {p0}': "Couldn't copy: {p0}",
+  'Текст ошибки скопирован': 'Error text copied',
+  'Шаг: {p0}': 'Step: {p0}',
+  'Скопируйте текст и отправьте разработчику — этого достаточно, чтобы найти причину без консоли.':
+      "Copy the text and send it to the developer — that's enough to find the cause without the console.",
+  'Повторить запуск': 'Retry startup',
+  '{p0} · {p1} с': '{p0} · {p1}s',
+  'Если так дольше минуты — сделайте скриншот этого экрана и отправьте разработчику.':
+      'If this lasts more than a minute, take a screenshot of this screen and send it to the developer.',
   // features/app/screens/splash_screen.dart
   'Запуск...': 'Starting...',
   // features/app/screens/tutorial_screen.dart

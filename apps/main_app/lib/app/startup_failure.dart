@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/services/hang_watchdog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -26,13 +27,15 @@ class StartupFailureInfo {
   final Duration? elapsed;
   final bool timedOut;
 
-  String get title =>
-      timedOut ? 'Запуск не завершился' : 'Не удалось запустить Meander';
+  String get title => timedOut
+      ? tr('Запуск не завершился')
+      : tr('Не удалось запустить Meander');
 
   String get message => timedOut
-      ? 'Инициализация не уложилась в отведённое время. '
-          'Скорее всего, завис один из шагов запуска.'
-      : 'При инициализации произошла ошибка. Ниже — технические детали.';
+      ? tr(
+          'Инициализация не уложилась в отведённое время. Скорее всего, завис один из шагов запуска.',
+        )
+      : tr('При инициализации произошла ошибка. Ниже — технические детали.');
 
   String get report {
     final buffer = StringBuffer()
@@ -86,13 +89,15 @@ class StartupFailurePane extends StatelessWidget {
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось скопировать: $error')),
+        SnackBar(
+          content: Text(trf('Не удалось скопировать: {p0}', {'p0': '$error'})),
+        ),
       );
       return;
     }
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Текст ошибки скопирован')),
+      SnackBar(content: Text(tr('Текст ошибки скопирован'))),
     );
   }
 
@@ -130,7 +135,7 @@ class StartupFailurePane extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                'Шаг: ${info.step ?? HangWatchdog.lastStep}',
+                trf('Шаг: {p0}', {'p0': info.step ?? HangWatchdog.lastStep}),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
@@ -160,8 +165,9 @@ class StartupFailurePane extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                'Скопируйте текст и отправьте разработчику — этого достаточно, '
-                'чтобы найти причину без консоли.',
+                tr(
+                  'Скопируйте текст и отправьте разработчику — этого достаточно, чтобы найти причину без консоли.',
+                ),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
@@ -171,14 +177,14 @@ class StartupFailurePane extends StatelessWidget {
               FilledButton.icon(
                 onPressed: () => _copy(context),
                 icon: const Icon(Icons.copy_all),
-                label: const Text('Скопировать ошибку'),
+                label: Text(tr('Скопировать ошибку')),
               ),
               if (onRetry != null) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: onRetry,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Повторить запуск'),
+                  label: Text(tr('Повторить запуск')),
                 ),
               ],
             ],
@@ -258,9 +264,9 @@ class _StartupLoadingAppState extends State<StartupLoadingApp> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  const Text(
-                    'Запуск...',
-                    style: TextStyle(
+                  Text(
+                    tr('Запуск...'),
+                    style: const TextStyle(
                       color: foreground,
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
@@ -268,7 +274,10 @@ class _StartupLoadingAppState extends State<StartupLoadingApp> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '${HangWatchdog.lastStep} · ${_elapsed.inSeconds} с',
+                    trf('{p0} · {p1} с', {
+                      'p0': HangWatchdog.lastStep,
+                      'p1': _elapsed.inSeconds,
+                    }),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white70,
@@ -278,11 +287,12 @@ class _StartupLoadingAppState extends State<StartupLoadingApp> {
                   ),
                   if (_elapsed.inSeconds >= 20) ...[
                     const SizedBox(height: 18),
-                    const Text(
-                      'Если так дольше минуты — сделайте скриншот этого экрана '
-                      'и отправьте разработчику.',
+                    Text(
+                      tr(
+                        'Если так дольше минуты — сделайте скриншот этого экрана и отправьте разработчику.',
+                      ),
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white60, fontSize: 12),
+                      style: const TextStyle(color: Colors.white60, fontSize: 12),
                     ),
                   ],
                 ],
