@@ -22,9 +22,40 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
 # Куда кладём готовые фреймворки
 MACOS_FRAMEWORKS_DIR="$REPO_ROOT/apps/main_app/macos/Runner/Frameworks"
 IOS_FRAMEWORKS_DIR="$REPO_ROOT/apps/main_app/ios/Runner/Frameworks"
+PODFILE="$REPO_ROOT/apps/main_app/ios/Podfile"
+IOS_MIN_DEPLOYMENT_TARGET="15.0"
 
 # Регенерация Dart-биндингов (по умолчанию выключена)
 RUN_CODEGEN="${RUN_CODEGEN:-0}"
+
+# C-зависимости (libwebp-sys, ring, dart-sys) собираются с тем же
+# IPHONEOS_DEPLOYMENT_TARGET, что и Rust. Без него cargo берёт дефолт
+# таргета (iOS 10.0), а SDK-заголовки/compiler-rt уже новее — на линковке
+# вылезает undefined ___chkstk_darwin. Берём версию из Podfile, но не ниже 15.
+configure_ios_deployment_target() {
+    local target="${IPHONEOS_DEPLOYMENT_TARGET:-}"
+
+    if [[ -z "$target" && -f "$PODFILE" ]]; then
+        target="$(sed -nE "s/^[[:space:]]*platform[[:space:]]+:ios[[:space:]]*,[[:space:]]*['\"]([0-9.]+)['\"].*/\1/p" "$PODFILE" | head -n 1)"
+    fi
+    target="${target:-$IOS_MIN_DEPLOYMENT_TARGET}"
+
+    # target < IOS_MIN_DEPLOYMENT_TARGET → поднимаем до минимума.
+    if awk -v target="$target" -v minimum="$IOS_MIN_DEPLOYMENT_TARGET" 'BEGIN {
+        split(target, t, ".");
+        split(minimum, m, ".");
+        for (i = 1; i <= 3; i++) {
+            if ((t[i] + 0) < (m[i] + 0)) exit 0;
+            if ((t[i] + 0) > (m[i] + 0)) exit 1;
+        }
+        exit 1;
+    }'; then
+        target="$IOS_MIN_DEPLOYMENT_TARGET"
+    fi
+
+    export IPHONEOS_DEPLOYMENT_TARGET="$target"
+    echo "==> IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
+}
 
 ensure_rust_target() {
     local target="$1"
@@ -183,6 +214,7 @@ build_macos() {
 
 build_ios() {
     echo "==> Собираю mnd-ffi для iOS (arm64 device)"
+    configure_ios_deployment_target
     ensure_rust_targets aarch64-apple-ios
 
     cargo build --release -p mnd-ffi --target aarch64-apple-ios
@@ -200,6 +232,7 @@ build_ios() {
 
 build_ios_sim() {
     echo "==> Собираю mnd-ffi для iOS Simulator (arm64)"
+    configure_ios_deployment_target
     ensure_rust_targets aarch64-apple-ios-sim
 
     cargo build --release -p mnd-ffi --target aarch64-apple-ios-sim
