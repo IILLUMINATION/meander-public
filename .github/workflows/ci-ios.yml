@@ -126,6 +126,15 @@ jobs:
             echo "::notice::срез «${{ matrix.slice.name }}» пропущен (выбран «$wanted»)"
           fi
 
+      # Дефолтный Xcode 16.4 на macos-15 не знает NWPath.isUltraConstrained,
+      # который использует connectivity_plus 7.3.x. Без Xcode 26 device-срез
+      # падает ещё до архива.
+      - name: Xcode 26
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.0.1.app/Contents/Developer
+          xcodebuild -version
+
       - name: Rust toolchain + target
         if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
