@@ -172,8 +172,10 @@ merge_lua_into_staticlib() {
     local lib="$2"
 
     local lua_lib
+    # Не привязываемся к имени пакета: lua-src может положить архив как
+    # в out каталога mlua-sys, так и в свой собственный.
     lua_lib="$(find "$TARGET_DIR/$target/release/build" \
-        -path '*/mlua-sys-*/out/lib/liblua5.4.a' -print -quit 2>/dev/null || true)"
+        -name 'liblua5.4.a' -print -quit 2>/dev/null || true)"
     if [[ -z "$lua_lib" ]]; then
         echo "Ошибка: не найден liblua5.4.a (vendored Lua) под $TARGET_DIR/$target/release/build" >&2
         exit 1
