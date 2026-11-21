@@ -195,7 +195,23 @@ jobs:
 
       - name: Build iOS app (${{ matrix.slice.name }})
         if: steps.gate.outputs.run == 'true'
-        run: flutter build ios --release ${{ matrix.slice.flutter_flag }} --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
+        run: |
+          if [ "${{ matrix.slice.name }}" = device ]; then
+            # Именно ipa/archive, а не build ios: strip запускается на
+            # deployment postprocessing, и только там ловится потеря
+            # экспортируемых Rust-символов.
+            flutter build ipa --release --no-codesign \
+              --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
+            app="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app/Runner"
+            test -f "$app" || { echo "!! не найден $app"; exit 1; }
+            nm -g "$app" 2>/dev/null | grep -q frb_get_rust_content_hash || {
+              echo "!! в финальном Runner нет frb_get_rust_content_hash: strip вырезал FFI"
+              exit 1
+            }
+          else
+            flutter build ios --release --simulator \
+              --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
+          fi
 
       - name: Лог xcodebuild при неудаче
         if: failure()
