@@ -24,7 +24,6 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
 
 MACOS_FRAMEWORKS_DIR="$REPO_ROOT/apps/main_app/macos/Runner/Frameworks"
 IOS_FRAMEWORKS_DIR="$REPO_ROOT/apps/main_app/ios/Runner/Frameworks"
-XCCONFIG_DIR="$REPO_ROOT/apps/main_app/ios/Flutter"
 PODFILE="$REPO_ROOT/apps/main_app/ios/Podfile"
 IOS_MIN_DEPLOYMENT_TARGET="15.0"
 
@@ -63,24 +62,6 @@ ensure_rust_target() {
         echo "==> Устанавливаю Rust-target: $target"
         rustup target add "$target"
     fi
-}
-
-# Исправление опечаток и автонастройка путей поиска фреймворков
-configure_framework_search_paths() {
-    local search_path_line='FRAMEWORK_SEARCH_PATHS = $(inherited) "$(SRCROOT)/Runner/Frameworks"'
-    for config in "Debug.xcconfig" "Release.xcconfig"; do
-        local file="$XCCONFIG_DIR/$config"
-        if [ -f "$file" ]; then
-            # Автоматически убираем опечатку `#include?`
-            sed -i '' 's/#include?/#include/g' "$file" 2>/dev/null || sed -i 's/#include?/#include/g' "$file"
-
-            if ! grep -q "FRAMEWORK_SEARCH_PATHS" "$file"; then
-                echo "" >> "$file"
-                echo "$search_path_line" >> "$file"
-                echo "==> Добавлен FRAMEWORK_SEARCH_PATHS в $config"
-            fi
-        fi
-    done
 }
 
 # Вшиваем vendored-Lua в статический архив iOS
@@ -195,7 +176,6 @@ build_ios() {
 }
 
 mkdir -p "$MACOS_FRAMEWORKS_DIR" "$IOS_FRAMEWORKS_DIR"
-configure_framework_search_paths
 
 case "${1:---ios-sim}" in
     --ios-sim)

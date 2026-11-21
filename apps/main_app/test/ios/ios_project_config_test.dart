@@ -147,6 +147,18 @@ void main() {
           greaterThan(defaults),
           reason: '$name: локальный OAuthLocal.xcconfig должен быть главнее',
         );
+        // `?` обязателен: файл gitignored и на чистом клоне отсутствует.
+        // Без него Xcode падает с «could not find included file».
+        expect(
+          cfg,
+          contains('#include? "OAuthLocal.xcconfig"'),
+          reason: '$name: локальный OAuth-конфиг должен быть опциональным',
+        );
+        expect(
+          cfg,
+          isNot(contains('#include "OAuthLocal.xcconfig"')),
+          reason: '$name: обязательный include сломает сборку на чистом клоне',
+        );
         // Старое имя не подключаем: скопированный из примера OAuth.xcconfig
         // с пустыми значениями перекрывал рабочие дефолты после git pull.
         expect(
