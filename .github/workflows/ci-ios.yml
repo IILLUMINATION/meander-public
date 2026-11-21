@@ -94,7 +94,7 @@ jobs:
   build-ios:
     name: сборка (${{ matrix.slice.name }})
     needs: config
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
