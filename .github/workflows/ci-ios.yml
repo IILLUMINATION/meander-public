@@ -111,6 +111,8 @@ jobs:
       run:
         working-directory: apps/main_app
     steps:
+      - uses: actions/checkout@v4
+
       # На ручном запуске можно попросить один срез; второй тогда пропускаем.
       - name: Нужен ли этот срез
         id: gate
