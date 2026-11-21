@@ -15,7 +15,9 @@ Apple. Здесь — весь путь от чистого клона до за
 
 ## 0. Что нужно на маке
 
-- macOS (лучше Apple Silicon) и свежий Xcode из App Store. Один раз:
+- macOS (лучше Apple Silicon) и **Xcode 26+** из App Store: `connectivity_plus`
+  7.3 использует `NWPath.isUltraConstrained` из iOS 26 SDK, на Xcode 16.4
+  device-сборка не компилируется. Один раз:
   `sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch`
 - [Homebrew](https://brew.sh), Rust (rustup), CocoaPods
 - Flutter **3.47.9** — ровно эта версия (та же, что в CI:
@@ -99,7 +101,8 @@ cd ~/meander
 
 ```bash
 bin=apps/main_app/ios/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi
-test -s "$bin" && nm -g "$bin" | grep -q frb_ && \
+test -s "$bin" && nm -g "$bin" | grep -q frb_get_rust_content_hash && \
+  nm -g "$bin" | grep -q frb_pde_ffi_dispatcher_primary && \
   nm -g "$bin" | grep -q luaL_newstate && echo "FFI OK"
 ```
 
@@ -177,6 +180,7 @@ Rust-ядро — первое, что отваливается при непр�
 | Симптом | Что делать |
 |---|---|
 | `Undefined symbol: frb_*` | ядро не собралось или архив пустой → шаг 4 и проверка `nm` |
+| `Failed to lookup symbol 'frb_get_rust_content_hash'` на старте | Release/Archive вырезал глобальные символы: в таргете **Runner** должно быть `STRIP_STYLE = non-global`, `DEPLOYMENT_POSTPROCESSING = YES`, `DEAD_CODE_STRIPPING = NO`; framework линкуется через `-force_load`, но не Embed |
 | «range of supported deployment target versions is 15.0…» | `rm -rf ios/Pods ios/Podfile.lock && cd ios && pod install --repo-update` |
 | «No signing certificate» / «no profiles» | не выбран Team в Xcode (шаг 5) |
 | `MissingPluginException` на старте | не прогнан `pod install` → `cd ios && pod install` |
