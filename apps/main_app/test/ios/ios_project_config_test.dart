@@ -209,7 +209,8 @@ void main() {
           File('../../scripts/ios_ffi_phase.sh').readAsStringSync();
       // Иначе пустой/чужой framework доедет до тестера и приложение
       // остановится на launch screen.
-      expect(script, contains("grep -q 'frb_'"));
+      expect(script, contains('frb_get_rust_content_hash'));
+      expect(script, contains('frb_pde_ffi_dispatcher_primary'));
       expect(script, contains("grep -q 'luaL_newstate'"));
       expect(script, contains('lipo -info'));
     });
@@ -235,6 +236,29 @@ void main() {
         3,
         reason: 'иначе Rust-функции без статических ссылок выкидываются',
       );
+    });
+
+    test('Release не вырезает глобальные FFI-символы при strip', () {
+      final pbx = read('Runner.xcodeproj/project.pbxproj');
+      // STRIP_STYLE=all вместе с deployment postprocessing вычищает
+      // экспортируемые символы Rust: бинарь линкуется, а dlsym их не видит.
+      expect('STRIP_STYLE = non-global;'.allMatches(pbx).length, 3);
+      expect('DEPLOYMENT_POSTPROCESSING = YES;'.allMatches(pbx).length, 2);
+    });
+
+    test('статический framework линкуется, но не попадает в Embed', () {
+      final pbx = read('Runner.xcodeproj/project.pbxproj');
+      final embedStart = pbx.indexOf(
+        '9705A1C41CF9048500538489 /* Embed Frameworks */ = {',
+      );
+      expect(embedStart, greaterThan(0));
+      final embedPhase = pbx.substring(
+        embedStart,
+        pbx.indexOf('};', embedStart) + 2,
+      );
+      expect(embedPhase, isNot(contains('libmnd_ffi.framework')));
+      expect(embedPhase, isNot(contains('CodeSignOnCopy')));
+      expect(pbx, contains('libmnd_ffi.framework in Frameworks'));
     });
 
     test('фейз сборки ядра не пропускается в Release', () {

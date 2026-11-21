@@ -428,6 +428,8 @@
 					"$(PROJECT_DIR)/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi",
 				);
 				DEAD_CODE_STRIPPING = NO;
+				DEPLOYMENT_POSTPROCESSING = YES;
+				STRIP_STYLE = non-global;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = com.IILLUMINAT.meadner;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -614,6 +616,8 @@
 					"$(PROJECT_DIR)/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi",
 				);
 				DEAD_CODE_STRIPPING = NO;
+				DEPLOYMENT_POSTPROCESSING = NO;
+				STRIP_STYLE = non-global;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = com.IILLUMINAT.meadner;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -643,6 +647,8 @@
 					"$(PROJECT_DIR)/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi",
 				);
 				DEAD_CODE_STRIPPING = NO;
+				DEPLOYMENT_POSTPROCESSING = YES;
+				STRIP_STYLE = non-global;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = com.IILLUMINAT.meadner;
 				PRODUCT_NAME = "$(TARGET_NAME)";

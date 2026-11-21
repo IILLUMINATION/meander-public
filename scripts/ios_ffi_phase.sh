@@ -75,11 +75,16 @@ fi
 # Проверяем символы прямо в фазе сборки, чтобы битый архив не доехал до тестера.
 if [[ "$(uname -s)" == "Darwin" ]] && command -v nm >/dev/null 2>&1; then
     symbols="$(nm -g "$FRAMEWORK_BIN" 2>/dev/null || true)"
-    if ! grep -q 'frb_' <<< "$symbols"; then
-        echo "!! В $FRAMEWORK_BIN нет символов frb_* — это не собранное Rust-ядро."
-        echo "!! Пересоберите: ./scripts/build_ffi_apple.sh $mode"
-        exit 1
-    fi
+    # Проверяем именно тот символ, который FRB ищет при инициализации.
+    # Общего `frb_` мало: в архиве могут остаться диспетчеры, а хеш
+    # контента вырезан — приложение упадёт уже на устройстве.
+    for required in frb_get_rust_content_hash frb_pde_ffi_dispatcher_primary; do
+        if ! grep -q "$required" <<< "$symbols"; then
+            echo "!! В $FRAMEWORK_BIN нет символа $required — это не собранное Rust-ядро."
+            echo "!! Пересоберите: ./scripts/build_ffi_apple.sh $mode"
+            exit 1
+        fi
+    done
     if ! grep -q 'luaL_newstate' <<< "$symbols"; then
         echo "!! В $FRAMEWORK_BIN нет luaL_newstate — vendored Lua не вшит."
         echo "!! Пересоберите: ./scripts/build_ffi_apple.sh $mode"
