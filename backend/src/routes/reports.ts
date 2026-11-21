@@ -5,6 +5,7 @@ import adminAuth from '../middleware/adminAuth';
 import { validate as uuidValidate } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import { disconnectUserSockets } from '../services/socket';
 
 const router = Router();
 
@@ -326,6 +327,8 @@ router.post('/admin/:id/resolve', authMiddleware, adminAuth, async (req: AuthReq
             // Если нужно заблокировать пользователя
             if (block_user && userIdToBlock) {
                 await pool.query('UPDATE profiles SET is_blocked = TRUE, token_version = token_version + 1 WHERE id = $1', [userIdToBlock]);
+                // HTTP-кэш и уже открытые сокеты не должны жить до TTL/exp.
+                disconnectUserSockets(userIdToBlock);
                 console.log(`🚫 Blocked user: ${userIdToBlock}`);
             }
         }

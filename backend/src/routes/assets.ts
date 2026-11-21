@@ -338,12 +338,12 @@ router.post('/:id/review', authMiddleware, async (req: AuthRequest, res: Respons
     const blk = await pool.query('SELECT is_blocked FROM profiles WHERE id=$1', [req.user?.id]);
     if (blk.rows[0]?.is_blocked) return res.status(403).json({ error: 'Blocked' });
     if (text_content && text_content.trim().length > 2) {
-      try {
-        const assetCheck = await pool.query('SELECT author_id FROM market_assets WHERE id=$1', [id]);
-        const allowAds = req.user?.id === assetCheck.rows[0]?.author_id || await isStaff(req);
-        const mod = await moderateReview(text_content, allowAds);
-        if (!mod.approved) return res.status(400).json({ error: `Review not allowed: ${mod.reason}` });
-      } catch (e) { console.error('Review moderation failed', e); }
+      // Ошибка модерации не должна сохранять отзыв без проверки: пусть
+      // запрос упадёт в общий catch, а не пройдёт как approved.
+      const assetCheck = await pool.query('SELECT author_id FROM market_assets WHERE id=$1', [id]);
+      const allowAds = req.user?.id === assetCheck.rows[0]?.author_id || await isStaff(req);
+      const mod = await moderateReview(text_content, allowAds);
+      if (!mod.approved) return res.status(400).json({ error: `Review not allowed: ${mod.reason}` });
     }
     const ex = await pool.query('SELECT id FROM asset_reviews WHERE asset_id=$1 AND author_id=$2', [id, req.user?.id]);
     let reviewId: string | null = null;

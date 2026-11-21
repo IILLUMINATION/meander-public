@@ -9,6 +9,7 @@ import { COSMETICS, grantCosmetics } from '../services/cosmetics';
 import { createNotification } from '../services/notifications';
 import { recomputeTier } from '../services/cloud_sync_tier';
 import { getActivityOverview } from '../services/activity';
+import { disconnectUserSockets } from '../services/socket';
 
 const router = Router();
 
@@ -234,6 +235,7 @@ router.post('/users/:id/unblock', async (req: AuthRequest, res: Response) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
+        disconnectUserSockets(id);
 
         res.json({ success: true, user: result.rows[0] });
     } catch (e) {

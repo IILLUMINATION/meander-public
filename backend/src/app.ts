@@ -169,19 +169,21 @@ const downloadLimiter = rateLimit({
 app.use(generalLimiter);
 
 // --- 3. ПАРСИНГ ---
-// SEC-14: обычные JSON-запросы ограничены 1 МБ, формы — 100 КБ. Облачная
-// синхронизация принимает квесты до 5 МБ, поэтому большой лимит включается
-// только для её префикса, а не для всего приложения.
+// SEC-14: обычные JSON-запросы ограничены 1 МБ, формы — 100 КБ.
+//
+// /cloud-sync пропускаем здесь целиком: его парсер стоит внутри роутера после
+// authMiddleware. Иначе аноним заставляет сервер принять и разобрать тело до
+// отказа в токене; 5 МБ на запрос — дешёвый способ нагрузить Node.js.
 const jsonDefault = express.json({ limit: '1mb' });
-const jsonCloudSync = express.json({ limit: '5mb' });
 const urlencodedDefault = express.urlencoded({ extended: true, limit: '100kb' });
-const urlencodedCloudSync = express.urlencoded({ extended: true, limit: '5mb' });
 const isCloudSyncPath = (p: string) => p === '/cloud-sync' || p.startsWith('/cloud-sync/');
 app.use((req, res, next) => {
-    (isCloudSyncPath(req.path) ? jsonCloudSync : jsonDefault)(req, res, next);
+    if (isCloudSyncPath(req.path)) return next();
+    jsonDefault(req, res, next);
 });
 app.use((req, res, next) => {
-    (isCloudSyncPath(req.path) ? urlencodedCloudSync : urlencodedDefault)(req, res, next);
+    if (isCloudSyncPath(req.path)) return next();
+    urlencodedDefault(req, res, next);
 });
 
 if (process.env.NODE_ENV !== 'production') {

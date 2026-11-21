@@ -45,7 +45,7 @@ const getBearerToken = (authHeader?: string): string | null => {
 const ACCOUNT_CACHE_TTL_MS = 30 * 1000;
 const _accountCache = new Map<string, { blocked: boolean; tokenVersion: number | null; fetchedAt: number }>();
 
-async function getAccountState(userId?: string): Promise<{ blocked: boolean; tokenVersion: number | null }> {
+export async function getAccountState(userId?: string): Promise<{ blocked: boolean; tokenVersion: number | null }> {
   if (!userId) return { blocked: false, tokenVersion: null };
   const cached = _accountCache.get(userId);
   if (cached && Date.now() - cached.fetchedAt < ACCOUNT_CACHE_TTL_MS) {
@@ -74,19 +74,27 @@ async function getAccountState(userId?: string): Promise<{ blocked: boolean; tok
         _accountCache.set(userId, { ...state, fetchedAt: Date.now() });
         return state;
       } catch (e2) {
+        // Даже запасной запрос не смог подтвердить статус аккаунта. Пропускать
+        // запрос дальше нельзя: это fail-open, при котором забаненный или
+        // отозванный токен проходит до восстановления БД.
         console.error('[auth] block status check failed', e2);
-        return { blocked: false, tokenVersion: null };
+        throw e2;
       }
     }
-    // Best-effort, как touchLastSeen: если БД недоступна, большинство запросов
-    // всё равно упадёт дальше; здесь не превращаем это в блокировку всех.
+    // Не подменяем недоступность БД разрешающим состоянием. Вызывающий
+    // middleware вернёт 503, а не пустит запрос без проверки блокировки.
     console.error('[auth] account state check failed', e);
-    return { blocked: false, tokenVersion: null };
+    throw e;
   }
 }
 
+/** Сбросить кэш после бана/разбана, чтобы решение вступило в силу сразу. */
+export const invalidateAccountState = (userId?: string): void => {
+  if (userId) _accountCache.delete(userId);
+};
+
 /** Отозван ли токен: `tv` в JWT должен совпадать с profiles.token_version. */
-const isTokenCurrent = (payload: jwt.JwtPayload, state: { tokenVersion: number | null }): boolean =>
+export const isTokenCurrent = (payload: jwt.JwtPayload, state: { tokenVersion: number | null }): boolean =>
   state.tokenVersion === null || Number(payload.tv ?? 0) === state.tokenVersion;
 
 const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -122,7 +130,15 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
   // SEC-01: заблокированным закрываем все защищённые endpoint'ы сразу в
   // middleware, а не в отдельных route'ах. 403 здесь — отказ по правилу, и
   // клиент его корректно не путает с мёртвым токеном.
-  const state = await getAccountState(user.id);
+  let state: { blocked: boolean; tokenVersion: number | null };
+  try {
+    state = await getAccountState(user.id);
+  } catch (e) {
+    return res.status(503).json({
+      error: 'Account status is temporarily unavailable',
+      code: 'ACCOUNT_STATE_UNAVAILABLE',
+    });
+  }
   if (state.blocked) {
     return res.status(403).json({ error: 'Your account is blocked', code: 'ACCOUNT_BLOCKED' });
   }
