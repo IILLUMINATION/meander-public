@@ -2,8 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const {
+  canBroadcastNews,
   canCommentInChannel,
   canManageChannel,
+  canPublishInChannel,
   canReadChannel,
 } = require('../dist/services/channel_rules');
 
@@ -31,4 +33,26 @@ test('комментировать может участник, но не про
   assert.equal(canCommentInChannel('admin'), true);
   assert.equal(canCommentInChannel(null), false);
   assert.equal(canCommentInChannel(undefined), false);
+});
+
+test('в официальном канале публикует только владелец', () => {
+  const owner = '11111111-1111-4111-8111-111111111111';
+  const admin = '22222222-2222-4222-8222-222222222222';
+
+  assert.equal(canPublishInChannel(true, owner, owner, 'owner'), true);
+  // Админ канала в обычном канале пишет, но официальный — только владелец.
+  assert.equal(canPublishInChannel(true, owner, admin, 'admin'), false);
+  assert.equal(canPublishInChannel(true, owner, admin, 'owner'), false);
+  assert.equal(canPublishInChannel(false, owner, admin, 'admin'), true);
+  assert.equal(canPublishInChannel(false, owner, admin, 'subscriber'), false);
+});
+
+test('рассылку новостей запускает только владелец официального канала', () => {
+  const owner = '11111111-1111-4111-8111-111111111111';
+  const admin = '22222222-2222-4222-8222-222222222222';
+
+  assert.equal(canBroadcastNews(owner, owner), true);
+  assert.equal(canBroadcastNews(owner, admin), false);
+  assert.equal(canBroadcastNews(null, admin), false);
+  assert.equal(canBroadcastNews(owner, null), false);
 });

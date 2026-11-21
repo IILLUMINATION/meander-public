@@ -9,6 +9,29 @@ export type ChannelRole = string | null | undefined;
 export const canManageChannel = (role: ChannelRole): boolean =>
   role === 'owner' || role === 'admin';
 
+/**
+ * В официальном канале новостей писать может только его владелец.
+ * Админы канала здесь не исключение: новость — лицо проекта, а не
+ * редакционная лента, и одна случайная публикация стоит дороже, чем
+ * ручное подтверждение каждой.
+ */
+export const canPublishInChannel = (
+  isOfficial: boolean | null | undefined,
+  ownerId: string | null | undefined,
+  userId: string | null | undefined,
+  role: ChannelRole,
+): boolean => {
+  if (!userId) return false;
+  if (isOfficial) return Boolean(ownerId) && ownerId === userId;
+  return canManageChannel(role);
+};
+
+/** Рассылку «Новости Meander» запускает только владелец официального канала. */
+export const canBroadcastNews = (
+  ownerId: string | null | undefined,
+  userId: string | null | undefined,
+): boolean => Boolean(ownerId && userId && ownerId === userId);
+
 /** Закрытый канал виден только тем, кто в нём состоит. */
 export const canReadChannel = (
   isPublic: boolean | null | undefined,

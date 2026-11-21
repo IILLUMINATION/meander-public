@@ -622,9 +622,15 @@ router.post('/system/broadcast', authMiddleware, limitBroadcast, async (req: Aut
     }
 
     try {
-        const tenure = await getTenure(me);
-        if (!tenure || !isStaff(tenure)) {
-            return res.status(403).json({ error: 'Новость команды может публиковать только админ' });
+        // Рассылку может запускать только владелец официального канала
+        // «Новости Meander». Роль admin/moderator сама по себе права на
+        // публикацию от лица проекта не даёт.
+        const official = await pool.query(
+            `SELECT owner_id FROM channels WHERE is_official = TRUE LIMIT 1`,
+        );
+        const ownerId = official.rows[0]?.owner_id;
+        if (!ownerId || ownerId !== me) {
+            return res.status(403).json({ error: 'Новость команды публикует только владелец канала' });
         }
 
         const userCount = await pool.query(`SELECT COUNT(*)::int AS n FROM profiles WHERE id <> $1::uuid`, [me]);

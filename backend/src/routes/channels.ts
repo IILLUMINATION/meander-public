@@ -7,6 +7,7 @@ import { parseUsername, usernameTaken } from '../services/usernames';
 import {
   canCommentInChannel,
   canManageChannel,
+  canPublishInChannel,
   canReadChannel,
 } from '../services/channel_rules';
 import authMiddleware, { optionalAuthMiddleware, AuthRequest } from '../middleware/auth';
@@ -401,15 +402,15 @@ router.post('/:id/posts', authMiddleware, limitWrite, async (req: AuthRequest, r
   }
 
   try {
-    const role = await roleInChannel(id, me);
-    if (!canManageChannel(role)) {
-      return res.status(403).json({ error: 'Писать в канал может только владелец' });
-    }
     const channel = await pool.query(
-      `SELECT id, title FROM channels WHERE id = $1`,
+      `SELECT id, title, owner_id, is_official FROM channels WHERE id = $1`,
       [id],
     );
     if (channel.rows.length === 0) return res.status(404).json({ error: 'Канал не найден' });
+    const role = await roleInChannel(id, me);
+    if (!canPublishInChannel(channel.rows[0].is_official, channel.rows[0].owner_id, me, role)) {
+      return res.status(403).json({ error: 'Писать в этот канал может только владелец' });
+    }
 
     const inserted = await pool.query(
       `INSERT INTO channel_posts (channel_id, author_id, body, attachments)
@@ -477,8 +478,13 @@ router.delete('/:id/posts/:postId', authMiddleware, async (req: AuthRequest, res
     return res.status(400).json({ error: 'Некорректный идентификатор' });
   }
   try {
+    const channel = await pool.query(
+      `SELECT owner_id, is_official FROM channels WHERE id = $1`,
+      [id],
+    );
+    if (channel.rows.length === 0) return res.status(404).json({ error: 'Канал не найден' });
     const role = await roleInChannel(id, me);
-    if (!canManageChannel(role)) {
+    if (!canPublishInChannel(channel.rows[0].is_official, channel.rows[0].owner_id, me, role)) {
       return res.status(403).json({ error: 'Удалять посты может только владелец' });
     }
     const deleted = await pool.query(
