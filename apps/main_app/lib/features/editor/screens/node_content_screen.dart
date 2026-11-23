@@ -1935,6 +1935,9 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     onBeforeContainerEdit: () async {
       if (_isDirty) await _saveNode(force: true);
     },
+    // Симуляция из редактора ряда/колонки должна стартовать с уже записанной
+    // нодой, иначе добавленные внутрь дети теряются (debounce 2 с) (#39).
+    onForceContainerSave: () => _saveNode(isExiting: false, force: true),
     onCustomEditItem: (index, item) async {
       if (item.type == 'plugin') {
         final pluginType = _findPluginType(item.pluginTypeId);

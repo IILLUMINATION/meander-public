@@ -77,6 +77,15 @@ class EditorNestedDocuments {
   static bool hasBuilder(EditorDocumentId id) =>
       _entries.containsKey(id) && !_entries[id]!.completer.isCompleted;
 
+  /// Builder открытой вкладки.
+  ///
+  /// Заменённая вкладка (например, рядом → симуляция) сохраняет builder и
+  /// при возврате «Назад» собирается заново. Тестам нужно проверить, что
+  /// пересборка берёт актуальные данные, а не снапшот на момент открытия.
+  @visibleForTesting
+  static WidgetBuilder? builderForTest(EditorDocumentId id) =>
+      _entries[id]?.builder;
+
   /// Снять верхний маршрут внутри вкладки (пикер, вложенный диалог).
   ///
   /// Системная «Назад» приходит корневому навигатору и не видит вложенный:
