@@ -121,6 +121,10 @@ class _TemplatePickerSheetState extends ConsumerState<TemplatePickerSheet> {
   String _search = '';
   final _searchCtrl = TextEditingController();
 
+  /// Выбранный шаблон, для которого сейчас спрашиваем режим вставки.
+  /// `null` — показываем список, иначе — шаг «Копия / Связанный».
+  TemplateItem? _modeTemplate;
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -129,6 +133,9 @@ class _TemplatePickerSheetState extends ConsumerState<TemplatePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final modeTemplate = _modeTemplate;
+    if (modeTemplate != null) return _buildModeChoice(modeTemplate);
+
     final filter = TemplateScopeFilter(
       questId: widget.questId,
       kinds: widget.allowedKinds,
@@ -280,23 +287,24 @@ class _TemplatePickerSheetState extends ConsumerState<TemplatePickerSheet> {
     );
   }
 
-  /// Обработать тап по конкретному шаблону: при необходимости спрашиваем
-  /// режим вставки, затем закрываем sheet с результатом.
+  /// Тап по шаблону: глава вставляется сразу копией, у остальных сначала
+  /// спрашиваем режим — следующим шагом этого же шита, без второго роута.
   Future<void> _onTileTap(TemplateItem template) async {
     // Главы всегда вставляются как snapshot — слишком крупная единица, чтобы
     // безопасно делать always-latest.
     final canLinked =
         widget.allowLinked && template.kind != TemplateKind.chapter;
 
-    final TemplatePickMode mode;
     if (canLinked) {
-      final chosen = await _askMode(context);
-      if (chosen == null) return; // отмена
-      mode = chosen;
-    } else {
-      mode = TemplatePickMode.snapshot;
+      setState(() => _modeTemplate = template);
+      return;
     }
 
+    await _finishPick(template, TemplatePickMode.snapshot);
+  }
+
+  /// Закрыть пикер выбранным шаблоном и режимом вставки.
+  Future<void> _finishPick(TemplateItem template, TemplatePickMode mode) async {
     // Определяем, был ли шаблон в глобальном списке (для последующего
     // pinToQuest). Если questId не задан — это уже глобальный контекст,
     // wasGlobal не имеет смысла, но ставим true для единообразия.
@@ -317,37 +325,69 @@ class _TemplatePickerSheetState extends ConsumerState<TemplatePickerSheet> {
     );
   }
 
-  Future<TemplatePickMode?> _askMode(BuildContext context) {
-    return showAppDialog<TemplatePickMode>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: Text(
-          tr('Как вставить шаблон?'),
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Text(
-          tr('Копия — независимый объект, его можно редактировать; изменения мастер-шаблона на него не повлияют.\n\nСвязанный — отображает актуальный мастер; когда вы измените шаблон, все связанные вхождения обновятся автоматически.'),
-          style: TextStyle(color: Colors.white70, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tr('Отмена')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, TemplatePickMode.snapshot),
-            child: Text(tr('Копия')),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.cyanAccent.withOpacity(0.2),
-              foregroundColor: Colors.cyanAccent,
+  /// Шаг «как вставлять» внутри шита.
+  ///
+  /// Раньше здесь открывался AlertDialog поверх bottom sheet: на Android его
+  /// барьер перехватывал тапы, и «Копия» / «Связанный» / «Отмена» не
+  /// нажимались (#14). Внутри одного шита отдельного барьера нет вовсе.
+  Widget _buildModeChoice(TemplateItem template) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 4, bottom: 16),
+              alignment: Alignment.center,
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
-            onPressed: () => Navigator.pop(context, TemplatePickMode.linked),
-            child: Text(tr('Связанный')),
-          ),
-        ],
+            Text(
+              tr('Как вставить шаблон?'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              tr('Копия — независимый объект, его можно редактировать; изменения мастер-шаблона на него не повлияют.\n\nСвязанный — отображает актуальный мастер; когда вы измените шаблон, все связанные вхождения обновятся автоматически.'),
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.tonal(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+              onPressed: () => _finishPick(template, TemplatePickMode.snapshot),
+              child: Text(tr('Копия')),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                backgroundColor: Colors.cyanAccent.withValues(alpha: 0.2),
+                foregroundColor: Colors.cyanAccent,
+              ),
+              onPressed: () => _finishPick(template, TemplatePickMode.linked),
+              child: Text(tr('Связанный')),
+            ),
+            const SizedBox(height: 4),
+            TextButton(
+              onPressed: () => setState(() => _modeTemplate = null),
+              child: Text(tr('Отмена')),
+            ),
+          ],
+        ),
       ),
     );
   }
