@@ -31,6 +31,11 @@ class ItemEditorHelper {
   final void Function(int index, ContentItem item) updateItem;
 
   final Future<void> Function()? onBeforeContainerEdit;
+
+  /// Форсированное сохранение ноды перед запуском симуляции из редактора
+  /// контейнера: отложенная запись родителя иначе не успевает, и игра
+  /// стартует со старой нодой, без добавленных внутрь детей (#39).
+  final Future<void> Function()? onForceContainerSave;
   final Future<bool> Function(int index, ContentItem item)? onCustomEditItem;
   final void Function(String targetNodeId)? onJumpToNode;
   final bool fromGameSession;
@@ -43,10 +48,31 @@ class ItemEditorHelper {
     required this.getItem,
     required this.updateItem,
     this.onBeforeContainerEdit,
+    this.onForceContainerSave,
     this.onCustomEditItem,
     this.onJumpToNode,
     this.fromGameSession = false,
   });
+
+  /// Актуальный элемент из родителя по индексу.
+  ///
+  /// Вкладку вложенного редактора могут пересоздать: запуск симуляции из
+  /// ряда заменяет её вкладкой игры (см. `QuestEditorShell._open`), а «Назад»
+  /// переоткрывает ряд из дескриптора стека посещений. Экран собирается
+  /// заново из этого builder'а, и снапшот элемента, снятый при первом
+  /// открытии, оказывается устаревшим — из-за этого фото, добавленное в ряд,
+  /// исчезало из него после симуляции (#39).
+  static ContentItem _liveItem(
+    ContentItem Function(int index) getItem,
+    int index,
+    ContentItem fallback,
+  ) {
+    try {
+      final current = getItem(index);
+      if (current.id == fallback.id) return current;
+    } catch (_) {}
+    return fallback;
+  }
 
   late final ResourceService _resources = ResourceService.forQuest(questId);
   late final ScriptService _scripts = ScriptService(resources: _resources);
@@ -166,58 +192,65 @@ class ItemEditorHelper {
         questId: questId,
         identity: 'container:$nodeId:${item.id}',
         title: isRow ? tr('Ряд') : tr('Колонка'),
-        builder: (_) => ContainerEditorScreen(
-          questId: questId,
-          nodeId: nodeId,
-          containerType: item.type,
-          initialChildren: item.children ?? [],
-          initialAlignment: item.crossAxisAlignment,
-          initialTextFit: item.textFit,
-          initialRowTextAlign: item.rowTextAlignment,
-          initialItemSpacing: item.itemSpacing,
-          initialSpacingExpr: item.numericExpr('itemSpacing'),
-          initialChildImageRoundedCorners: item.childImageRoundedCorners,
-          initialFontFamily: item.fontFamily,
-          initialPluginData: item.pluginData,
-          onJumpToNode: onJumpToNode,
-          fromGameSession: fromGameSession,
-          onAutoSave: (state) async {
-            final newChildren = state['children'] as List<ContentItem>? ?? [];
-            final newAlign = state['alignment'] as String?;
-            final newTextFit = state['textFit'] as String?;
-            final newRowTextAlign = state['rowTextAlign'] as String?;
-            final newPluginData =
-                state['pluginData'] as Map<String, dynamic>?;
-            final newSpacing = (state['itemSpacing'] as num?)?.toDouble();
-            final newSpacingExpr = state['spacingExpr'] as String?;
-            final newRoundImages = state['childImageRoundedCorners'] as bool?;
-            final newFontFamily = state['fontFamily'] as String?;
+        builder: (_) {
+          // Пикер/игра пересоздают вкладку, поэтому стартовое состояние берём
+          // у живого элемента, а не у снапшота на момент открытия.
+          final live = _liveItem(getItem, index, item);
+          return ContainerEditorScreen(
+            questId: questId,
+            nodeId: nodeId,
+            containerType: item.type,
+            initialChildren: live.children ?? const [],
+            initialAlignment: live.crossAxisAlignment,
+            initialTextFit: live.textFit,
+            initialRowTextAlign: live.rowTextAlignment,
+            initialItemSpacing: live.itemSpacing,
+            initialSpacingExpr: live.numericExpr('itemSpacing'),
+            initialChildImageRoundedCorners: live.childImageRoundedCorners,
+            initialFontFamily: live.fontFamily,
+            initialPluginData: live.pluginData,
+            onJumpToNode: onJumpToNode,
+            fromGameSession: fromGameSession,
+            onForceSave: onForceContainerSave,
+            onAutoSave: (state) async {
+              final newChildren = state['children'] as List<ContentItem>? ?? [];
+              final newAlign = state['alignment'] as String?;
+              final newTextFit = state['textFit'] as String?;
+              final newRowTextAlign = state['rowTextAlign'] as String?;
+              final newPluginData =
+                  state['pluginData'] as Map<String, dynamic>?;
+              final newSpacing = (state['itemSpacing'] as num?)?.toDouble();
+              final newSpacingExpr = state['spacingExpr'] as String?;
+              final newRoundImages =
+                  state['childImageRoundedCorners'] as bool?;
+              final newFontFamily = state['fontFamily'] as String?;
 
-            if (!context.mounted) return;
-            updateItem(
-              index,
-              withSpacingExpr(
-                item.copyWith(
-                  children: newChildren,
-                  crossAxisAlignment: newAlign,
-                  textFit: newTextFit,
-                  rowTextAlignment: newRowTextAlign,
-                  pluginData: newPluginData,
-                  itemSpacing: newSpacing,
-                  clearItemSpacing: newSpacing == null,
-                  childImageRoundedCorners: newRoundImages,
-                  clearChildImageRoundedCorners: newRoundImages == null,
-                  fontFamily: newFontFamily,
-                  clearFontFamily: newFontFamily == null,
+              if (!context.mounted) return;
+              updateItem(
+                index,
+                withSpacingExpr(
+                  _liveItem(getItem, index, item).copyWith(
+                    children: newChildren,
+                    crossAxisAlignment: newAlign,
+                    textFit: newTextFit,
+                    rowTextAlignment: newRowTextAlign,
+                    pluginData: newPluginData,
+                    itemSpacing: newSpacing,
+                    clearItemSpacing: newSpacing == null,
+                    childImageRoundedCorners: newRoundImages,
+                    clearChildImageRoundedCorners: newRoundImages == null,
+                    fontFamily: newFontFamily,
+                    clearFontFamily: newFontFamily == null,
+                  ),
+                  newSpacingExpr,
                 ),
-                newSpacingExpr,
-              ),
-            );
-            if (context.mounted && onBeforeContainerEdit != null) {
-              await onBeforeContainerEdit!();
-            }
-          },
-        ),
+              );
+              if (context.mounted && onBeforeContainerEdit != null) {
+                await onBeforeContainerEdit!();
+              }
+            },
+          );
+        },
       );
       if (result != null && context.mounted) {
         final newChildren = result['children'] as List<ContentItem>? ?? [];
@@ -237,7 +270,7 @@ class ItemEditorHelper {
         updateItem(
           index,
           withSpacingExpr(
-            item.copyWith(
+            _liveItem(getItem, index, item).copyWith(
               children: newChildren,
               crossAxisAlignment: newAlign,
               textFit: newTextFit,

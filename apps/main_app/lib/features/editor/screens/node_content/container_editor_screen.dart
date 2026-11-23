@@ -57,6 +57,12 @@ class ContainerEditorScreen extends ConsumerStatefulWidget {
   /// чтобы родитель сохранил ноду с актуальными данными.
   final Future<void> Function(Map<String, dynamic>)? onAutoSave;
 
+  /// Форсированное сохранение ноды на диск перед запуском симуляции.
+  /// Вызывается после [onAutoSave] и дожидается завершения записи: без него
+  /// debounced-сохранение родителя не успевает, и игра читает ноду без
+  /// добавленных внутрь ряда/колонки детей (#39).
+  final Future<void> Function()? onForceSave;
+
   final void Function(String targetNodeId)? onJumpToNode;
   final bool fromGameSession;
 
@@ -75,6 +81,7 @@ class ContainerEditorScreen extends ConsumerStatefulWidget {
     this.initialFontFamily,
     this.initialPluginData,
     this.onAutoSave,
+    this.onForceSave,
     this.onJumpToNode,
     this.fromGameSession = false,
   });
@@ -220,6 +227,10 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
     if (widget.onAutoSave != null) {
       await widget.onAutoSave!(_currentState());
     }
+    // Дети ряда/колонки живут в родительской ноде, а её запись отложена
+    // debounce'ом: без форс-сейва симуляция стартует со старым списком
+    // детей, и добавленный контент «пропадает» (#39).
+    await widget.onForceSave?.call();
     if (!mounted) return;
 
     if (widget.fromGameSession) {
@@ -237,6 +248,8 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
     if (widget.onAutoSave != null) {
       await widget.onAutoSave!(_currentState());
     }
+    // Та же причина, что и в [_launchQuest]: нода должна быть на диске.
+    await widget.onForceSave?.call();
     if (!mounted) return;
     await EditorDocumentLauncher.openGameFromSave(context, widget.questId);
   }
@@ -1156,6 +1169,9 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
       });
       widget.onAutoSave?.call(_currentState());
     },
+    // Вложенный ряд/колонка получает тот же форс-сейв: запуск симуляции из
+    // второго уровня вложенности тоже не должен терять детей.
+    onForceContainerSave: widget.onForceSave,
     // Айтем плагина не имеет своего редактора: его поля описаны в манифесте,
     // и форма та же, что и при добавлении.
     onCustomEditItem: (index, item) async {
