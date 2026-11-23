@@ -31,6 +31,11 @@ class ItemEditorHelper {
   final void Function(int index, ContentItem item) updateItem;
 
   final Future<void> Function()? onBeforeContainerEdit;
+
+  /// Форсированное сохранение ноды перед запуском симуляции из редактора
+  /// контейнера. Без него debounced save не успевает записать children на
+  /// диск, и симуляция видит пустые ряды/колонки (#39).
+  final Future<void> Function()? onForceContainerSave;
   final Future<bool> Function(int index, ContentItem item)? onCustomEditItem;
   final void Function(String targetNodeId)? onJumpToNode;
   final bool fromGameSession;
@@ -43,6 +48,7 @@ class ItemEditorHelper {
     required this.getItem,
     required this.updateItem,
     this.onBeforeContainerEdit,
+    this.onForceContainerSave,
     this.onCustomEditItem,
     this.onJumpToNode,
     this.fromGameSession = false,
@@ -181,6 +187,7 @@ class ItemEditorHelper {
           initialPluginData: item.pluginData,
           onJumpToNode: onJumpToNode,
           fromGameSession: fromGameSession,
+          onForceSave: onForceContainerSave,
           onAutoSave: (state) async {
             final newChildren = state['children'] as List<ContentItem>? ?? [];
             final newAlign = state['alignment'] as String?;

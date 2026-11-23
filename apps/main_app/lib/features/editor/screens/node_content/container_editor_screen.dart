@@ -57,6 +57,11 @@ class ContainerEditorScreen extends ConsumerStatefulWidget {
   /// чтобы родитель сохранил ноду с актуальными данными.
   final Future<void> Function(Map<String, dynamic>)? onAutoSave;
 
+  /// Форсированное сохранение перед запуском симуляции.
+  /// Срабатывает после [onAutoSave] и дожидается записи на диск.
+  /// Без этого debounced save не успевает, и симуляция видит старые данные (#39).
+  final Future<void> Function()? onForceSave;
+
   final void Function(String targetNodeId)? onJumpToNode;
   final bool fromGameSession;
 
@@ -75,6 +80,7 @@ class ContainerEditorScreen extends ConsumerStatefulWidget {
     this.initialFontFamily,
     this.initialPluginData,
     this.onAutoSave,
+    this.onForceSave,
     this.onJumpToNode,
     this.fromGameSession = false,
   });
@@ -219,6 +225,11 @@ class _ContainerEditorScreenState extends ConsumerState<ContainerEditorScreen> {
   Future<void> _launchQuest() async {
     if (widget.onAutoSave != null) {
       await widget.onAutoSave!(_currentState());
+    }
+    // Форсируем сохранение на диск чтобы debounce не отложил запись
+    // и симуляция не прочитала устаревшие данные (#39).
+    if (widget.onForceSave != null) {
+      await widget.onForceSave!();
     }
     if (!mounted) return;
 

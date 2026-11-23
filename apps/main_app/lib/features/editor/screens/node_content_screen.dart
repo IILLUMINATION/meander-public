@@ -1935,6 +1935,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     onBeforeContainerEdit: () async {
       if (_isDirty) await _saveNode(force: true);
     },
+    onForceContainerSave: () => _saveNode(isExiting: false, force: true),
     onCustomEditItem: (index, item) async {
       if (item.type == 'plugin') {
         final pluginType = _findPluginType(item.pluginTypeId);

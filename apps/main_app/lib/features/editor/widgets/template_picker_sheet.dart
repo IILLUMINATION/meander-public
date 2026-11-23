@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:canvas_app/features/editor/providers/template_provider.dart';
 import 'package:canvas_app/models/template_model.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
@@ -318,38 +320,81 @@ class _TemplatePickerSheetState extends ConsumerState<TemplatePickerSheet> {
   }
 
   Future<TemplatePickMode?> _askMode(BuildContext context) {
-    return showAppDialog<TemplatePickMode>(
+    // На Android стандартный AlertDialog поверх bottom sheet может не получать
+    // тапы из-за конфликта барьеров (#14). Используем showAdaptiveSheet — на
+    // мобильных это bottom sheet (кнопки работают гарантированно), на десктопе
+    // — компактный диалог.
+    final completer = Completer<TemplatePickMode?>();
+    final sheetFuture = showAdaptiveSheet<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: Text(
-          tr('Как вставить шаблон?'),
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Text(
-          tr('Копия — независимый объект, его можно редактировать; изменения мастер-шаблона на него не повлияют.\n\nСвязанный — отображает актуальный мастер; когда вы измените шаблон, все связанные вхождения обновятся автоматически.'),
-          style: TextStyle(color: Colors.white70, fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tr('Отмена')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, TemplatePickMode.snapshot),
-            child: Text(tr('Копия')),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.cyanAccent.withOpacity(0.2),
-              foregroundColor: Colors.cyanAccent,
+      barrierDismissible: true,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 4),
+            Text(
+              tr('Как вставить шаблон?'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            onPressed: () => Navigator.pop(context, TemplatePickMode.linked),
-            child: Text(tr('Связанный')),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              tr('Копия — независимый объект, его можно редактировать; изменения мастер-шаблона на него не повлияют.\n\nСвязанный — отображает актуальный мастер; когда вы измените шаблон, все связанные вхождения обновятся автоматически.'),
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      completer.complete(null);
+                    },
+                    child: Text(tr('Отмена')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      completer.complete(TemplatePickMode.snapshot);
+                    },
+                    child: Text(tr('Копия')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.cyanAccent.withOpacity(0.2),
+                      foregroundColor: Colors.cyanAccent,
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      completer.complete(TemplatePickMode.linked);
+                    },
+                    child: Text(tr('Связанный')),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
+    // Если шит закрыт без выбора (свайп, барьер) — завершаем с null.
+    sheetFuture.then((_) {
+      if (!completer.isCompleted) completer.complete(null);
+    });
+    return completer.future;
   }
 
   Future<TemplateScope?> _askWhereToImport(BuildContext context) {
