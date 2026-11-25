@@ -238,10 +238,11 @@ class BackupService {
       }
       // Старая папка уходит в сторону целиком — до этого момента она на
       // месте, даже если распаковка упала.
-      await replaceDirectoryAtomically(staging: stagingDir, target: targetDir);
-
-      // Файлы записаны в обход кэша JSON (см. FileStorage.invalidateJsonCache).
-      FileStorage.invalidateJsonCache([QuestPaths.questRoot(questId)]);
+      await replaceQuestDirectoryAtomically(
+        questId: questId,
+        staging: stagingDir,
+        target: targetDir,
+      );
       return true;
     } catch (error) {
       print('❌ [Backup] Восстановление $questId не удалось: $error');

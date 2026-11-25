@@ -395,6 +395,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   Timer? _hoverDebounce;
   String _scriptScanSignature = '';
   int _scriptScanToken = 0;
+  int _loadedReplacementVersion = 0;
   void Function()? _contentChangeUnsub;
   static const double gridSize = 20.0;
 
@@ -407,6 +408,26 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     : super(CanvasState(spatialHash: SpatialHash())) {
     _contentChangeUnsub = QuestContentChangeBus.instance.listen(_questId, () {
       if (!mounted) return;
+      final replacementVersion = QuestContentChangeBus.instance
+          .replacementVersionOf(_questId);
+      if (replacementVersion != _loadedReplacementVersion) {
+        _autoSaveDebounce?.cancel();
+        _cameraCommitTimer?.cancel();
+        _scriptScanToken++;
+        _scriptScanSignature = '';
+        state = CanvasState(
+          spatialHash: SpatialHash(),
+          isSnapToGridEnabled: state.isSnapToGridEnabled,
+        );
+        _ref.invalidate(allQuestNodesProvider(_questId));
+        _ref.invalidate(canvasIndexProvider(_questId));
+        _ref.invalidate(
+          tagCameraStateProvider(TagNodesInfo(questId: _questId, tagId: _tagId)),
+        );
+        _ref.invalidate(questTagsProvider(_questId));
+        unawaited(_loadCanvasData());
+        return;
+      }
       _ref.invalidate(canvasIndexProvider(_questId));
     });
     _loadInitialData();
@@ -414,6 +435,15 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   }
 
   int get selectedNodeCount => state.selectedNodeIds.length;
+
+  bool get _canPersistSnapshot =>
+      mounted &&
+      QuestContentChangeBus.instance.replacementVersionOf(_questId) ==
+          _loadedReplacementVersion;
+
+  bool _matchesReplacement(int expected) =>
+      mounted &&
+      QuestContentChangeBus.instance.replacementVersionOf(_questId) == expected;
 
   @override
   void dispose() {
@@ -441,9 +471,12 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
 
   Future<void> _syncNodesFromProvider(List<SavedNode> savedNodes) async {
     final sw = Stopwatch()..start();
+    final expectedReplacementVersion = QuestContentChangeBus.instance
+        .replacementVersionOf(_questId);
 
     final index = await _ref.read(canvasIndexProvider(_questId).future);
     final config = await FileStorage.readJsonFile(QuestPaths.config(_questId));
+    if (!_matchesReplacement(expectedReplacementVersion)) return;
     final startNodeId = config['startNodeId'] as String?;
     final connectionsJson = (config['connections'] as List<dynamic>? ?? [])
         .cast<Map<String, dynamic>>();
@@ -543,6 +576,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
     }
 
     if (mounted) {
+      _loadedReplacementVersion = expectedReplacementVersion;
       // Скриптовые рёбра в индексе не лежат — они приходят фоновым сканом.
       // Пересборка связей из индекса не должна их выбрасывать: скан повторно
       // запускается только при смене набора нод/признака `hasScripts`.
@@ -589,6 +623,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       unawaited(
         _loadScriptConnectionsInBackground(
           token: scanToken,
+          expectedReplacementVersion: expectedReplacementVersion,
           nodes: nodes,
           nodeMap: nodeMap,
           skipBodyNodeIds: {
@@ -603,6 +638,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
 
   Future<void> _loadScriptConnectionsInBackground({
     required int token,
+    required int expectedReplacementVersion,
     required List<Node> nodes,
     required Map<String, Node> nodeMap,
     required Set<String> skipBodyNodeIds,
@@ -616,7 +652,11 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       );
       // Отдельный токен, а не ревизия синка: синк может пройти повторно, пока
       // читаются тела, и результат первого скана всё равно актуален.
-      if (!mounted || token != _scriptScanToken) return;
+      if (!mounted ||
+          token != _scriptScanToken ||
+          !_matchesReplacement(expectedReplacementVersion)) {
+        return;
+      }
 
       // Мержим в актуальные связи, а не в снимок на момент запуска скана:
       // пока тела читались, автор мог добавить обычную связь, и снимок её бы
@@ -941,14 +981,18 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
 
   Future<void> _loadCanvasData() async {
     final sw = Stopwatch()..start();
+    final expectedReplacementVersion = QuestContentChangeBus.instance
+        .replacementVersionOf(_questId);
     try {
       final savedNodes = await _ref.read(
         tagNodesProvider(TagNodesInfo(questId: _questId, tagId: _tagId)).future,
       );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       final extraData = await _ref.read(
         canvasExtraDataProvider(_questId).future,
       );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       final groupsList = (extraData['groups'] as List)
           .map((g) => CanvasGroup.fromJson(g))
@@ -962,14 +1006,17 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
 
       // Use common sync method
       await _syncNodesFromProvider(savedNodes);
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       final cameraState = await _ref.read(
         tagCameraStateProvider(
           TagNodesInfo(questId: _questId, tagId: _tagId),
         ).future,
       );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       if (mounted) {
+        _loadedReplacementVersion = expectedReplacementVersion;
         final camOffset = Offset(cameraState.offsetX, cameraState.offsetY);
         final camScale = cameraState.scale;
         cameraOffset.value = camOffset;
@@ -1240,6 +1287,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   }
 
   Future<void> saveCamera() async {
+    if (!_canPersistSnapshot) return;
+    final expectedReplacementVersion = _loadedReplacementVersion;
     try {
       // Prevent delayed stale snapshot from overwriting fresher node edits.
       _autoSaveDebounce?.cancel();
@@ -1250,21 +1299,23 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       if (state.offset != camOff || state.scale != camSc) {
         state = state.copyWith(offset: camOff, scale: camSc);
       }
-      await saveTagCameraState(
-        _questId,
-        _tagId,
-        CameraState(offsetX: camOff.dx, offsetY: camOff.dy, scale: camSc),
-      );
 
       // IMPORTANT: keep latest persisted node content/title to avoid overwriting
       // fresh edits done in NodeContentScreen while canvas autosave is running.
       final persistedById = await _persistedNodesById();
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
       final nodesToSave = _chapterSnapshotToSave(state.nodes, persistedById);
 
       await saveCanvasData(
         _questId,
         nodes: nodesToSave,
         chapterId: _tagId,
+        expectedReplacementVersion: expectedReplacementVersion,
+        cameraState: CameraState(
+          offsetX: camOff.dx,
+          offsetY: camOff.dy,
+          scale: camSc,
+        ),
         groups: state.groups,
         comments: state.comments,
       );
@@ -1436,6 +1487,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   }
 
   Future<void> addNode(Size screenSize) async {
+    if (!_canPersistSnapshot) return;
+    final expectedReplacementVersion = _loadedReplacementVersion;
     try {
       _autoSaveDebounce?.cancel();
 
@@ -1445,6 +1498,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         state = state.copyWith(offset: centerScreen);
       }
       await saveCamera();
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       Offset finalPosition = screenToWorld(centerScreen);
       if (state.isSnapToGridEnabled) {
@@ -1497,16 +1551,13 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         y: finalPosition.dy,
       );
 
-      final configPath = QuestPaths.config(_questId);
-      final config = await _readMap(configPath);
-      final currentStartNode = config['startNodeId'] as String?;
-      bool isNowStartNode = false;
-      final allNodes = await _ref.read(allQuestNodesProvider(_questId).future);
-      if (allNodes.isEmpty &&
-          (currentStartNode == null || currentStartNode.isEmpty)) {
-        config['startNodeId'] = newSavedNode.id;
-        await (await _qs()).writeJson(configPath, config);
-        isNowStartNode = true;
+      final isNowStartNode = await saveInitialStartNode(
+        _questId,
+        newSavedNode.id,
+        expectedReplacementVersion: expectedReplacementVersion,
+      );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
+      if (isNowStartNode) {
         _ref.invalidate(questProvider(_questId));
       }
 
@@ -1534,15 +1585,18 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         updatedNodes,
         await _persistedNodesById(),
       );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       await saveCanvasData(
         _questId,
         nodes: nodesToSave,
         chapterId: _tagId,
+        expectedReplacementVersion: expectedReplacementVersion,
         groups: state.groups,
         comments: state.comments,
       );
 
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
       _ref.invalidate(allQuestNodesProvider(_questId));
     } catch (e, stack) {
       print('❌ [CanvasNotifier] AddNode Error: $e\n$stack');
@@ -1554,6 +1608,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   /// 2 — «Мост» (низ-справа). Каждая нода уже содержит подготовленный
   /// текст-контент, чтобы пользователь увидел заполненную развилку.
   Future<void> addTutorialNode(int index, Size screenSize) async {
+    if (!_canPersistSnapshot) return;
+    final expectedReplacementVersion = _loadedReplacementVersion;
     try {
       _autoSaveDebounce?.cancel();
 
@@ -1563,6 +1619,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         state = state.copyWith(offset: centerScreen);
       }
       await saveCamera();
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       Offset center = screenToWorld(centerScreen);
       if (state.isSnapToGridEnabled) {
@@ -1624,16 +1681,13 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       );
 
       // Если это первая нода в квесте — делаем её стартовой.
-      final configPath = QuestPaths.config(_questId);
-      final config = await _readMap(configPath);
-      final currentStartNode = config['startNodeId'] as String?;
-      bool isStart = false;
-      final allNodes = await _ref.read(allQuestNodesProvider(_questId).future);
-      if (allNodes.isEmpty &&
-          (currentStartNode == null || currentStartNode.isEmpty)) {
-        config['startNodeId'] = saved.id;
-        await (await _qs()).writeJson(configPath, config);
-        isStart = true;
+      final isStart = await saveInitialStartNode(
+        _questId,
+        saved.id,
+        expectedReplacementVersion: expectedReplacementVersion,
+      );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
+      if (isStart) {
         _ref.invalidate(questProvider(_questId));
       }
 
@@ -1660,15 +1714,18 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         updatedNodes,
         await _persistedNodesById(),
       );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       await saveCanvasData(
         _questId,
         nodes: nodesToSave,
         chapterId: _tagId,
+        expectedReplacementVersion: expectedReplacementVersion,
         groups: state.groups,
         comments: state.comments,
       );
 
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
       _ref.invalidate(allQuestNodesProvider(_questId));
     } catch (e, stack) {
       print('❌ [CanvasNotifier] AddTutorialNode Error: $e\n$stack');
@@ -1710,6 +1767,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   }
 
   Future<void> endConnection(String? targetNodeId) async {
+    if (!_canPersistSnapshot) return;
+    final expectedReplacementVersion = _loadedReplacementVersion;
     final fromNodeId = state.connectionStartNodeId;
     state = state.copyWith(
       clearConnectionStart: true,
@@ -1729,6 +1788,7 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       // Канвас держит только превью ноды: тело с диска, иначе добавление
       // кнопки из канвасового снимка стирало бы остальные реплики ноды.
       final persistedSource = await _persistedNodesById();
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
       final baseContent =
           persistedSource[fromNodeId]?.content ?? fromNode.content;
       final rawItems = baseContent?['items'];
@@ -1751,7 +1811,12 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         return itemTarget == toNode.id && !hasOnPressScript;
       });
       if (hasExistingButton) {
-        await saveConnection(_questId, fromNodeId, targetNodeId);
+        await saveConnection(
+          _questId,
+          fromNodeId,
+          targetNodeId,
+          expectedReplacementVersion: expectedReplacementVersion,
+        );
         return;
       }
 
@@ -1785,7 +1850,13 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
         connections: [...state.connections, newConnection],
       );
 
-      await saveConnection(_questId, fromNodeId, targetNodeId);
+      await saveConnection(
+        _questId,
+        fromNodeId,
+        targetNodeId,
+        expectedReplacementVersion: expectedReplacementVersion,
+      );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
 
       // Кнопку кладём поверх записанной ноды, а не собираем ноду из
       // канвасового снимка: иначе сохранение связи стирало бы поля, которых
@@ -1794,7 +1865,12 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
           persistedSource[updatedFromNode.id]?.copyWith(content: newContent) ??
           _nodeFromCanvas(updatedFromNode);
 
-      await saveNodes(_questId, [savedNode]);
+      await saveNodes(
+        _questId,
+        [savedNode],
+        expectedReplacementVersion: expectedReplacementVersion,
+      );
+      if (!_matchesReplacement(expectedReplacementVersion)) return;
       _ref.invalidate(allQuestNodesProvider(_questId));
     } catch (e, stack) {
       print('❌ [CanvasNotifier] Connection Error: $e\n$stack');
@@ -1802,7 +1878,8 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
   }
 
   Future<void> deleteSelectedNode() async {
-    if (state.selectedNodeIds.isEmpty) return;
+    if (!_canPersistSnapshot || state.selectedNodeIds.isEmpty) return;
+    final expectedReplacementVersion = _loadedReplacementVersion;
     try {
       final idsToDelete = Set.from(state.selectedNodeIds);
       final newNodesList = state.nodes
@@ -1826,12 +1903,23 @@ class CanvasNotifier extends StateNotifier<CanvasState> {
       );
 
       for (final id in idsToDelete) {
-        unawaited(deleteNode(_questId, id));
+        unawaited(
+          deleteNode(
+            _questId,
+            id,
+            expectedReplacementVersion: expectedReplacementVersion,
+          ),
+        );
       }
       for (final conn in connectionsToRemove) {
         if (!conn.isVirtual) {
           unawaited(
-            deleteConnection(_questId, conn.fromNode.id, conn.toNode.id),
+            deleteConnection(
+              _questId,
+              conn.fromNode.id,
+              conn.toNode.id,
+              expectedReplacementVersion: expectedReplacementVersion,
+            ),
           );
         }
       }

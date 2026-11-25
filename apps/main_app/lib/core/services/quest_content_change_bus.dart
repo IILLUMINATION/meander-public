@@ -13,10 +13,15 @@ class QuestContentChangeBus {
   static final QuestContentChangeBus instance = QuestContentChangeBus._();
 
   final Map<String, int> _versions = {};
+  final Map<String, int> _replacementVersions = {};
   final Map<String, List<void Function()>> _listeners = {};
 
   /// Текущая версия контента квеста (число изменений с момента первого).
   int versionOf(String questId) => _versions[questId] ?? 0;
+
+  /// Версия полной подмены квеста: обычные правки её не меняют.
+  int replacementVersionOf(String questId) =>
+      _replacementVersions[questId] ?? 0;
 
   /// Отметить, что данные квеста изменились на диске. Уведомляет всех
   /// подписчиков этого квеста.
@@ -24,7 +29,15 @@ class QuestContentChangeBus {
   /// Сюда же сбрасывается кэш резолва источников ресурсов: файл мог быть
   /// переименован или удалён, и старый резолв стал бы отдавать несуществующий
   /// путь до перезапуска приложения.
-  void markChanged(String questId) {
+  void markChanged(String questId) => _markChanged(questId);
+
+  /// Отметить полную подмену каталога квеста (импорт/восстановление).
+  void markReplaced(String questId) {
+    _replacementVersions[questId] = replacementVersionOf(questId) + 1;
+    _markChanged(questId);
+  }
+
+  void _markChanged(String questId) {
     _versions[questId] = versionOf(questId) + 1;
     for (final listener in List.of(_listeners[questId] ?? const [])) {
       listener();
