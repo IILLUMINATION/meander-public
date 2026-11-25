@@ -172,4 +172,68 @@ void main() {
       reason: 'хвост C-формы',
     );
   });
+
+  test('вложенные C-формы получают контрастную границу', () async {
+    final condition = ConditionBlock(
+      thenBlocks: [
+        ConditionBlock(thenBlocks: [DelayBlock()]),
+      ],
+    );
+    final image = await render(condition);
+    final layout = ScratchLayoutEngine().layout([condition]);
+    final accent = blockAccent(Brightness.light, condition.category);
+
+    for (final frame in layout.frames) {
+      final edge = await pixelAt(
+        image,
+        Offset(frame.rect.left + 0.25, frame.rect.top + 70),
+      );
+      expect(
+        same(edge, accent),
+        isFalse,
+        reason: 'левая граница ${frame.block.id} должна быть видна',
+      );
+    }
+  });
+
+  testWidgets('вложенные C-формы: голден границ', (tester) async {
+    final condition = ConditionBlock(
+      thenBlocks: [
+        ConditionBlock(thenBlocks: [DelayBlock(expression: '500')]),
+      ],
+    );
+    final camera = ScratchCameraController(offset: offset);
+    addTearDown(camera.dispose);
+    final painter = ScratchScriptPainter(
+      layout: ScratchLayoutEngine().layout([condition]),
+      camera: camera,
+      cache: ScratchPaintCache(),
+      colorScheme: scheme,
+      brightness: Brightness.light,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: RepaintBoundary(
+              key: const Key('scratch-nested-containers'),
+              child: Container(
+                width: 360,
+                height: 260,
+                color: Colors.white,
+                child: CustomPaint(painter: painter),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await expectLater(
+      find.byKey(const Key('scratch-nested-containers')),
+      matchesGoldenFile('goldens/scratch_nested_containers.png'),
+    );
+  });
 }

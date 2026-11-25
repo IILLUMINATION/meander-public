@@ -48,7 +48,11 @@ void main() {
     for (final type in types) {
       final view = scratchViewOf(createBlockOfType(type));
       expect(view.title, isNotEmpty, reason: 'тип $type без заголовка');
-      expect(view.title, isNot(fallback), reason: 'тип $type провалился в заглушку');
+      expect(
+        view.title,
+        isNot(fallback),
+        reason: 'тип $type провалился в заглушку',
+      );
     }
   });
 
@@ -69,17 +73,26 @@ void main() {
     });
 
     test('подписи типов различаются', () {
-      final titles = {
+      final labels = {
         for (final type in EventType.values)
-          scratchViewOf(EventBlock(eventType: type)).title,
+          scratchViewOf(EventBlock(eventType: type)).values.first,
       };
-      expect(titles, hasLength(EventType.values.length));
+      expect(labels, hasLength(EventType.values.length));
     });
+  });
+
+  test('кроссфейд подписан миллисекундами', () {
+    final view = scratchViewOf(CrossfadeBlock(durationExpression: '500'));
+    expect(view.values.last, tr('мс'));
+    expect(view.fieldKinds, const [ScratchFieldKind.expression, null]);
   });
 
   group('ветки', () {
     test('контейнер отдаёт ветки, лист — нет', () {
-      expect(scratchBranchesOf(EventBlock(children: [DelayBlock()])), hasLength(1));
+      expect(
+        scratchBranchesOf(EventBlock(children: [DelayBlock()])),
+        hasLength(1),
+      );
       expect(
         scratchBranchesOf(ConditionBlock(thenBlocks: [DelayBlock()])),
         hasLength(2),

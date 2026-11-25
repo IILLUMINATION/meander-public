@@ -43,6 +43,7 @@ class ScratchMetrics {
   static const double chipRadius = 4;
   static const double minChipWidth = 28;
   static const double captionLineHeight = 16;
+  static const double frameOutlineWidth = 1.5;
 
   /// Радиус прилипания к блоку/стеку, мировые пиксели (как SNAP_RADIUS в
   /// Blockly из scratch-blocks: 48 экранных, но у нас плотнее).
@@ -135,11 +136,20 @@ class ScratchRow {
     this.index = 0,
     this.label,
     this.branchKey,
+    this.chipRects = const [],
   });
 
   final VisualScriptBlock block;
   final ScratchRowKind kind;
   final Rect rect;
+  final List<Rect> chipRects;
+
+  int? chipIndexAt(Offset point) {
+    for (var i = 0; i < chipRects.length; i++) {
+      if (chipRects[i].contains(point)) return i;
+    }
+    return null;
+  }
 
   /// Уровень вложенности: по нему считаются отступ и цвет подписи ветки.
   final int depth;
@@ -310,11 +320,62 @@ class ScratchLayout {
 /// позиции. Иначе не получить Scratch-поведение «блок растёт в ширину под
 /// вложенность»: ширина контейнера зависит от детей, а дети должны встать
 /// внутри уже известного frame.
+double scratchHeadWidth(
+  ScratchBlockView view, {
+  required double Function(String) titleWidth,
+  required double Function(String) valueWidth,
+}) {
+  var width = ScratchMetrics.padH * 2 + titleWidth(view.title);
+  for (final value in view.values) {
+    width +=
+        ScratchMetrics.chipGap +
+        math.max(
+          ScratchMetrics.minChipWidth,
+          valueWidth(value) + ScratchMetrics.chipPadH * 2,
+        );
+  }
+  return width;
+}
+
+List<Rect> scratchChipRects({
+  required Rect head,
+  required double centerY,
+  required double titleWidth,
+  required List<String> values,
+  required double Function(String) valueWidth,
+}) {
+  var x = head.left + ScratchMetrics.padH + titleWidth;
+  final rects = <Rect>[];
+  for (final value in values) {
+    x += ScratchMetrics.chipGap;
+    final width = math.max(
+      ScratchMetrics.minChipWidth,
+      valueWidth(value) + ScratchMetrics.chipPadH * 2,
+    );
+    rects.add(
+      Rect.fromLTWH(
+        x,
+        centerY - ScratchMetrics.chipHeight / 2,
+        width,
+        ScratchMetrics.chipHeight,
+      ),
+    );
+    x += width;
+  }
+  return rects;
+}
+
 class ScratchLayoutEngine {
   ScratchLayoutEngine({ScratchTextMeter? meter})
     : _meter = meter ?? ScratchTextMeter();
 
   final ScratchTextMeter _meter;
+
+  double _titleWidth(String text) =>
+      _meter.width(text, ScratchMetrics.titleStyle, styleKey: 1);
+
+  double _valueWidth(String text) =>
+      _meter.width(text, ScratchMetrics.valueStyle, styleKey: 2);
 
   // Кэши живут один вызов [layout]: дерево между кадрами не меняется, а
   // пересчёт после правки обязан видеть новые значения полей.
@@ -390,20 +451,11 @@ class ScratchLayoutEngine {
   /// Ширина шапки блока без учёта детей.
   double headWidth(VisualScriptBlock block) {
     final view = scratchViewOf(block);
-    var w =
-        ScratchMetrics.padH +
-        _meter.width(view.title, ScratchMetrics.titleStyle, styleKey: 1);
-    for (final value in view.values) {
-      w +=
-          ScratchMetrics.chipGap +
-          math.max(
-            ScratchMetrics.minChipWidth,
-            _meter.width(value, ScratchMetrics.valueStyle, styleKey: 2) +
-                ScratchMetrics.chipPadH * 2,
-          );
-    }
-    w += ScratchMetrics.padH;
-    return w;
+    return scratchHeadWidth(
+      view,
+      titleWidth: _titleWidth,
+      valueWidth: _valueWidth,
+    );
   }
 
   /// Ширина блока: у контейнера — максимум из шапки и тела с отступом.
@@ -495,6 +547,7 @@ class ScratchLayoutEngine {
     // Шляпа события не растягивается под ширину детей: в Scratch она своя и
     // стоит в колонке над стеком.
     final rowWidth = isHat ? headWidth(block) : width;
+    final view = scratchViewOf(block);
     final row = ScratchRow(
       block: block,
       kind: ScratchRowKind.head,
@@ -503,6 +556,15 @@ class ScratchLayoutEngine {
       ownerList: list,
       index: index,
       branchKey: slot?.key,
+      chipRects: scratchChipRects(
+        head: Rect.fromLTWH(x, y, rowWidth, headHeight),
+        centerY: isHat
+            ? y + ScratchMetrics.hatRise + ScratchMetrics.headHeight / 2
+            : y + headHeight / 2,
+        titleWidth: _titleWidth(view.title),
+        values: view.values,
+        valueWidth: _valueWidth,
+      ),
     );
     rows.add(row);
     slot?.rows.add(row);

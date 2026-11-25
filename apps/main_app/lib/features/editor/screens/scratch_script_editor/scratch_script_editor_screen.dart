@@ -9,7 +9,6 @@ import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/core/utils/error_text.dart';
 import 'package:canvas_app/features/editor/providers/visual_script_clipboard_provider.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/action_picker_screen.dart';
-import 'package:canvas_app/features/editor/screens/visual_script_editor/block_factory.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/block_models.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/script_block_shell.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/script_signature.dart';
@@ -25,6 +24,7 @@ import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import '../visual_script_editor/block_creation.dart';
 import 'scratch_block_view.dart';
 import 'scratch_camera.dart';
+import 'scratch_field_editor.dart';
 import 'scratch_layout.dart';
 import 'scratch_move.dart';
 import 'scratch_script_painter.dart';
@@ -43,10 +43,14 @@ class ScratchScriptEditorScreen extends ConsumerStatefulWidget {
     super.key,
     required this.questId,
     required this.scriptId,
+    this.paletteEntries,
   });
 
   final String questId;
   final String scriptId;
+
+  /// Тестам не нужен Rust FFI: null — загрузить реестр из ядра.
+  final List<BlockPaletteEntry>? paletteEntries;
 
   @override
   ConsumerState<ScratchScriptEditorScreen> createState() =>
@@ -72,8 +76,8 @@ class _ScratchScriptEditorScreenState
   String _scriptName = '';
   bool _isLoading = true;
 
-  /// Скрипт-условие: единственный корень — `ConditionBlock`. Его нельзя
-  /// дополнять событиями, новые блоки идут в ветки условия.
+  /// Текущая форма корней: единственный `ConditionBlock` скрывает кнопку
+  /// добавления события, пока автор не создаст второй независимый стек.
   bool get _isConditionalScript =>
       _blocks.length == 1 && _blocks.first is ConditionBlock;
 
@@ -117,8 +121,6 @@ class _ScratchScriptEditorScreenState
   // Пинч/панорама.
   double _gestureStartScale = 1.0;
   bool _panning = false;
-
-  Offset? _doubleTapPosition;
 
   @override
   void initState() {
@@ -368,18 +370,6 @@ class _ScratchScriptEditorScreenState
     _camera.zoomAtCenter(factor, _viewport);
   }
 
-  void _scrollTo(VisualScriptBlock block) {
-    if (_viewport.isEmpty) return;
-    for (final row in _layout.rows) {
-      if (row.kind == ScratchRowKind.head && row.block.id == block.id) {
-        final target =
-            _viewport.center(Offset.zero) - Offset(0, _viewport.height * 0.2);
-        _camera.panBy(target - _camera.worldToScreen(row.rect.center));
-        return;
-      }
-    }
-  }
-
   // ── Жесты ────────────────────────────────────────────────────────
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -625,19 +615,26 @@ class _ScratchScriptEditorScreenState
     _markDirty();
   }
 
-  void _handleTap(TapUpDetails details) {
+  Future<void> _handleTap(TapUpDetails details) async {
     final world = _camera.screenToWorld(details.localPosition);
     final row = _layout.rowAt(world);
     final id = row?.kind == ScratchRowKind.head ? row!.block.id : null;
     if (id != _selectedId) setState(() => _selectedId = id);
-  }
-
-  void _handleDoubleTap() {
-    final position = _doubleTapPosition;
-    if (position == null) return;
-    final row = _layout.rowAt(_camera.screenToWorld(position));
     if (row == null || row.kind != ScratchRowKind.head) return;
-    _editBlock(row.block);
+    final chip = row.chipIndexAt(world);
+    if (chip == null) return;
+    final kind = scratchViewOf(row.block).fieldKindAt(chip);
+    if (kind == null) return;
+    final changed = await editScratchField(
+      context: context,
+      questId: widget.questId,
+      block: row.block,
+      kind: kind,
+    );
+    if (changed && mounted) {
+      setState(_relayout);
+      _markDirty();
+    }
   }
 
   void _handleSecondaryTap(TapUpDetails details) {
@@ -670,27 +667,6 @@ class _ScratchScriptEditorScreenState
     return walk(_blocks);
   }
 
-  /// Куда добавить новый блок: в конец внутренностей выбранного контейнера,
-  /// иначе сразу после выбранного, иначе в конец корня.
-  ({List<VisualScriptBlock> list, int index}) _insertionTarget() {
-    final selected = _selectedBlock;
-    if (selected != null && selected.nestedBlockLists.isNotEmpty) {
-      final list = selected.nestedBlockLists.first;
-      return (list: list, index: list.length);
-    }
-    if (selected != null) {
-      final loc = locateBlockInTree(selected.id, _blocks);
-      if (loc != null) return (list: loc.list, index: loc.index + 1);
-    }
-    if (_isConditionalScript) {
-      final condition = _blocks.first as ConditionBlock;
-      return (list: condition.thenBlocks, index: condition.thenBlocks.length);
-    }
-    return (list: _blocks, index: _blocks.length);
-  }
-
-  /// Точка для нового корня: центр экрана (с небольшим сдвигом), чтобы блок
-  /// появился там, куда смотрит автор, а не в начале координат.
   /// Полный прямоугольник блока вместе с детьми: шапка плюс измеренная
   /// высота дерева. У события фрейма нет (это шляпа со стеком), поэтому
   /// искать только по кадрам нельзя.
@@ -705,90 +681,41 @@ class _ScratchScriptEditorScreenState
     );
   }
 
-  /// Свободная точка под [above] (или в центре экрана, если ставить не под кем).
-  Offset _nextRootSpot(VisualScriptBlock? above) {
-    final rect = above == null ? null : _blockRect(above);
-    if (rect == null) return _freeSpot();
-    return Offset(rect.left, rect.bottom + ScratchMetrics.rootGap);
-  }
-
-  Offset _freeSpot() {
+  Offset _freeSpot([VisualScriptBlock? block]) {
     if (_viewport.isEmpty) return Offset.zero;
     final center = _camera.screenToWorld(_viewport.center(Offset.zero));
-    return Offset(center.dx - 100, center.dy - 60);
+    if (block == null) return Offset(center.dx - 100, center.dy - 60);
+    return center -
+        Offset(
+          _engine.blockWidth(block) / 2,
+          ScratchMetrics.headHeightFor(block) / 2,
+        );
   }
 
   Future<void> _addBlock() async {
-    final entry = await showBlockPicker(context);
+    final entry = await showBlockPicker(
+      context,
+      entries: widget.paletteEntries,
+    );
     if (entry == null || !mounted) return;
     final block = createBlockOfType(entry.name);
-    final target = _insertionTarget();
     setState(() {
-      final index = target.index.clamp(0, target.list.length);
-      target.list.insert(index, block);
-      if (identical(target.list, _blocks)) {
-        // Новый корень встаёт под тем блоком, после которого его вставили:
-        // бросок в центр экрана выглядел бы как «блок улетел».
-        _origins[block.id] = _nextRootSpot(
-          index > 0 ? _blocks[index - 1] : null,
-        );
-      }
+      _blocks.add(block);
+      _origins[block.id] = _freeSpot(block);
       _selectedId = block.id;
       _relayout();
     });
     _markDirty();
-    _scrollTo(block);
   }
 
   void _addEvent() {
     final block = EventBlock(eventType: EventType.onNodeEnter);
     setState(() {
       _blocks.add(block);
-      _origins[block.id] = _nextRootSpot(
-        _blocks.length > 1 ? _blocks[_blocks.length - 2] : null,
-      );
+      _origins[block.id] = _freeSpot(block);
       _selectedId = block.id;
       _relayout();
     });
-    _markDirty();
-    _scrollTo(block);
-  }
-
-  Future<void> _editBlock(VisualScriptBlock block) async {
-    final scheme = Theme.of(context).colorScheme;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      backgroundColor: scheme.surface,
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.8,
-        minChildSize: 0.4,
-        maxChildSize: 0.95,
-        builder: (ctx, controller) => ListView(
-          controller: controller,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          children: [
-            BlockFactory(
-              block: block,
-              questId: widget.questId,
-              onBlockDrop: (dropped, targetList) {
-                setState(() {
-                  removeBlockFromTree(dropped.id, _blocks);
-                  _relayout();
-                });
-                _markDirty();
-              },
-              onMenuAction: (action) => _handleMenuAction(action, block),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!mounted) return;
-    setState(_relayout);
     _markDirty();
   }
 
@@ -1132,10 +1059,6 @@ class _ScratchScriptEditorScreenState
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapUp: _handleTap,
-            onDoubleTapDown: (details) {
-              _doubleTapPosition = details.localPosition;
-            },
-            onDoubleTap: _handleDoubleTap,
             onSecondaryTapUp: _handleSecondaryTap,
             onScaleStart: _onScaleStart,
             onScaleUpdate: _onScaleUpdate,
@@ -1276,7 +1199,7 @@ class _ScratchScriptEditorScreenState
         ),
         child: Text(
           tr(
-            'Тяните блоки свободно · двойной тап — изменить · правый клик — меню',
+            'Тяните блоки свободно · тап по полю — изменить · правый клик — меню',
           ),
           style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
         ),
@@ -1300,11 +1223,6 @@ class _ScratchScriptEditorScreenState
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              tooltip: tr('Изменить'),
-              onPressed: () => _editBlock(block),
-              icon: const Icon(Icons.edit_rounded),
-            ),
             if (collapsible)
               IconButton(
                 tooltip: scratchIsCollapsed(block)
