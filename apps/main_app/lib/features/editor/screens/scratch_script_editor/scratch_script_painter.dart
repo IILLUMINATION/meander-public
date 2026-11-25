@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 
@@ -130,6 +128,7 @@ class ScratchScriptPainter extends CustomPainter {
 
     _paintFrames(canvas, view);
     _paintRows(canvas, view);
+    _paintFrameOutlines(canvas, view);
     // Шипы стыковки рисуются последними: они должны лежать поверх блока
     // ниже, иначе соседняя строка закрашивает стык и блоки выглядят
     // нарезанными полосками.
@@ -152,6 +151,18 @@ class ScratchScriptPainter extends CustomPainter {
         ScratchShape.container(frame.rect, frame.body),
         Paint()..color = accent,
       );
+    }
+  }
+
+  void _paintFrameOutlines(Canvas canvas, Rect view) {
+    final paint = Paint()
+      ..color = colorScheme.onSurface.withValues(alpha: 0.72)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = ScratchMetrics.frameOutlineWidth;
+    for (final frame in layout.frames) {
+      if (!frame.rect.overlaps(view)) continue;
+      if (hiddenIds.contains(frame.block.id)) continue;
+      canvas.drawPath(ScratchShape.container(frame.rect, frame.body), paint);
     }
   }
 
@@ -236,7 +247,7 @@ class ScratchScriptPainter extends CustomPainter {
 
     final view = scratchViewOf(block);
     final centerY = ScratchShape.textCenterY(row.rect, block);
-    var x = row.rect.left + ScratchMetrics.padH;
+    final x = row.rect.left + ScratchMetrics.padH;
 
     final title = cache.painter(
       view.title,
@@ -244,45 +255,37 @@ class ScratchScriptPainter extends CustomPainter {
       styleKey: 1,
     );
     title.paint(canvas, Offset(x, centerY - title.height / 2));
-    x += title.width;
 
-    for (final value in view.values) {
-      x += ScratchMetrics.chipGap;
-      x = _paintChip(canvas, x, centerY, value);
+    for (var i = 0; i < view.values.length; i++) {
+      _paintChip(canvas, row.chipRects[i], view.values[i]);
     }
   }
 
-  double _paintChip(Canvas canvas, double x, double centerY, String value) {
+  void _paintChip(Canvas canvas, Rect rect, String value) {
     final painter = cache.painter(
       value,
       ScratchMetrics.valueStyle.copyWith(color: _fieldFg),
       styleKey: 2,
-    );
-    final width = math.max(
-      ScratchMetrics.minChipWidth,
-      painter.width + ScratchMetrics.chipPadH * 2,
-    );
-    final rect = Rect.fromLTWH(
-      x,
-      centerY - ScratchMetrics.chipHeight / 2,
-      width,
-      ScratchMetrics.chipHeight,
     );
     final rrect = RRect.fromRectAndRadius(
       rect,
       const Radius.circular(ScratchMetrics.chipRadius),
     );
     canvas.drawRRect(rrect, Paint()..color = _fieldFill);
-    if (painter.width + ScratchMetrics.chipPadH * 2 > width) {
+    if (painter.width + ScratchMetrics.chipPadH * 2 > rect.width) {
       canvas.save();
       canvas.clipRRect(rrect);
     }
     painter.paint(
       canvas,
-      Offset(rect.left + ScratchMetrics.chipPadH, centerY - painter.height / 2),
+      Offset(
+        rect.left + ScratchMetrics.chipPadH,
+        rect.center.dy - painter.height / 2,
+      ),
     );
-    if (painter.width + ScratchMetrics.chipPadH * 2 > width) canvas.restore();
-    return x + width;
+    if (painter.width + ScratchMetrics.chipPadH * 2 > rect.width) {
+      canvas.restore();
+    }
   }
 
   /// Шипы стыковки поверх всех блоков: нижний блок не должен закрашивать
@@ -365,10 +368,16 @@ class ScratchScriptPainter extends CustomPainter {
       styleKey: 1,
     );
     title.paint(canvas, Offset(x, centerY - title.height / 2));
-    x += title.width;
-    for (final value in view.values) {
-      x += ScratchMetrics.chipGap;
-      x = _paintChip(canvas, x, centerY, value);
+    final chips = scratchChipRects(
+      head: head,
+      centerY: centerY,
+      titleWidth: title.width,
+      values: view.values,
+      valueWidth: (value) =>
+          cache.painter(value, ScratchMetrics.valueStyle, styleKey: 2).width,
+    );
+    for (var i = 0; i < view.values.length; i++) {
+      _paintChip(canvas, chips[i], view.values[i]);
     }
   }
 

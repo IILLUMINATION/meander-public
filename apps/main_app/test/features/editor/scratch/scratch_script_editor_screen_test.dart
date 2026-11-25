@@ -1,12 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 
+import 'package:canvas_app/features/editor/screens/visual_script_editor/action_picker_screen.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/block_models.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/block_factory.dart';
+import 'package:canvas_app/features/editor/screens/visual_script_editor/expression_editor_screen.dart';
 import 'package:canvas_app/features/editor/screens/scratch_script_editor/scratch_layout.dart';
 import 'package:canvas_app/features/editor/workspace/script_document_store.dart';
 import 'package:canvas_app/features/editor/screens/scratch_script_editor/scratch_script_editor_screen.dart';
@@ -128,6 +133,9 @@ void main() {
     await tester.pumpAndSettle();
 
     final before = _painter(tester).layout;
+    final cameraBefore = _painter(tester).camera;
+    final offsetBefore = cameraBefore.offset;
+    final scaleBefore = cameraBefore.scale;
     final headsBefore = before.rows
         .where((r) => r.kind == ScratchRowKind.head)
         .map((r) => r.block.id)
@@ -147,6 +155,149 @@ void main() {
     // под ней (фрейма у события нет, это не C-форма).
     expect(after.headRectOf(added), isNotNull);
     expect(after.slots.any((s) => s.key == '$added:0'), isTrue);
+    final afterPainter = _painter(tester);
+    expect(afterPainter.camera.offset, offsetBefore);
+    expect(afterPainter.camera.scale, scaleBefore);
+    final viewportCenter = _viewportCenter(tester, afterPainter);
+    expect(
+      after.headRectOf(added)!.center.dx,
+      closeTo(viewportCenter.dx, 0.01),
+    );
+    expect(
+      after.headRectOf(added)!.center.dy,
+      closeTo(viewportCenter.dy, 0.01),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'новый блок остаётся в центре камеры и не вкладывается в выбранный',
+    (tester) async {
+      const waitType = BlockPaletteEntry(
+        name: 'wait',
+        displayName: 'Задержка',
+        category: 'flow',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ScratchScriptEditorScreen(
+            questId: questId,
+            scriptId: scriptId,
+            paletteEntries: const [waitType],
+          ),
+        ),
+      );
+      await _letDiskRead(tester);
+      await tester.pumpAndSettle();
+
+      final painter = _painter(tester);
+      final eventHead = painter.layout.rows.firstWhere(
+        (r) => r.kind == ScratchRowKind.head && r.block.id == 'event-1',
+      );
+      await tester.tapAt(_globalOf(tester, painter, _titlePoint(eventHead)));
+      await tester.pump();
+
+      final offsetBefore = painter.camera.offset;
+      final scaleBefore = painter.camera.scale;
+      final idsBefore = painter.layout.rows
+          .where((r) => r.kind == ScratchRowKind.head)
+          .map((r) => r.block.id)
+          .toSet();
+
+      await tester.tap(find.byTooltip('Добавить блок'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('block-palette-search')),
+        waitType.displayName,
+      );
+      await tester.pump();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(BlockPalette),
+          matching: find.widgetWithText(InkWell, waitType.displayName),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final after = _painter(tester);
+      final added = after.layout.rows
+          .where(
+            (r) =>
+                r.kind == ScratchRowKind.head &&
+                !idsBefore.contains(r.block.id),
+          )
+          .single;
+      expect(added.depth, 0);
+      expect((eventHead.block as EventBlock).children, hasLength(1));
+      expect(after.camera.offset, offsetBefore);
+      expect(after.camera.scale, scaleBefore);
+      final viewportCenter = _viewportCenter(tester, after);
+      expect(added.rect.center.dx, closeTo(viewportCenter.dx, 0.01));
+      expect(added.rect.center.dy, closeTo(viewportCenter.dy, 0.01));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('двойной тап по шапке не открывает окно блока', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ScratchScriptEditorScreen(questId: questId, scriptId: scriptId),
+      ),
+    );
+    await _letDiskRead(tester);
+    await tester.pumpAndSettle();
+
+    final painter = _painter(tester);
+    final head = painter.layout.rows.firstWhere(
+      (r) => r.kind == ScratchRowKind.head,
+    );
+    final point = _globalOf(tester, painter, _titlePoint(head));
+    await tester.tapAt(point);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.tapAt(point);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BlockFactory), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('тап по формуле сразу открывает редактор и сохраняет значение', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: ScratchScriptEditorScreen(questId: questId, scriptId: scriptId),
+        ),
+      ),
+    );
+    await _letDiskRead(tester);
+    await tester.pumpAndSettle();
+
+    final painter = _painter(tester);
+    final wait = painter.layout.rows.firstWhere(
+      (r) => r.kind == ScratchRowKind.head && r.block.id == 'wait-1',
+    );
+    expect(wait.chipRects, hasLength(2));
+    final offsetBefore = painter.camera.offset;
+    final scaleBefore = painter.camera.scale;
+
+    await tester.tapAt(_globalOf(tester, painter, wait.chipRects.first.center));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ExpressionEditorScreen), findsOneWidget);
+    expect(find.byType(BlockFactory), findsNothing);
+    final input = tester.widget<TextField>(find.byType(TextField));
+    input.controller!.text = '750';
+    await tester.tap(find.byTooltip('Готово'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ExpressionEditorScreen), findsNothing);
+    expect((wait.block as DelayBlock).expression, '750');
+    final after = _painter(tester);
+    expect(after.camera.offset, offsetBefore);
+    expect(after.camera.scale, scaleBefore);
     expect(tester.takeException(), isNull);
   });
 
@@ -163,13 +314,15 @@ void main() {
     final head = painter.layout.rows.firstWhere(
       (r) => r.kind == ScratchRowKind.head,
     );
-    await tester.tapAt(_globalOf(tester, painter, head.rect.center));
-    // Одиночный тап ждёт таймаут двойного (300 мс), иначе выделения не будет.
-    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tapAt(_globalOf(tester, painter, _titlePoint(head)));
+    await tester.pump();
 
-    expect(find.byTooltip('Изменить'), findsOneWidget);
+    expect(find.byTooltip('Дублировать'), findsOneWidget);
     final bar = tester.getRect(
-      find.ancestor(of: find.byTooltip('Изменить'), matching: find.byType(Card)),
+      find.ancestor(
+        of: find.byTooltip('Дублировать'),
+        matching: find.byType(Card),
+      ),
     );
     final fab = tester.getRect(
       find.ancestor(
@@ -237,6 +390,17 @@ void main() {
       await _letDiskRead(tester);
       await tester.pumpAndSettle();
 
+      final canvas = _canvasRect(tester);
+      await tester.dragFrom(
+        canvas.topLeft + Offset(canvas.width / 2, 80),
+        const Offset(-260, -30),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final idsBefore = _painter(tester).layout.rows
+          .where((r) => r.kind == ScratchRowKind.head)
+          .map((r) => r.block.id)
+          .toSet();
       await tester.tap(find.byTooltip('Добавить событие'));
       await tester.pump();
 
@@ -244,8 +408,8 @@ void main() {
       final eventHead = painter.layout.rows.firstWhere(
         (r) => r.kind == ScratchRowKind.head && r.block.id == 'event-1',
       );
-      final added = painter.layout.rows.lastWhere(
-        (r) => r.kind == ScratchRowKind.head,
+      final added = painter.layout.rows.firstWhere(
+        (r) => r.kind == ScratchRowKind.head && !idsBefore.contains(r.block.id),
         orElse: () => throw StateError('новое событие не разложено'),
       );
       expect(added.block.id, isNot('event-1'));
@@ -296,6 +460,14 @@ Offset _globalOf(
   Offset world,
 ) {
   return _canvasRect(tester).topLeft + painter.camera.worldToScreen(world);
+}
+
+Offset _titlePoint(ScratchRow row) =>
+    row.rect.topLeft + Offset(24, row.rect.height / 2);
+
+Offset _viewportCenter(WidgetTester tester, ScratchScriptPainter painter) {
+  final canvas = _canvasRect(tester);
+  return painter.camera.screenToWorld(canvas.center - canvas.topLeft);
 }
 
 Rect _canvasRect(WidgetTester tester) => tester.getRect(

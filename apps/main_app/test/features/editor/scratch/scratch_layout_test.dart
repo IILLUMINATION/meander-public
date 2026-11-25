@@ -253,11 +253,10 @@ void main() {
         layout.blockAt(head.bottomCenter + const Offset(0, 12))?.id,
         child.id,
       );
-      // Пустая зона правее ребёнка внутри стека — не блок.
+      // Пустая зона правее всей ширины стека — не блок.
+      final childHead = layout.headRectOf(child.id)!;
       expect(
-        layout.blockAt(
-          Offset(head.right - 2, head.bottom + 12),
-        ),
+        layout.blockAt(Offset(childHead.right + 10, childHead.top + 12)),
         isNull,
       );
     });

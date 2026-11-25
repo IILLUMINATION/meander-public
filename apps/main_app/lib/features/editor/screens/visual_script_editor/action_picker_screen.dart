@@ -196,6 +196,7 @@ Future<List<String>> recordRecentBlockType(String blockType) async {
 Future<BlockPaletteEntry?> showBlockPicker(
   BuildContext context, {
   Offset? anchor,
+  List<BlockPaletteEntry>? entries,
 }) {
   return showAdaptiveSheet<BlockPaletteEntry>(
     context: context,
@@ -208,7 +209,7 @@ Future<BlockPaletteEntry?> showBlockPicker(
     // плодит вторую полосу прокрутки.
     scrollable: false,
     backgroundColor: Theme.of(context).colorScheme.surface,
-    builder: (_) => BlockPalette(),
+    builder: (_) => BlockPalette(entries: entries),
   );
 }
 
