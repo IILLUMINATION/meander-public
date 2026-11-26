@@ -773,12 +773,12 @@ impl GameEngine {
 
     /// Граница игрового шага для публичных точек движка.
     ///
-    /// Переход от самого действия важнее диспетчера (нода всё равно уходит),
-    /// а накопленные без него изменения прогоняются через подписки.
+    /// Накопленные изменения всегда прогоняются через подписки. Переход
+    /// подписки важнее перехода самого действия; иначе сохраняется переход
+    /// действия.
     fn after_step(&mut self, transition: Option<String>) -> Option<String> {
         if transition.is_some() {
-            self.state.reset_changed_paths();
-            return transition;
+            return self.flush_data_changes().or(transition);
         }
         if let Some(pending) = self.pending_transition.take() {
             return Some(pending);
@@ -1082,16 +1082,14 @@ impl GameEngine {
                 })
         });
 
-        // Граница шага: onNodeEnter мог наработать изменений. Если нода
-        // уходит по переходу, диспетчер не запускаем — накопленное сгорает.
-        // При восстановлении снимка входных эффектов нет: изменения от самой
+        // Граница шага: onNodeEnter мог наработать изменений. Переход подписки
+        // важнее перехода самой ноды; иначе сохраняется исходный переход. При
+        // восстановлении снимка входных эффектов нет: изменения от самой
         // установки переменных не должны выглядеть как действия игрока.
         if !run_node_enter {
             self.state.reset_changed_paths();
-        } else if transition.is_none() {
-            transition = self.flush_data_changes();
         } else {
-            self.state.reset_changed_paths();
+            transition = self.flush_data_changes().or(transition);
         }
 
         Some(NodeView {

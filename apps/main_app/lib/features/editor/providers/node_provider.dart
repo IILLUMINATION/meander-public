@@ -239,11 +239,27 @@ Future<bool> saveCanvasData(
   String questId, {
   required List<SavedNode> nodes,
   required String chapterId,
+  required int expectedReplacementVersion,
+  CameraState? cameraState,
   List<CanvasGroup>? groups,
   List<CanvasComment>? comments,
 }) async {
   return _qsync('nodes_$questId', () async {
     try {
+      if (QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+          expectedReplacementVersion) {
+        return false;
+      }
+      if (cameraState != null) {
+        await _qsync(
+          'config_$questId',
+          () => _saveTagCameraStateUnlocked(questId, chapterId, cameraState),
+        );
+      }
+      if (QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+          expectedReplacementVersion) {
+        return false;
+      }
       if (await QuestNodesStore.hasPerNodeIndex(questId)) {
         final index = await QuestNodesStore.readIndex(questId);
         final existingChapterCount = (index['nodes'] as List<dynamic>? ?? [])
@@ -261,9 +277,12 @@ Future<bool> saveCanvasData(
           groups: groups?.map((g) => g.toJson()).toList(),
           comments: comments?.map((c) => c.toJson()).toList(),
         );
-        await _updateQuestPluginDependencies(questId, [
-          for (final node in nodes) node.toJson(),
-        ]);
+        await _qsync(
+          'config_$questId',
+          () => _updateQuestPluginDependencies(questId, [
+            for (final node in nodes) node.toJson(),
+          ]),
+        );
         QuestContentChangeBus.instance.markChanged(questId);
         return true;
       }
@@ -320,7 +339,10 @@ Future<bool> saveCanvasData(
       };
 
       await QuestNodesStore.write(questId, newData);
-      await _updateQuestPluginDependencies(questId, allNodesJson);
+      await _qsync(
+        'config_$questId',
+        () => _updateQuestPluginDependencies(questId, allNodesJson),
+      );
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
     } catch (e) {
@@ -349,9 +371,18 @@ Map<String, dynamic> _mergeNodeJson(
   return next;
 }
 
-Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
+Future<bool> saveNodes(
+  String questId,
+  List<SavedNode> nodesToSave, {
+  int? expectedReplacementVersion,
+}) async {
   return _qsync('nodes_$questId', () async {
     try {
+      if (expectedReplacementVersion != null &&
+          QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+              expectedReplacementVersion) {
+        return false;
+      }
       if (await QuestNodesStore.hasPerNodeIndex(questId)) {
         for (final node in nodesToSave) {
           final previous = await QuestNodesStore.readNode(questId, node.id);
@@ -400,12 +431,24 @@ Future<bool> saveNodes(String questId, List<SavedNode> nodesToSave) async {
   });
 }
 
-Future<bool> deleteNode(String questId, String nodeId) async {
+Future<bool> deleteNode(
+  String questId,
+  String nodeId, {
+  int? expectedReplacementVersion,
+}) async {
   return _qsync('nodes_$questId', () async {
     try {
+      if (expectedReplacementVersion != null &&
+          QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+              expectedReplacementVersion) {
+        return false;
+      }
       if (await QuestNodesStore.hasPerNodeIndex(questId)) {
         await QuestNodesStore.deleteNode(questId, nodeId);
-        await _removeNodeReferences(questId, nodeId);
+        await _qsync(
+          'config_$questId',
+          () => _removeNodeReferences(questId, nodeId),
+        );
         QuestContentChangeBus.instance.markChanged(questId);
         return true;
       }
@@ -418,7 +461,10 @@ Future<bool> deleteNode(String questId, String nodeId) async {
       );
       nodesData['nodes'] = allNodesJson;
       await QuestNodesStore.write(questId, nodesData);
-      await _updateQuestPluginDependencies(questId, allNodesJson);
+      await _qsync(
+        'config_$questId',
+        () => _updateQuestPluginDependencies(questId, allNodesJson),
+      );
       QuestContentChangeBus.instance.markChanged(questId);
       return true;
     } catch (e) {
@@ -498,34 +544,72 @@ void _collectPluginDependenciesFromItem(dynamic raw, Set<String> deps) {
   }
 }
 
-Future<bool> saveTagCameraState(
+Future<bool> saveInitialStartNode(
   String questId,
-  String tagId,
-  CameraState cameraState,
-) async {
+  String nodeId, {
+  required int expectedReplacementVersion,
+}) {
   return _qsync('config_$questId', () async {
+    if (QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+        expectedReplacementVersion) {
+      return false;
+    }
     try {
       final configPath = QuestPaths.config(questId);
       final config = await _readMap(configPath);
-      final tagsJson = (config['tags'] as List<dynamic>? ?? []).toList();
-      final tagIndex = tagsJson.indexWhere(
-        (tag) => (tag as Map<String, dynamic>)['id'] == tagId,
-      );
-      if (tagIndex == -1) return false;
-      final tagMap = tagsJson[tagIndex] as Map<String, dynamic>;
-      tagMap['cameraState'] = cameraState.toJson();
-      tagsJson[tagIndex] = tagMap;
-      await (await _qs()).writeJson(configPath, {...config, 'tags': tagsJson});
+      final currentStartNode = config['startNodeId']?.toString();
+      if (currentStartNode != null && currentStartNode.isNotEmpty) return false;
+      final index = await QuestNodesStore.readIndex(questId);
+      if ((index['nodes'] as List<dynamic>? ?? const []).isNotEmpty) {
+        return false;
+      }
+      await (await _qs()).writeJson(configPath, {
+        ...config,
+        'startNodeId': nodeId,
+      });
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   });
 }
 
-Future<bool> saveConnection(String questId, String fromId, String toId) async {
+Future<bool> _saveTagCameraStateUnlocked(
+  String questId,
+  String tagId,
+  CameraState cameraState,
+) async {
+  try {
+    final configPath = QuestPaths.config(questId);
+    final config = await _readMap(configPath);
+    final tagsJson = (config['tags'] as List<dynamic>? ?? []).toList();
+    final tagIndex = tagsJson.indexWhere(
+      (tag) => (tag as Map<String, dynamic>)['id'] == tagId,
+    );
+    if (tagIndex == -1) return false;
+    final tagMap = tagsJson[tagIndex] as Map<String, dynamic>;
+    tagMap['cameraState'] = cameraState.toJson();
+    tagsJson[tagIndex] = tagMap;
+    await (await _qs()).writeJson(configPath, {...config, 'tags': tagsJson});
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+Future<bool> saveConnection(
+  String questId,
+  String fromId,
+  String toId, {
+  int? expectedReplacementVersion,
+}) async {
   return _qsync('config_$questId', () async {
     try {
+      if (expectedReplacementVersion != null &&
+          QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+              expectedReplacementVersion) {
+        return false;
+      }
       final configPath = QuestPaths.config(questId);
       final config = await _readMap(configPath);
       final connectionsJson = (config['connections'] as List<dynamic>? ?? [])
@@ -556,10 +640,16 @@ Future<bool> saveConnection(String questId, String fromId, String toId) async {
 Future<bool> deleteConnection(
   String questId,
   String fromId,
-  String toId,
-) async {
+  String toId, {
+  int? expectedReplacementVersion,
+}) async {
   return _qsync('config_$questId', () async {
     try {
+      if (expectedReplacementVersion != null &&
+          QuestContentChangeBus.instance.replacementVersionOf(questId) !=
+              expectedReplacementVersion) {
+        return false;
+      }
       final configPath = QuestPaths.config(questId);
       final config = await _readMap(configPath);
       final connectionsJson = (config['connections'] as List<dynamic>? ?? [])

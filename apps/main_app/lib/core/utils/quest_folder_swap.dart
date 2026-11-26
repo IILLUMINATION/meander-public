@@ -1,5 +1,10 @@
 import 'dart:io';
 
+import 'package:canvas_app/core/services/quest_content_change_bus.dart';
+import 'package:mnd_core/utils/quest_paths.dart';
+import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_store.dart';
+
 /// Подменяет каталог целиком, не оставляя окна, в котором его нет.
 ///
 /// Так ставятся на место восстановленный квест, импортированный `.mnd` и
@@ -40,4 +45,25 @@ Future<void> replaceDirectoryAtomically({
       // Мусорная папка рядом не должна валить успешную установку.
     }
   }
+}
+
+/// Подмена квеста под тем же локом, что и редакторские сохранения.
+Future<void> replaceQuestDirectoryAtomically({
+  required String questId,
+  required Directory staging,
+  required Directory target,
+  Future<void> Function()? afterReplace,
+}) {
+  return QuestStore.synchronized(
+    'nodes_$questId',
+    () => QuestStore.synchronized('config_$questId', () async {
+      await replaceDirectoryAtomically(staging: staging, target: target);
+      FileStorage.invalidateJsonCache([QuestPaths.questRoot(questId)]);
+      try {
+        await afterReplace?.call();
+      } finally {
+        QuestContentChangeBus.instance.markReplaced(questId);
+      }
+    }),
+  );
 }

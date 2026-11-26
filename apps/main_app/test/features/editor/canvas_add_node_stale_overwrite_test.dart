@@ -5,8 +5,11 @@
 // сторон: канвас подписан на tagNodesProvider (свежее состояние приезжает с
 // диска) и перед записью перечитает сохранённые ноды (_persistedNodesById).
 // Тест держит результат, а не механизм: падает, если убрать обе защиты.
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:canvas_app/core/services/quest_content_change_bus.dart';
+import 'package:canvas_app/core/utils/quest_folder_swap.dart';
 import 'package:canvas_app/features/editor/providers/canvas_provider.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +17,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:mnd_player/utils/quest_nodes_store.dart';
+import 'package:mnd_player/utils/quest_store.dart';
+import 'package:path/path.dart' as p;
 
 const String _questId = '22222222-2222-4222-8222-222222222222';
 const String _chapterId = 'chapter-1';
@@ -74,6 +80,8 @@ void main() {
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     appDir = await Directory.systemTemp.createTemp('mnd_canvas_stale_test');
+    FileStorage.overrideAppDirectory(appDir);
+    QuestStore.resetDefaultInstanceForTest();
     const channel = MethodChannel('plugins.flutter.io/path_provider');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -96,6 +104,8 @@ void main() {
   });
 
   tearDown(() async {
+    FileStorage.overrideAppDirectory(null);
+    QuestStore.resetDefaultInstanceForTest();
     if (appDir.existsSync()) await appDir.delete(recursive: true);
   });
 
@@ -119,6 +129,99 @@ void main() {
       await canvas.addNode(const Size(900, 700));
 
       expect(await _itemIdsOnDisk(), containsAll(['item-old', 'item-new']));
+    },
+  );
+
+  test(
+    'устаревший снимок канваса не удаляет ноды импортированного квеста',
+    () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final canvas = await _openCanvas(container);
+      final bus = QuestContentChangeBus.instance;
+      final oldReplacementVersion = bus.replacementVersionOf(_questId);
+      expect(
+        (await FileStorage.readJsonFile(QuestPaths.config(_questId)))['title'],
+        'Тестовый квест',
+      );
+
+      final staging = Directory(p.join(appDir.path, 'import-staging'));
+      await staging.create(recursive: true);
+      await File(p.join(staging.path, 'config.json')).writeAsString(
+        '{"id":"$_questId","title":"Импортированный","startNodeId":"new-node",'
+        '"tags":[{"id":"$_chapterId","name":"Глава 1"}],"connections":[]}',
+      );
+      final importedNode = <String, dynamic>{
+        'id': 'new-node',
+        'chapterId': _chapterId,
+        'title': 'Новая нода',
+        'x': 10.0,
+        'y': 20.0,
+        'content': {'items': <dynamic>[]},
+      };
+      final importedNodes = Directory(p.join(staging.path, 'nodes'));
+      await importedNodes.create(recursive: true);
+      await File(p.join(importedNodes.path, 'index.json')).writeAsString(
+        jsonEncode(
+          QuestNodesStore.buildIndex({
+            'nodes': [importedNode],
+            'groups': <dynamic>[],
+            'comments': <dynamic>[],
+          }),
+        ),
+      );
+      await File(
+        p.join(importedNodes.path, 'new-node.json'),
+      ).writeAsString(jsonEncode(importedNode));
+
+      await replaceQuestDirectoryAtomically(
+        questId: _questId,
+        staging: staging,
+        target: Directory(p.join(appDir.path, QuestPaths.questRoot(_questId))),
+      );
+
+      expect(bus.replacementVersionOf(_questId), oldReplacementVersion + 1);
+      await canvas.saveCamera();
+      await canvas.addNode(const Size(900, 700));
+      expect(
+        (await FileStorage.readJsonFile(QuestPaths.config(_questId)))['title'],
+        'Импортированный',
+        reason: 'после подмены JSON-кэш должен отдавать новый config',
+      );
+
+      final saved = await saveCanvasData(
+        _questId,
+        nodes: [
+          SavedNode(
+            id: _nodeId,
+            chapterId: _chapterId,
+            title: 'Старая нода',
+            x: 100,
+            y: 100,
+            content: const {'items': <dynamic>[]},
+          ),
+        ],
+        chapterId: _chapterId,
+        expectedReplacementVersion: oldReplacementVersion,
+      );
+      expect(saved, isFalse);
+
+      final nodes = await QuestNodesStore.read(_questId);
+      expect((nodes['nodes'] as List), hasLength(1));
+      expect((nodes['nodes'] as List).single['id'], 'new-node');
+      expect(
+        File(
+          p.join(appDir.path, QuestPaths.nodeBody(_questId, 'new-node')),
+        ).existsSync(),
+        isTrue,
+        reason: 'устаревшая запись не должна удалить тело импортированной ноды',
+      );
+
+      for (var i = 0; i < 100 && canvas.state.isLoading; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(canvas.state.isLoading, isFalse);
+      expect(canvas.state.nodes.single.id, 'new-node');
     },
   );
 

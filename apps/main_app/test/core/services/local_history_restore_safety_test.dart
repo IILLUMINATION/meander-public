@@ -57,6 +57,11 @@ void main() {
       '{"title":"restored"}',
     );
     expect(File(p.join(questDir.path, 'nodes.json')).existsSync(), isTrue);
+    expect(
+      File(p.join(historyDir.path, snapshotName)).existsSync(),
+      isTrue,
+      reason: 'откат не должен удалять папку истории',
+    );
 
     expect(File(p.join(appDir.path, 'quests', 'escape.txt')).existsSync(), isFalse);
     expect(File(p.join(appDir.path, 'escape2.txt')).existsSync(), isFalse);

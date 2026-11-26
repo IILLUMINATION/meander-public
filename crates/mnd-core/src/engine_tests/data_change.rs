@@ -735,6 +735,169 @@ fn pending_transition_is_delivered_on_the_next_step() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn data_change_can_override_transition_from_the_same_action() {
+    let item_json = json!({
+        "id": "damage", "type": "button",
+        "scriptTriggers": { "onPress": "scripts/damage.json" }
+    });
+    let nodes = nodes_json(vec![
+        json!({ "id": "n1", "title": "Start", "content": { "items": [item_json] } }),
+        plain_node("n2", "После удара"),
+        plain_node("n3", "Смерть"),
+    ]);
+    let config = json!({
+        "id": "q1", "title": "Q", "version": "2.0.0", "startNodeId": "n1",
+        "variables": [
+            { "name": "HP", "defaultValue": 100 },
+            { "name": "Лог", "defaultValue": "" }
+        ]
+    })
+    .to_string();
+    let damage = json!({
+        "blocks": [{
+            "type": "event", "eventType": "onPress",
+            "children": [
+                assign("HP", json!("{HP}-100")),
+                json!({ "type": "go_to_node", "node_id": "n2" })
+            ]
+        }]
+    })
+    .to_string();
+    let dispatch = watch_script(
+        json!(["HP"]),
+        vec![json!({
+            "type": "condition", "expression": "{HP}<=0",
+            "then_blocks": [
+                assign("Лог", json!("Скрипт не работает")),
+                json!({ "type": "go_to_node", "node_id": "n3" })
+            ],
+            "else_blocks": [assign("Лог", json!("Жив"))]
+        })],
+    );
+
+    let (mut engine, root) = engine_from_files(&[
+        ("quests/q1/config.json", &config),
+        ("quests/q1/nodes.json", &nodes),
+        ("quests/q1/scripts/damage.json", &damage),
+        ("quests/q1/scripts/dispatch.json", &dispatch),
+    ]);
+
+    engine.start_new(None).expect("старт");
+    assert_eq!(engine.press_item("damage"), Some("n3".to_string()));
+    assert_eq!(num(&engine.state, "HP"), Some(0.0));
+    assert_eq!(
+        engine.state.get_variable("Лог"),
+        Some(&json!("Скрипт не работает"))
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn action_transition_survives_when_data_change_condition_is_false() {
+    let item_json = json!({
+        "id": "damage", "type": "button",
+        "scriptTriggers": { "onPress": "scripts/damage.json" }
+    });
+    let nodes = nodes_json(vec![
+        json!({ "id": "n1", "title": "Start", "content": { "items": [item_json] } }),
+        plain_node("n2", "После удара"),
+        plain_node("n3", "Смерть"),
+    ]);
+    let config = json!({
+        "id": "q1", "title": "Q", "version": "2.0.0", "startNodeId": "n1",
+        "variables": [
+            { "name": "HP", "defaultValue": 100 },
+            { "name": "Лог", "defaultValue": "" }
+        ]
+    })
+    .to_string();
+    let damage = json!({
+        "blocks": [{
+            "type": "event", "eventType": "onPress",
+            "children": [
+                assign("HP", json!("{HP}-10")),
+                json!({ "type": "go_to_node", "node_id": "n2" })
+            ]
+        }]
+    })
+    .to_string();
+    let dispatch = watch_script(
+        json!(["HP"]),
+        vec![json!({
+            "type": "condition", "expression": "{HP}<=0",
+            "then_blocks": [json!({ "type": "go_to_node", "node_id": "n3" })],
+            "else_blocks": [assign("Лог", json!("Жив"))]
+        })],
+    );
+
+    let (mut engine, root) = engine_from_files(&[
+        ("quests/q1/config.json", &config),
+        ("quests/q1/nodes.json", &nodes),
+        ("quests/q1/scripts/damage.json", &damage),
+        ("quests/q1/scripts/dispatch.json", &dispatch),
+    ]);
+
+    engine.start_new(None).expect("старт");
+    assert_eq!(engine.press_item("damage"), Some("n2".to_string()));
+    assert_eq!(num(&engine.state, "HP"), Some(90.0));
+    assert_eq!(engine.state.get_variable("Лог"), Some(&json!("Жив")));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn data_change_can_override_transition_from_node_enter() {
+    let nodes = nodes_json(vec![
+        script_node("n1", "Start", "nodes/enter.json"),
+        plain_node("n2", "После входа"),
+        plain_node("n3", "Смерть"),
+    ]);
+    let config = json!({
+        "id": "q1", "title": "Q", "version": "2.0.0", "startNodeId": "n1",
+        "variables": [
+            { "name": "HP", "defaultValue": 100 },
+            { "name": "Лог", "defaultValue": "" }
+        ]
+    })
+    .to_string();
+    let enter = json!({
+        "blocks": [{
+            "type": "event", "eventType": "onNodeEnter",
+            "children": [
+                assign("HP", json!(0)),
+                json!({ "type": "go_to_node", "node_id": "n2" })
+            ]
+        }]
+    })
+    .to_string();
+    let dispatch = watch_script(
+        json!(["HP"]),
+        vec![json!({
+            "type": "condition", "expression": "{HP}<=0",
+            "then_blocks": [
+                assign("Лог", json!("Смерть")),
+                json!({ "type": "go_to_node", "node_id": "n3" })
+            ]
+        })],
+    );
+
+    let (mut engine, root) = engine_from_files(&[
+        ("quests/q1/config.json", &config),
+        ("quests/q1/nodes.json", &nodes),
+        ("quests/q1/nodes/enter.json", &enter),
+        ("quests/q1/scripts/dispatch.json", &dispatch),
+    ]);
+
+    let view = engine.start_new(None).expect("старт");
+    assert_eq!(view.transition, Some("n3".to_string()));
+    assert_eq!(num(&engine.state, "HP"), Some(0.0));
+    assert_eq!(engine.state.get_variable("Лог"), Some(&json!("Смерть")));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 // ─── Область действия подписок ──────────────────────────────────────────
 
 #[test]

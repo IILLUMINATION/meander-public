@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:canvas_app/core/services/quest_content_change_bus.dart';
 import 'package:canvas_app/features/editor/providers/canvas_provider.dart';
 import 'package:canvas_app/features/editor/providers/node_provider.dart';
 import 'package:flutter/services.dart';
@@ -155,6 +156,8 @@ void main() {
         _questId,
         nodes: [moved],
         chapterId: _chapterId,
+        expectedReplacementVersion: QuestContentChangeBus.instance
+            .replacementVersionOf(_questId),
         groups: const [],
         comments: const [],
       ),

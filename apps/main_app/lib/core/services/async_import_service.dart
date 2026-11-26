@@ -178,36 +178,40 @@ class AsyncImportService {
 
       // Подмена целиком: падение между удалением и распаковкой больше не
       // оставляет пользователя без старой версии квеста.
-      await replaceDirectoryAtomically(
+      await replaceQuestDirectoryAtomically(
+        questId: importId,
         staging: questRootInTemp,
         target: Directory(newQuestPath),
+        afterReplace: () async {
+          // Восстанавливаем сейвы после установки новой версии.
+          if (savedFilesBackup.isNotEmpty) {
+            print('💾 [Import] Восстанавливаем сохранения...');
+            final newSavesDirPath = p.join(newQuestPath, 'saves');
+            await Directory(newSavesDirPath).create(recursive: true);
+            for (final entry in savedFilesBackup.entries) {
+              final saveFile = File(p.join(newSavesDirPath, entry.key));
+              await saveFile.writeAsBytes(entry.value);
+            }
+            print(
+              '💾 [Import] Восстановлено сохранений: ${savedFilesBackup.length}',
+            );
+          }
+
+          final finalConfigPath = p.join(
+            QuestPaths.questsDir,
+            importId,
+            'config.json',
+          );
+          final finalConfigData = await FileStorage.readJsonFile(
+            finalConfigPath,
+          );
+          // Помечаем как только что открытый — чтобы импортированный квест
+          // оказался в самом верху библиотеки (сортировка по openedDate desc).
+          finalConfigData['lastOpened'] = DateTime.now().toIso8601String();
+          await FileStorage.writeJsonFile(finalConfigPath, finalConfigData);
+        },
       );
       print('📁 [Import] Файлы квеста перемещены в постоянное хранилище.');
-
-      // Восстанавливаем сейвы после установки новой версии
-      if (savedFilesBackup.isNotEmpty) {
-        print('💾 [Import] Восстанавливаем сохранения...');
-        final newSavesDirPath = p.join(newQuestPath, 'saves');
-        await Directory(newSavesDirPath).create(recursive: true);
-        for (final entry in savedFilesBackup.entries) {
-          final saveFile = File(p.join(newSavesDirPath, entry.key));
-          await saveFile.writeAsBytes(entry.value);
-        }
-        print(
-          '💾 [Import] Восстановлено сохранений: ${savedFilesBackup.length}',
-        );
-      }
-
-      final finalConfigPath = p.join(
-        QuestPaths.questsDir,
-        importId,
-        'config.json',
-      );
-      final finalConfigData = await FileStorage.readJsonFile(finalConfigPath);
-      // Помечаем как только что открытый — чтобы импортированный квест
-      // оказался в самом верху библиотеки (сортировка по openedDate desc).
-      finalConfigData['lastOpened'] = DateTime.now().toIso8601String();
-      await FileStorage.writeJsonFile(finalConfigPath, finalConfigData);
 
       onProgress?.call(tr('Завершение...'));
       onProgressUpdate?.call(0.95);

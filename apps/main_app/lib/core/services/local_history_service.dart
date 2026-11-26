@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:mnd_core/utils/quest_paths.dart';
 
 import '../utils/archive_entry_paths.dart';
+import '../utils/quest_folder_swap.dart';
 
 /// Снимок состояния квеста в `_history/` — zip всех файлов квеста
 /// (ресурсы включительно, иначе откат удалил бы их).
@@ -275,81 +276,89 @@ class LocalHistoryService {
   }
 
   static Future<void> restoreSnapshot(String questId, String fileName) async {
-    // Lock files during restore
-    await FileStorage.synchronized('nodes_$questId', () async {
-      await FileStorage.synchronized('config_$questId', () async {
-        try {
-          print('🔄 [History] === RESTORING ===');
-          print('🔄 [History] File: $fileName');
+    final historyDirPath = await FileStorage.getFilePath(
+      QuestPaths.questFile(questId, _historyFolder),
+    );
+    final backupFile = File(p.join(historyDirPath, fileName));
+    if (!await backupFile.exists()) {
+      throw Exception('Backup file not found');
+    }
 
-          final historyDirPath = await FileStorage.getFilePath(
-            QuestPaths.questFile(questId, _historyFolder),
+    final bytes = await backupFile.readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final questRootPath = await FileStorage.getFilePath(
+      QuestPaths.questRoot(questId),
+    );
+    final questDir = Directory(questRootPath);
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final stagingDir = Directory(
+      p.join(p.dirname(questRootPath), '.restore_history_${questId}_$stamp'),
+    );
+
+    try {
+      print('🔄 [History] === RESTORING ===');
+      print('🔄 [History] File: $fileName');
+      await stagingDir.create(recursive: true);
+
+      for (final file in archive) {
+        // Снимки можно подменить/собрать руками: пишем только внутрь
+        // временной папки квеста (zip-slip).
+        final output = resolveArchiveTarget(stagingDir.path, file.name);
+        if (output == null) {
+          print(
+            '⚠️ [History] Пропущена запись вне папки квеста: ${file.name}',
           );
-          final backupFile = File(p.join(historyDirPath, fileName));
-
-          if (!await backupFile.exists()) {
-            throw Exception('Backup file not found');
-          }
-
-          final bytes = await backupFile.readAsBytes();
-          final archive = ZipDecoder().decodeBytes(bytes);
-
-          final questRootPath = await FileStorage.getFilePath(
-            QuestPaths.questRoot(questId),
-          );
-          final questDir = Directory(questRootPath);
-
-          // 1. AGGRESSIVE CLEANUP: Delete all current quest files except history
-          if (await questDir.exists()) {
-            await for (final entity in questDir.list(followLinks: false)) {
-              if (p.basename(entity.path) == _historyFolder) continue;
-
-              if (entity is File) {
-                await entity.delete();
-              } else if (entity is Directory) {
-                await entity.delete(recursive: true);
-              }
-            }
-            print('🔄 [History] Old files wiped.');
-          } else {
-            await questDir.create(recursive: true);
-          }
-
-          // 2. Unpack
-          for (final file in archive) {
-            // Снимки можно подменить/собрать руками: пишем только внутрь
-            // папки квеста (zip-slip).
-            final output = resolveArchiveTarget(questRootPath, file.name);
-            if (output == null) {
-              print(
-                '⚠️ [History] Пропущена запись вне папки квеста: ${file.name}',
-              );
-              continue;
-            }
-
-            if (file.isFile) {
-              final data = file.content as List<int>;
-              final outFile = File(output);
-              await outFile.parent.create(recursive: true);
-              await outFile.writeAsBytes(data, flush: true);
-            } else {
-              await Directory(output).create(recursive: true);
-            }
-          }
-
-          // 3. Файлы записаны в обход кэша FileStorage: без сброса
-          // читатели продолжат отдавать данные, которые только что убрали
-          // (и следующий writeJsonFile затрёт откат старым снимком).
-          FileStorage.invalidateJsonCache([QuestPaths.questRoot(questId)]);
-
-          print('✅ [History] Restore complete: $questId');
-        } catch (e, stack) {
-          print('❌ [History] Restore failed: $e');
-          print(stack);
-          rethrow;
+          continue;
         }
-      });
-    });
+
+        if (file.isFile) {
+          final data = file.content as List<int>;
+          final outFile = File(output);
+          await outFile.parent.create(recursive: true);
+          await outFile.writeAsBytes(data, flush: true);
+        } else {
+          await Directory(output).create(recursive: true);
+        }
+      }
+
+      // История остаётся на месте при откате, поэтому переносим её в новое
+      // дерево до атомарной подмены старого каталога.
+      final sourceHistory = Directory(historyDirPath);
+      if (await sourceHistory.exists()) {
+        final targetHistory = Directory(
+          p.join(stagingDir.path, _historyFolder),
+        );
+        await for (final entity in sourceHistory.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          final relative = p.relative(entity.path, from: sourceHistory.path);
+          final output = p.join(targetHistory.path, relative);
+          if (entity is File) {
+            await File(output).parent.create(recursive: true);
+            await entity.copy(output);
+          } else if (entity is Directory) {
+            await Directory(output).create(recursive: true);
+          }
+        }
+      }
+
+      await replaceQuestDirectoryAtomically(
+        questId: questId,
+        staging: stagingDir,
+        target: questDir,
+      );
+      print('✅ [History] Restore complete: $questId');
+    } catch (e, stack) {
+      print('❌ [History] Restore failed: $e');
+      print(stack);
+      try {
+        if (await stagingDir.exists()) {
+          await stagingDir.delete(recursive: true);
+        }
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   static Future<void> deleteSnapshot(String questId, String fileName) async {

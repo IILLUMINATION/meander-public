@@ -211,20 +211,24 @@ class ImportService {
 
       // Подмена целиком: падение между удалением и распаковкой больше не
       // оставляет пользователя без старой версии квеста.
-      await replaceDirectoryAtomically(
+      await replaceQuestDirectoryAtomically(
+        questId: originalQuestId,
         staging: questRootInTemp,
         target: Directory(newQuestPath),
+        afterReplace: () async {
+          final finalConfigPath = p.join(
+            QuestPaths.questsDir,
+            originalQuestId,
+            'config.json',
+          );
+          final finalConfigData = await FileStorage.readJsonFile(
+            finalConfigPath,
+          );
+          finalConfigData['lastOpened'] = null;
+          await FileStorage.writeJsonFile(finalConfigPath, finalConfigData);
+        },
       );
       print('📁 [Import] Файлы квеста перемещены в постоянное хранилище.');
-
-      final finalConfigPath = p.join(
-        QuestPaths.questsDir,
-        originalQuestId,
-        'config.json',
-      );
-      final finalConfigData = await FileStorage.readJsonFile(finalConfigPath);
-      finalConfigData['lastOpened'] = null;
-      await FileStorage.writeJsonFile(finalConfigPath, finalConfigData);
 
       print('🎉 [Import] Квест "$originalQuestId" успешно импортирован!');
       return originalQuestId;
