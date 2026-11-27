@@ -178,12 +178,16 @@ void main() {
     }
     // И обратно: текст, который никто не подключил, — это обещанное обучение,
     // которого нигде не видно.
+    // Сравниваем множества: `used` наполняется обходом `listSync`, и порядок
+    // файлов зависит от ФС — на CI он другой, чем локально.
     expect(
-      declared,
-      used.map((id) => id.replaceAllMapped(
-            RegExp('[A-Z]'),
-            (m) => '_${m[0]!.toLowerCase()}',
-          )),
+      declared.toSet(),
+      used
+          .map((id) => id.replaceAllMapped(
+                RegExp('[A-Z]'),
+                (m) => '_${m[0]!.toLowerCase()}',
+              ))
+          .toSet(),
       reason: 'каталог и подключённые подсказки разошлись',
     );
   });

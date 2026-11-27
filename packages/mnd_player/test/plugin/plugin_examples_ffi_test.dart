@@ -153,9 +153,11 @@ List<Map<String, dynamic>> _deepNodes(Map<String, dynamic> spec) {
 void main() {
   final so = _soPath;
   if (so == null) {
-    test('skip: libmnd_ffi.so не собран', () {
-      fail('Соберите .so для FFI-теста: cargo build --release -p mnd-ffi');
-    });
+    test(
+      'FFI-мост',
+      () {},
+      skip: 'libmnd_ffi.so не собран: melos run ffi:build:host',
+    );
     return;
   }
 
