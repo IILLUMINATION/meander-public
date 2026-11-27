@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:canvas_app/core/l10n/l10n.dart';
 import 'package:canvas_app/models/content_item_model.dart';
 import 'package:canvas_app/models/template_model.dart';
+import 'package:mnd_core/models/inline_image.dart';
 import 'package:mnd_core/models/saved_node.dart';
 import 'package:mnd_player/services/font_service.dart';
 import 'package:uuid/uuid.dart';
@@ -550,6 +551,12 @@ class TemplateApplier {
       }
     }
 
+    void addInlineImages(String text) {
+      for (final path in extractInlineImagePaths(text)) {
+        addCandidate(path.contains('/') ? path : 'res/images/$path');
+      }
+    }
+
     void walk(dynamic node) {
       if (node is Map) {
         node.forEach((key, value) {
@@ -580,6 +587,7 @@ class TemplateApplier {
       } else if (node is String) {
         // Шрифт слоя мог быть задан не свойством, а инлайн-тегом в тексте.
         addInlineFonts(node);
+        addInlineImages(node);
       }
     }
 

@@ -280,6 +280,9 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
   bool _revealRequested = false;
   int _revealGeneration = 0;
 
+  // При live-reload та же нода остаётся на экране до первого нового айтема.
+  bool _replacePresentationOnNextItem = false;
+
   /// Инвариант: между сменой поколения (`_revealGeneration++`) и установкой
   /// списка айтемов новой ноды в state ни один цикл раскрытия не стартует.
   /// В этом окне виджеты ушедшей сцены ещё смонтированы и могут дёрнуть
@@ -1506,12 +1509,13 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
     // этими двумя строками не должно быть await, иначе чужой onComplete
     // успеет съесть айтем #0 новой ноды (#219).
     _revealSuspended = false;
+    _replacePresentationOnNextItem = preservePresentation;
     state = state.copyWith(
       isLoading: false,
       currentNode: node,
-      revealedItems: const [],
-      pinnedStacks: const [],
-      dismissedStacks: const {},
+      revealedItems: preservePresentation ? null : const [],
+      pinnedStacks: preservePresentation ? null : const [],
+      dismissedStacks: preservePresentation ? null : const {},
       backgroundImagePath: bgPath,
       backgroundVideoPath: bgVideoPath,
       clearBackgroundVideo: bgVideoPath == null,
@@ -1861,9 +1865,23 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
               _discardRevealedItem(ci.id, gen, stepOwnerNodeId);
               return;
             }
+            final replacePresentation = _replacePresentationOnNextItem;
+            _replacePresentationOnNextItem = false;
             state = ci.isPinnedStack
-                ? state.copyWith(pinnedStacks: [...state.pinnedStacks, ci])
-                : state.copyWith(revealedItems: [...state.revealedItems, ci]);
+                ? state.copyWith(
+                    revealedItems: replacePresentation ? const [] : null,
+                    pinnedStacks: replacePresentation
+                        ? [ci]
+                        : [...state.pinnedStacks, ci],
+                    dismissedStacks: replacePresentation ? const {} : null,
+                  )
+                : state.copyWith(
+                    revealedItems: replacePresentation
+                        ? [ci]
+                        : [...state.revealedItems, ci],
+                    pinnedStacks: replacePresentation ? const [] : null,
+                    dismissedStacks: replacePresentation ? const {} : null,
+                  );
             await _drainAudio();
             await _syncStateFromEngine();
             _emitPluginEventFireAndForget(
@@ -1892,6 +1910,14 @@ class GameScreenNotifier extends StateNotifier<GameScreenState> {
             }
             continue;
           } else {
+            if (_replacePresentationOnNextItem) {
+              _replacePresentationOnNextItem = false;
+              state = state.copyWith(
+                revealedItems: const [],
+                pinnedStacks: const [],
+                dismissedStacks: const {},
+              );
+            }
             return;
           }
         } while (_revealRequested);

@@ -20,6 +20,7 @@ import 'dart:io';
 import 'package:mnd_core/engine/quest_resource_index.dart';
 import 'package:mnd_core/utils/quest_paths.dart';
 import 'package:mnd_player/utils/file_storage.dart';
+import 'package:path/path.dart' as p;
 
 class QuestImageSource {
   QuestImageSource._();
@@ -34,17 +35,61 @@ class QuestImageSource {
   /// картинок это сотни чтений JSON на один скролл.
   static final Map<String, String?> _resolvedCache = {};
   static final Set<String> _resolvedNegative = {};
+  static final Map<String, ({File file, int generation, String root})>
+  _lastResolved = {};
+  static int _generation = 0;
+
+  static int get generation => _generation;
 
   /// Сбросить кэш: контент квеста изменился (файл переименован/удалён).
   static void invalidate() {
+    _generation++;
     _resolvedCache.clear();
     _resolvedNegative.clear();
   }
 
+  /// Последний безопасно разрешённый файл переживает [invalidate], чтобы
+  /// пересозданный виджет не показывал пустой кадр до повторного резолва.
+  static ({File file, int generation})? cachedFile(
+    String questId,
+    String source,
+  ) {
+    final trimmed = _withoutQuestPrefix(questId, source);
+    if (trimmed.isEmpty) return null;
+    final key = '$questId|$trimmed';
+    final cached = _lastResolved[key];
+    if (cached == null) return null;
+    try {
+      final root = Directory(cached.root).resolveSymbolicLinksSync();
+      final path = cached.file.resolveSymbolicLinksSync();
+      if (!p.isWithin(root, path)) {
+        _lastResolved.remove(key);
+        return null;
+      }
+      return (file: File(path), generation: cached.generation);
+    } on FileSystemException {
+      _lastResolved.remove(key);
+      return null;
+    }
+  }
+
   /// Файл ресурса для [source] или null, если ничего не нашлось.
   static Future<File?> resolve(String questId, String? source) async {
+    final generation = _generation;
     final relative = await resolveRelative(questId, source);
-    return relative == null ? null : await _existing(questId, relative);
+    final found = relative == null ? null : await _existing(questId, relative);
+    final trimmed = _withoutQuestPrefix(questId, source);
+    final key = '$questId|$trimmed';
+    if (found == null) {
+      _lastResolved.remove(key);
+      return null;
+    }
+    _lastResolved[key] = (
+      file: found.file,
+      generation: generation,
+      root: found.root,
+    );
+    return found.file;
   }
 
   /// Абсолютный путь найденного файла; '' — если файла нет. Для тех, кому нужен
@@ -111,13 +156,26 @@ class QuestImageSource {
     return path;
   }
 
-  static Future<File?> _existing(String questId, String relative) async {
+  static Future<({File file, String root})?> _existing(
+    String questId,
+    String relative,
+  ) async {
     final path = await FileStorage.getFilePath(
       QuestPaths.questFile(questId, relative),
     );
     if (path.isEmpty) return null;
     final file = File(path);
-    return await file.exists() ? file : null;
+    if (!await file.exists()) return null;
+    try {
+      final root = await Directory(
+        await FileStorage.getFilePath(QuestPaths.questRoot(questId)),
+      ).resolveSymbolicLinks();
+      final resolved = await file.resolveSymbolicLinks();
+      if (!p.isWithin(root, resolved)) return null;
+      return (file: File(resolved), root: root);
+    } on FileSystemException {
+      return null;
+    }
   }
 
   /// `FileStorage.readJsonFile` бросается на отсутствующем файле, а отсутствие

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:canvas_app/core/services/local_history_service.dart';
+import 'package:mnd_core/models/inline_image.dart';
 import 'package:mnd_player/services/font_service.dart';
 import 'package:mnd_player/utils/file_storage.dart';
 import 'package:mnd_player/utils/quest_store.dart';
@@ -644,7 +645,9 @@ class QuestCleanerService {
     // и удалялся с диска. Квест оставался с кнопками без шрифта.
     final fileByBase = <String, List<String>>{};
     for (final file in resourceFiles) {
-      fileByBase.putIfAbsent(file.split('/').last, () => <String>[]).add(file);
+      fileByBase
+          .putIfAbsent(file.split('/').last.toLowerCase(), () => <String>[])
+          .add(file);
     }
     for (final node in nodes) {
       _collectResourceRefsFromJson(
@@ -670,9 +673,12 @@ class QuestCleanerService {
       );
     }
 
+    final referencedResourceKeys = referencedResources
+        .map((path) => path.toLowerCase())
+        .toSet();
     emit(0.76, tr('Проверка ресурсов'));
     for (final file in resourceFiles) {
-      if (!referencedResources.contains(file)) {
+      if (!referencedResourceKeys.contains(file.toLowerCase())) {
         issues.add(
           QuestCleanerIssue(
             id: 'resource_unused_${_safeId(file)}',
@@ -1226,6 +1232,12 @@ class QuestCleanerService {
     for (final tag in FontService.inlineFontTag.allMatches(text)) {
       _collectResourceRef(tag.group(1), output, metadata);
     }
+    for (final path in extractInlineImagePaths(text)) {
+      _collectResourceRef(path, output, metadata);
+      output.addAll(
+        fileByBase[path.split('/').last.toLowerCase()] ?? const <String>[],
+      );
+    }
 
     final normalized = _normalizeQuestRelativePath(text);
     if (normalized.startsWith('res/')) {
@@ -1236,7 +1248,7 @@ class QuestCleanerService {
     // Голое имя (`99f7349c-….ttf` — так хранит `customFontFileName`):
     // метаданных может и не быть, зато файл лежит в квесте на виду.
     _collectResourceRef(text, output, metadata);
-    output.addAll(fileByBase[normalized] ?? const <String>[]);
+    output.addAll(fileByBase[normalized.toLowerCase()] ?? const <String>[]);
   }
 
   void _collectRefsFromScriptJson(
@@ -1284,7 +1296,13 @@ class QuestCleanerService {
       }
       if (value is! String) return;
       final text = value.trim();
-      if (text.isEmpty || text.startsWith('=')) return;
+      if (text.isEmpty) return;
+
+      for (final path in extractInlineImagePaths(text)) {
+        _collectResourceRef(path, referencedResources, metadata);
+        if (!path.contains('/')) referencedResources.add('res/images/$path');
+      }
+      if (text.startsWith('=')) return;
 
       if (keyName != null && nodeKeys.contains(keyName)) {
         manualNodeTargets.add(text);

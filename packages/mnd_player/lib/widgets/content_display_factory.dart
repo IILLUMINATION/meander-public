@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:mnd_core/mnd_core.dart';
+import 'package:mnd_core/models/inline_image.dart';
 import 'package:mnd_player/services/font_service.dart';
 import 'package:mnd_player/services/trigger_pipeline.dart';
 import 'package:mnd_player/utils/quest_image_source.dart';
@@ -22,6 +23,7 @@ import 'package:mnd_player/widgets/plugin_slot_layer.dart';
 import 'package:mnd_player/widgets/glass.dart';
 import 'package:mnd_player/widgets/shared/markdown_color.dart';
 import 'package:mnd_player/widgets/shared/module_asset_frame.dart';
+import 'package:mnd_player/widgets/shared/quest_inline_image.dart';
 import 'package:mnd_player/widgets/shared/text_reveal_plan.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -781,7 +783,7 @@ class TextItemWidget extends ConsumerWidget {
   /// Рекурсивный разбор инлайн-разметки: `[font=...]` → `[color=...]` →
   /// **жирный**/*курсив*. Вложенность тегов работает в любом порядке:
   /// и `[font=X][color=red]…[/color][/font]`, и `[color=red][font=X]…[/font][/color]`.
-  List<TextSpan> _parseRichSpans(
+  List<InlineSpan> _parseRichSpans(
     String text,
     String? fontFamily, {
     Color? color,
@@ -790,7 +792,7 @@ class TextItemWidget extends ConsumerWidget {
   }) {
     final outlineMatches = _textOutlineExp.allMatches(text).toList();
     if (outlineMatches.isNotEmpty) {
-      final out = <TextSpan>[];
+      final out = <InlineSpan>[];
       int start = 0;
       for (final m in outlineMatches) {
         if (m.start > start) {
@@ -835,7 +837,7 @@ class TextItemWidget extends ConsumerWidget {
 
     final fontMatches = FontService.inlineFontTag.allMatches(text).toList();
     if (fontMatches.isNotEmpty) {
-      final out = <TextSpan>[];
+      final out = <InlineSpan>[];
       int start = 0;
       for (final m in fontMatches) {
         if (m.start > start) {
@@ -877,7 +879,7 @@ class TextItemWidget extends ConsumerWidget {
 
     final colorMatches = _textColorExp.allMatches(text).toList();
     if (colorMatches.isNotEmpty) {
-      final out = <TextSpan>[];
+      final out = <InlineSpan>[];
       int start = 0;
       for (final m in colorMatches) {
         if (m.start > start) {
@@ -926,7 +928,7 @@ class TextItemWidget extends ConsumerWidget {
     );
   }
 
-  List<TextSpan> _parseMarkdownSegment(
+  List<InlineSpan> _parseMarkdownSegment(
     String segment,
     String? fontFamily, {
     Color? color,
@@ -952,7 +954,7 @@ class TextItemWidget extends ConsumerWidget {
     // рекурсивно — работают и внутри [color=...], и с **жирным**/*курсивом*.
     final fontMatches = FontService.inlineFontTag.allMatches(segment).toList();
     if (fontMatches.isNotEmpty) {
-      final out = <TextSpan>[];
+      final out = <InlineSpan>[];
       int fontStart = 0;
       for (final m in fontMatches) {
         if (m.start > fontStart) {
@@ -992,11 +994,17 @@ class TextItemWidget extends ConsumerWidget {
       return out;
     }
 
-    List<TextSpan> spans = [];
-    final RegExp exp = RegExp(r'(\*\*(.*?)\*\*)|(\*(.*?)\*)');
+    final spans = <InlineSpan>[];
+    final emphasisMatches = RegExp(
+      r'(\*\*(.*?)\*\*)|(\*(.*?)\*)',
+    ).allMatches(segment).toList();
+    final imageMatches = inlineImageMatchesOutsideCode(segment).toList();
+    final matches = <RegExpMatch>[...emphasisMatches, ...imageMatches]
+      ..sort((a, b) => a.start.compareTo(b.start));
     int start = 0;
 
-    for (final match in exp.allMatches(segment)) {
+    for (final match in matches) {
+      if (match.start < start) continue;
       if (match.start > start) {
         spans.add(
           TextSpan(
@@ -1005,18 +1013,42 @@ class TextItemWidget extends ConsumerWidget {
           ),
         );
       }
-      if (match.group(1) != null) {
+      if (imageMatches.contains(match)) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.bottom,
+            child: QuestInlineImage(
+              questId: questId,
+              path: normalizeInlineImagePath(match.group(1))!,
+              style: spanStyle(),
+              outlineOnly: outlineLayer != null,
+            ),
+          ),
+        );
+      } else if (match.group(1) != null) {
         spans.add(
           TextSpan(
-            text: match.group(2),
             style: spanStyle(fontWeight: FontWeight.w900),
+            children: _parseMarkdownSegment(
+              match.group(2)!,
+              fontFamily,
+              color: color,
+              outlineLayer: outlineLayer,
+              fragmentStroke: fragmentStroke,
+            ),
           ),
         );
       } else if (match.group(3) != null) {
         spans.add(
           TextSpan(
-            text: match.group(4),
             style: spanStyle(fontStyle: FontStyle.italic),
+            children: _parseMarkdownSegment(
+              match.group(4)!,
+              fontFamily,
+              color: color,
+              outlineLayer: outlineLayer,
+              fragmentStroke: fragmentStroke,
+            ),
           ),
         );
       }
@@ -1673,6 +1705,37 @@ class ButtonItemWidget extends ConsumerWidget {
   }
 }
 
+void _setInlineImagePlaceholderDimensions(
+  TextPainter painter,
+  InlineSpan span,
+  TextStyle inheritedStyle,
+) {
+  final dimensions = <PlaceholderDimensions>[];
+  void visit(InlineSpan node) {
+    if (node is WidgetSpan) {
+      final child = node.child;
+      final side = child is QuestInlineImage
+          ? QuestInlineImage.sideForStyle(inheritedStyle.merge(child.style))
+          : 0.0;
+      dimensions.add(
+        PlaceholderDimensions(
+          size: Size.square(side),
+          alignment: node.alignment,
+        ),
+      );
+      return;
+    }
+    if (node is TextSpan) {
+      for (final child in node.children ?? const <InlineSpan>[]) {
+        visit(child);
+      }
+    }
+  }
+
+  visit(span);
+  if (dimensions.isNotEmpty) painter.setPlaceholderDimensions(dimensions);
+}
+
 class GlassButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final String text;
@@ -1738,9 +1801,7 @@ class GlassButton extends StatelessWidget {
       r'\[color=(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8})\](.*?)\[\/color\]',
       dotAll: true,
     );
-    final List<TextSpan> spans = [];
-    final RegExp exp = RegExp(r'(\*\*(.*?)\*\*)|(\*(.*?)\*)');
-    int start = 0;
+    final List<InlineSpan> spans = [];
 
     final colorMatches = colorExp.allMatches(value).toList();
 
@@ -1787,78 +1848,20 @@ class GlassButton extends StatelessWidget {
         );
       }
     } else {
-      for (final match in exp.allMatches(value)) {
-        if (match.start > start) {
-          spans.add(
-            TextSpan(
-              text: value.substring(start, match.start),
-              style: _buttonTextStyle(
-                textSize: textSize,
-                textWeight: textWeight,
-                letterSpacing: letterSpacing,
-                fontFamily: fontFamily,
-              ),
-            ),
-          );
-        }
-        if (match.group(1) != null) {
-          spans.add(
-            TextSpan(
-              text: match.group(2),
-              style: _buttonTextStyle(
-                textSize: textSize,
-                textWeight: textWeight,
-                letterSpacing: letterSpacing,
-                fontFamily: fontFamily,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          );
-        } else if (match.group(3) != null) {
-          spans.add(
-            TextSpan(
-              text: match.group(4),
-              style: _buttonTextStyle(
-                textSize: textSize,
-                textWeight: textWeight,
-                letterSpacing: letterSpacing,
-                fontFamily: fontFamily,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          );
-        }
-        start = match.end;
-      }
-      if (start < value.length) {
-        spans.add(
-          TextSpan(
-            text: value.substring(start),
-            style: _buttonTextStyle(
-              textSize: textSize,
-              textWeight: textWeight,
-              letterSpacing: letterSpacing,
-              fontFamily: fontFamily,
-            ),
-          ),
-        );
-      }
-      if (spans.isEmpty && value.isNotEmpty) {
-        return TextSpan(
-          text: value,
-          style: _buttonTextStyle(
-            textSize: textSize,
-            textWeight: textWeight,
-            letterSpacing: letterSpacing,
-            fontFamily: fontFamily,
-          ),
-        );
-      }
+      spans.addAll(
+        _parseMarkdownSegment(
+          value,
+          fontFamily,
+          textSize: textSize,
+          textWeight: textWeight,
+          letterSpacing: letterSpacing,
+        ),
+      );
     }
     return TextSpan(children: spans);
   }
 
-  List<TextSpan> _parseMarkdownSegment(
+  List<InlineSpan> _parseMarkdownSegment(
     String segment,
     String? fontFamily, {
     Color? color,
@@ -1870,7 +1873,7 @@ class GlassButton extends StatelessWidget {
     // айтемов) — разворачиваем рекурсивно с теми же параметрами кнопки.
     final fontMatches = FontService.inlineFontTag.allMatches(segment).toList();
     if (fontMatches.isNotEmpty) {
-      final out = <TextSpan>[];
+      final out = <InlineSpan>[];
       int fontStart = 0;
       for (final m in fontMatches) {
         if (m.start > fontStart) {
@@ -1920,12 +1923,20 @@ class GlassButton extends StatelessWidget {
       return out;
     }
 
-    final List<TextSpan> spans = [];
-    final RegExp exp = RegExp(r'(\*\*(.*?)\*\*)|(\*(.*?)\*)');
+    final spans = <InlineSpan>[];
+    final emphasisMatches = RegExp(
+      r'(\*\*(.*?)\*\*)|(\*(.*?)\*)',
+    ).allMatches(segment).toList();
+    final imageMatches = (questId == null || questId!.trim().isEmpty)
+        ? const <RegExpMatch>[]
+        : inlineImageMatchesOutsideCode(segment).toList();
+    final matches = <RegExpMatch>[...emphasisMatches, ...imageMatches]
+      ..sort((a, b) => a.start.compareTo(b.start));
     int start = 0;
     final defaultColor = color ?? Colors.white;
 
-    for (final match in exp.allMatches(segment)) {
+    for (final match in matches) {
+      if (match.start < start) continue;
       if (match.start > start) {
         spans.add(
           TextSpan(
@@ -1940,10 +1951,26 @@ class GlassButton extends StatelessWidget {
           ),
         );
       }
-      if (match.group(1) != null) {
+      if (imageMatches.contains(match)) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.bottom,
+            child: QuestInlineImage(
+              questId: questId!,
+              path: normalizeInlineImagePath(match.group(1))!,
+              style: _buttonTextStyle(
+                textSize: textSize,
+                textWeight: textWeight,
+                letterSpacing: letterSpacing,
+                fontFamily: fontFamily,
+                color: defaultColor,
+              ),
+            ),
+          ),
+        );
+      } else if (match.group(1) != null) {
         spans.add(
           TextSpan(
-            text: match.group(2),
             style: _buttonTextStyle(
               textSize: textSize,
               textWeight: textWeight,
@@ -1952,12 +1979,19 @@ class GlassButton extends StatelessWidget {
               color: defaultColor,
               fontWeight: FontWeight.w900,
             ),
+            children: _parseMarkdownSegment(
+              match.group(2)!,
+              fontFamily,
+              color: color,
+              textSize: textSize,
+              textWeight: 900,
+              letterSpacing: letterSpacing,
+            ),
           ),
         );
       } else if (match.group(3) != null) {
         spans.add(
           TextSpan(
-            text: match.group(4),
             style: _buttonTextStyle(
               textSize: textSize,
               textWeight: textWeight,
@@ -1965,6 +1999,14 @@ class GlassButton extends StatelessWidget {
               fontFamily: fontFamily,
               color: defaultColor,
               fontStyle: FontStyle.italic,
+            ),
+            children: _parseMarkdownSegment(
+              match.group(4)!,
+              fontFamily,
+              color: color,
+              textSize: textSize,
+              textWeight: textWeight,
+              letterSpacing: letterSpacing,
             ),
           ),
         );
@@ -2055,10 +2097,9 @@ class GlassButton extends StatelessWidget {
           final config = styleConfig!;
           final double module = config.moduleSize.clamp(6.0, 32.0);
           final int centerModules = config.autoCenterByText
-              ? (config.centerModules + (parsedText.length / 14).ceil()).clamp(
-                  config.centerModules,
-                  30,
-                )
+              ? (config.centerModules +
+                        (stripInlineImageTags(parsedText).length / 14).ceil())
+                    .clamp(config.centerModules, 30)
               : config.centerModules.clamp(4, 30);
           final bool hasModuleAssets =
               config.hasModuleAssets &&
@@ -2117,6 +2158,11 @@ class GlassButton extends StatelessWidget {
               textAlign: TextAlign.center,
               textDirection: TextDirection.ltr,
               maxLines: wrapText ? null : 1,
+            );
+            _setInlineImagePlaceholderDimensions(
+              painter,
+              textSpan,
+              DefaultTextStyle.of(context).style,
             );
             final maxTextWidth = wrapText
                 ? (maxTotalWidth - 2 * horizontalPadding).clamp(
@@ -2292,6 +2338,11 @@ class GlassButton extends StatelessWidget {
                     textAlign: TextAlign.center,
                     textDirection: TextDirection.ltr,
                     maxLines: wrapText ? null : 1,
+                  );
+                  _setInlineImagePlaceholderDimensions(
+                    painter,
+                    textSpan,
+                    DefaultTextStyle.of(context).style,
                   );
                   final maxTextWidth = wrapText
                       ? (maxTotalWidth - 2 * horizontalPadding).clamp(

@@ -1643,9 +1643,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 controller: _listController,
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                 itemCount: itemsToDisplay.length,
-                key: ValueKey(
-                  'game_list_${screenState.presentationId}_${screenState.revealEpoch}',
-                ),
+                key: ValueKey('game_list_${screenState.presentationId}'),
                 itemBuilder: (context, index) {
                   final item = itemsToDisplay[index];
                   // Если spacing задан явно — отступ только между детьми,

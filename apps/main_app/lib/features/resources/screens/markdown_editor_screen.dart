@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:canvas_app/core/services/refactoring_service.dart';
 import 'package:canvas_app/features/editor/screens/visual_script_editor/variable_selection_screen.dart';
 import 'package:canvas_app/features/resources/screens/resource_selection_screen.dart';
+import 'package:canvas_app/features/resources/widgets/inline_image_picker.dart';
 import 'package:canvas_app/shared/dialogs/show_app_dialog.dart';
 import 'package:mnd_player/services/font_service.dart';
 import 'package:mnd_core/mnd_core.dart';
@@ -464,6 +465,17 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
     await FontService.loadQuestFont(widget.questId, result.path);
     if (!mounted) return;
     _insertMarkdown('[font=${result.path}]', suffix: '[/font]');
+    _focusNode.requestFocus();
+  }
+
+  Future<void> _insertInlineImageTag() async {
+    _focusNode.unfocus();
+    final path = await showInlineImagePicker(context, questId: widget.questId);
+    if (path == null || !mounted) {
+      _focusNode.requestFocus();
+      return;
+    }
+    _insertMarkdown('[img=$path]', suffix: '');
     _focusNode.requestFocus();
   }
 
@@ -1427,6 +1439,13 @@ class _MarkdownEditorScreenState extends ConsumerState<MarkdownEditorScreen>
               icon: Icons.font_download_rounded,
               tooltip: tr('Шрифт выделенного текста'),
               onPressed: _insertInlineFontTag,
+              tint: scheme.primary,
+              background: scheme.primaryContainer,
+            ),
+            _ToolbarIconButton(
+              icon: Icons.add_photo_alternate_rounded,
+              tooltip: tr('Вставить эмодзи'),
+              onPressed: _insertInlineImageTag,
               tint: scheme.primary,
               background: scheme.primaryContainer,
             ),
