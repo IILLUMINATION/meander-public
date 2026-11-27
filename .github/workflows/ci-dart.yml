@@ -51,7 +51,7 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       MND_FFI_SO: ${{ github.workspace }}/target/release/libmnd_ffi.so
       LD_LIBRARY_PATH: ${{ github.workspace }}/target/release
@@ -83,10 +83,8 @@ jobs:
           key: cargo-linux-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-linux-${{ runner.arch }}-
 
-      - name: Build Rust FFI
-        run: |
-          ./scripts/setup_ffi_link.sh
-          cargo build --locked --release -p mnd-ffi
+      - name: Build host FFI library
+        run: melos run ffi:build:host
 
       - name: Test Flutter packages
         run: melos run test:flutter

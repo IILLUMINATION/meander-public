@@ -14,25 +14,18 @@ command:
       flutter: ">=3.24.0"
 
 scripts:
-  analyze:
-    description: Run `dart analyze` in all packages
-    run: melos exec -c 1 -- "dart analyze ."
-    packageFilters:
-      flutter: false
+  # В воркспейсе нет pure-Dart пакетов: скрипты `dart analyze`/`dart test`
+  # с фильтром `flutter: false` выбирали ноль пакетов и в CI были пустыми.
   analyze:flutter:
-    description: Analyze all Flutter packages, failing on errors
+    description: Run `flutter analyze` in all Flutter packages
+    # Info/warning не валят сборку: их в проекте сотни и они не про PR.
+    # Ошибки компиляции валят.
     run: melos exec -c 1 -- "flutter analyze --no-fatal-infos --no-fatal-warnings ."
     packageFilters:
       flutter: true
-  test:
-    description: Run unit tests in all packages
-    run: melos exec -c 1 --fail-fast -- "dart test"
-    packageFilters:
-      flutter: false
-      dirExists: test
   test:flutter:
-    description: Run Flutter tests in parallel within each package
-    run: melos exec -c 1 --fail-fast -- "flutter test --concurrency=8"
+    description: Run unit tests in all Flutter packages
+    run: melos exec -c 1 -- "flutter test"
     packageFilters:
       flutter: true
       dirExists: test
@@ -60,6 +53,11 @@ scripts:
     run: melos exec -c 1 -- "flutter test"
     packageFilters:
       scope: mnd_core
+  ffi:build:host:
+    description: Build host mnd-ffi (.so) for tests, без Android и codegen
+    run: |
+      ./scripts/setup_ffi_link.sh
+      cargo build --locked --release -p mnd-ffi
   ffi:build:
     description: Build mnd-ffi (.so) and regenerate FRB bindings
     run: |

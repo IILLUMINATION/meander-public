@@ -131,7 +131,7 @@ void main() {
     return container;
   }
 
-  group('очереди после onAppear', skip: skipIfNoSo, () {
+  group('слияние очередей onAppear', skip: skipIfNoSo, () {
     testWidgets('onAppear слоя не оставляет в движке непрослушанных команд', (
       tester,
     ) async {
@@ -149,8 +149,8 @@ void main() {
 
       final container = await render(tester);
 
-      // Переменная обязана дойти до клиента — слить очереди, потеряв состояние,
-      // хуже, чем не слить ничего.
+      // Переменная обязана дойти до клиента — слить очереди, потеряв
+      // состояние, хуже, чем не слить ничего.
       expect(container.read(gameStateProvider).variables['HP'], 7);
       final drained = await tester.runAsync(() async {
         return {
