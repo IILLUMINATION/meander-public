@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:mnd_core/models/content_item.dart';
+import 'package:mnd_core/models/inline_image.dart';
 import 'package:mnd_player/services/font_service.dart';
+import 'package:mnd_player/widgets/shared/quest_inline_image.dart';
 
 class ColorTagSyntax extends md.InlineSyntax {
   static const String tag = 'color';
@@ -70,6 +72,42 @@ class FontNode extends ElementNode {
   TextStyle get style =>
       parentStyle?.merge(TextStyle(fontFamily: fontFamily)) ??
       TextStyle(fontFamily: fontFamily);
+}
+
+class InlineImageTagSyntax extends md.InlineSyntax {
+  static const String tag = 'inline-image';
+
+  InlineImageTagSyntax() : super(inlineImageTag.pattern, startCharacter: 0x5B);
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final path = normalizeInlineImagePath(match.group(1));
+    if (path == null) {
+      parser.addNode(md.Text(match.group(0)!));
+      return true;
+    }
+    parser.addNode(md.Element(tag, const [])..attributes['src'] = path);
+    return true;
+  }
+}
+
+class InlineImageNode extends SpanNode {
+  final String questId;
+  final String path;
+  final TextOutlineMode mode;
+
+  InlineImageNode(this.questId, this.path, {this.mode = TextOutlineMode.none});
+
+  @override
+  InlineSpan build() => WidgetSpan(
+    alignment: PlaceholderAlignment.bottom,
+    child: QuestInlineImage(
+      questId: questId,
+      path: path,
+      style: parentStyle ?? const TextStyle(),
+      outlineOnly: mode == TextOutlineMode.stroke,
+    ),
+  );
 }
 
 /// Как слой markdown обращается с фрагментной обводкой `[outline=…]`.
@@ -149,6 +187,7 @@ MarkdownGenerator createColorMarkdownGenerator({
       // [font=] резолвится в family-имя только зная квест; без questId
       // тег остаётся буквальным текстом (редакторы без игрового контекста).
       if (questId != null) FontTagSyntax(),
+      if (questId != null) InlineImageTagSyntax(),
     ],
     linesMargin: linesMargin,
     splitRegExp: splitRegExp,
@@ -178,6 +217,14 @@ MarkdownGenerator createColorMarkdownGenerator({
           generator: (e, config, visitor) {
             final path = e.attributes['value'];
             return FontNode(FontService.resolveFamily(questId, path));
+          },
+        ),
+      if (questId != null)
+        SpanNodeGeneratorWithTag(
+          tag: InlineImageTagSyntax.tag,
+          generator: (e, config, visitor) {
+            final path = e.attributes['src'];
+            return InlineImageNode(questId, path ?? '', mode: outlineMode);
           },
         ),
       SpanNodeGeneratorWithTag(

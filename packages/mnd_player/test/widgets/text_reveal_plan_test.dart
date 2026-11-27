@@ -33,6 +33,58 @@ void main() {
       expect(plan.prefixFor(3), 'a${family}b');
     });
 
+    test('картинка появляется на своей позиции и не занимает символ', () {
+      const source = 'А[img=res/images/attack.png]Б';
+      final plan = TextRevealPlan.of(source);
+      expect(plan.totalVisible, 2);
+      expect(plan.prefixFor(0), '');
+      expect(plan.prefixFor(1), 'А[img=res/images/attack.png]');
+      expect(plan.prefixFor(2), source);
+
+      // Негативный контроль: сырой разрез показал бы половину тега.
+      expect(source.substring(0, 2), 'А[');
+    });
+
+    test('картинка в начале и картинка без текста видны сразу', () {
+      const leading = '[img=res/images/attack.png]А';
+      final leadingPlan = TextRevealPlan.of(leading);
+      expect(leadingPlan.totalVisible, 1);
+      expect(leadingPlan.prefixFor(0), '[img=res/images/attack.png]');
+
+      const only = '[img=res/images/attack.png]';
+      final onlyPlan = TextRevealPlan.of(only);
+      expect(onlyPlan.totalVisible, 0);
+      expect(onlyPlan.prefixFor(0), only);
+    });
+
+    test('невалидный тег картинки остаётся обычным видимым текстом', () {
+      const source = 'А[img=../secret.png]Б';
+      final plan = TextRevealPlan.of(source);
+      expect(plan.totalVisible, source.length);
+      for (var visible = 0; visible <= plan.totalVisible; visible++) {
+        expect(plan.prefixFor(visible), source.substring(0, visible));
+      }
+    });
+
+    test('тег картинки внутри кода печатается буквально', () {
+      const tag = '[img=res/images/attack.png]';
+      const source = 'А`$tag`Б';
+      const visible = 'А${tag}Б';
+      final plan = TextRevealPlan.of(source);
+
+      expect(plan.totalVisible, visible.length);
+      for (var count = 0; count <= plan.totalVisible; count++) {
+        final prefix = plan.prefixFor(count);
+        expect(
+          _visibleOnly(prefix),
+          visible.substring(0, count),
+          reason: prefix,
+        );
+        expect('`'.allMatches(prefix).length % 2, 0, reason: prefix);
+      }
+      expect(plan.prefixFor(plan.totalVisible), source);
+    });
+
     test('жирный никогда не показывает звёздочки', () {
       const source = '**жирный**';
       const plain = 'жирный';

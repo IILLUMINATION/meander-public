@@ -28,6 +28,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnd_core/mnd_core.dart';
 import 'package:mnd_player/providers/game_screen_provider.dart';
+import 'package:mnd_player/utils/file_storage.dart';
 
 final String? _soPath = () {
   final env = Platform.environment['MND_FFI_SO'];
@@ -197,6 +198,69 @@ void main() {
       await waitFirstItem(container);
 
       expect(revealedIds(container).first, 'row1');
+    });
+
+    test('перезагрузка той же ноды не публикует пустой список', () async {
+      final (container, notifier) = startSession();
+      await notifier.loadInitialNode('n2');
+      for (var i = 0; i < 10; i++) {
+        notifier.revealNextItem();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(revealedIds(container), _nodeRows);
+      final epoch = container.read(gameScreenProvider(_key)).revealEpoch;
+      var publishedEmptyList = false;
+      final subscription = container.listen(gameScreenProvider(_key), (
+        previous,
+        next,
+      ) {
+        if (next.revealEpoch > epoch && next.revealedItems.isEmpty) {
+          publishedEmptyList = true;
+        }
+      });
+      addTearDown(subscription.close);
+
+      await notifier.reloadNodeAfterEditor('n2');
+      for (var i = 0; i < 10; i++) {
+        notifier.revealNextItem();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      expect(publishedEmptyList, isFalse);
+      expect(revealedIds(container), _nodeRows);
+    });
+
+    test('перезагрузка той же ноды в пустую убирает старую презентацию',
+        () async {
+      final (container, notifier) = startSession();
+      await notifier.loadInitialNode('n2');
+      for (var i = 0; i < 10; i++) {
+        notifier.revealNextItem();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(revealedIds(container), _nodeRows);
+
+      const relative = 'quests/$_questId/nodes.json';
+      final data = jsonDecode(File('${appDir.path}/$relative').readAsStringSync())
+          as Map<String, dynamic>;
+      final nodes = (data['nodes'] as List).cast<Map<String, dynamic>>();
+      final node = nodes.firstWhere((node) => node['id'] == 'n2');
+      final originalContent = node['content'];
+      node['content'] = const {'items': <dynamic>[]};
+      try {
+        await FileStorage.writeJsonFile(relative, data);
+        await notifier.reloadNodeAfterEditor('n2');
+        for (var i = 0; i < 10; i++) {
+          notifier.revealNextItem();
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+
+        expect(revealedIds(container), isEmpty);
+        expect(container.read(gameScreenProvider(_key)).pinnedStacks, isEmpty);
+      } finally {
+        node['content'] = originalContent;
+        await FileStorage.writeJsonFile(relative, data);
+      }
     });
 
     test('ни один ряд ноды не потерян, если очередь пинают всё время',
