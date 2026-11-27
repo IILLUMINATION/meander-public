@@ -230,6 +230,7 @@ cp ../../target/release/mnd_ffi.dll build/windows/x64/runner/Release/
 ## Проверки
 
 ```bash
+melos run ffi:build:host            # .so для FFI-тестов
 melos run analyze:flutter --no-select
 melos run test:flutter --no-select
 cargo test --workspace
@@ -238,7 +239,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 `--no-select` обязателен: без него melos спрашивает пакет и падает без TTY.
-`analyze:flutter` возвращает 1 при любом замечании; ошибок в снимке нет.
+`analyze:flutter` валит только на ошибках компиляции: info/warning в снимке
+есть и PR не блокируют. Без `.so` FFI-тесты `mnd_core`/`mnd_player` уходят в
+skipped; интеграционные тесты `web_player` требуют собранную библиотеку.
 
 ## Документация
 

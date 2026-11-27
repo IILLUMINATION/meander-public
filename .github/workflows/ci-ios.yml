@@ -1,21 +1,20 @@
 name: CI iOS
 
 # Зачем: iOS нельзя собрать и тем более проверить на Linux-машине, из-за чего
-# «не компилируется под Apple» всплывает только на Маке или у ревьюера App
-# Store. Здесь две разные проверки.
+# «не компилируется под Apple» всплывает только на Маке или у ревьюера
+# App Store. Здесь две разные проверки.
 #
 #  1. `config` — статические guard-тесты (`test/ios/`) на Ubuntu: Info.plist,
 #     entitlements, PrivacyInfo, минимальная iOS, прикрученный Xcode-фейз
 #     сборки Rust. Дёшево, на каждый PR.
 #  2. `build-ios` — реальная сборка на macOS-раннере: CocoaPods,
-#     xcframework-плегины и статический `libmnd_ffi.framework` из Rust.
-#     Симулятор и `--no-codesign` не требуют ни сертификатов, ни App Store
-#     Connect API, поэтому job работает без секретов вообще.
+#     xcframework-плагины и статический `libmnd_ffi.framework` из Rust.
+#     Сертификаты и App Store Connect API не нужны: `--no-codesign`.
 #
-# iOS-код нельзя скомпилировать на Linux: оба среза (симулятор и устройство)
-# обязательно собираются на каждом подходящем PR. Это ловит несовместимость
-# Flutter/Swift, CocoaPods и Rust FFI до TestFlight. Ручной запуск оставлен для
-# повторной сборки релизной ветки без создания PR.
+# Симуляторного среза здесь нет: `flutter build ios --release --simulator`
+# невозможен по определению («Release mode is not supported for simulators»),
+# а debug-сборка симулятора не проверяет ни AOT, ни strip, которые и ломают
+# релиз. Shipping-артефакт — device ipa, его и собираем.
 #
 # Чего CI НЕ доказывает: что приложение корректно ведёт себя на живом iPhone
 # (анимации, размытие фона, тапы по нижней кнопке шита). Это по-прежнему
@@ -48,13 +47,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      slices:
-        description: 'Какие срезы собирать на macOS'
-        required: false
-        default: 'both'
-        type: choice
-        options: ['both', 'simulator', 'device']
 
 concurrency:
   group: ios-${{ github.ref }}
@@ -73,6 +65,7 @@ jobs:
   config:
     name: guard-тесты iOS-конфига (Ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/main_app
@@ -92,68 +85,40 @@ jobs:
         run: flutter test test/ios
 
   build-ios:
-    name: сборка (${{ matrix.slice.name }})
+    name: сборка (device)
     needs: config
     runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        slice:
-          - name: simulator
-            rust_target: aarch64-apple-ios-sim
-            ffi_flag: --ios-sim
-            flutter_flag: --simulator
-          - name: device
-            rust_target: aarch64-apple-ios
-            ffi_flag: --ios
-            flutter_flag: --no-codesign
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: apps/main_app
     steps:
       - uses: actions/checkout@v4
 
-      # На ручном запуске можно попросить один срез; второй тогда пропускаем.
-      - name: Нужен ли этот срез
-        id: gate
-        run: |
-          wanted='${{ github.event.inputs.slices }}'
-          [ -z "$wanted" ] && wanted=both
-          if [ "$wanted" = both ] || [ "$wanted" = '${{ matrix.slice.name }}' ]; then
-            echo run=true >> "$GITHUB_OUTPUT"
-          else
-            echo run=false >> "$GITHUB_OUTPUT"
-            echo "::notice::срез «${{ matrix.slice.name }}» пропущен (выбран «$wanted»)"
-          fi
-
       # Дефолтный Xcode 16.4 на macos-15 не знает NWPath.isUltraConstrained,
-      # который использует connectivity_plus 7.3.x. Без Xcode 26 device-срез
+      # который использует connectivity_plus 7.3.x. Без Xcode 26 сборка
       # падает ещё до архива.
       - name: Xcode 26
-        if: steps.gate.outputs.run == 'true'
         run: |
           sudo xcode-select -s /Applications/Xcode_26.0.1.app/Contents/Developer
           xcodebuild -version
 
       - name: Rust toolchain + target
-        if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.slice.rust_target }}
+          targets: aarch64-apple-ios
 
       - name: Cargo cache
-        if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ matrix.slice.rust_target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-${{ matrix.slice.rust_target }}-
+          key: cargo-ios-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-ios-
 
       - uses: subosito/flutter-action@v2
-        if: steps.gate.outputs.run == 'true'
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -162,15 +127,12 @@ jobs:
       # Ветка 6.x, а не latest: melos 7/8 не читают `melos.yaml` этого
       # воркспейса и не поднимают его вовсе.
       - name: Install melos
-        if: steps.gate.outputs.run == 'true'
         run: dart pub global activate melos 6.3.3
 
       - name: Bootstrap workspace
-        if: steps.gate.outputs.run == 'true'
         run: melos bootstrap
 
       - name: Pods cache
-        if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -182,16 +144,16 @@ jobs:
       # Ядро собирается заранее: Xcode-фейз (`scripts/ios_ffi_phase.sh`) умеет
       # собрать и сам, но внутри лога xcodebuild это выглядит как «всё
       # зависло», а здесь сразу видно, если Rust под Apple не компилируется.
-      - name: Rust FFI (${{ matrix.slice.rust_target }})
-        if: steps.gate.outputs.run == 'true'
+      - name: Rust FFI (aarch64-apple-ios)
         working-directory: ${{ github.workspace }}
-        run: ./scripts/build_ffi_apple.sh ${{ matrix.slice.ffi_flag }}
+        run: |
+          ./scripts/build_ffi_apple.sh --ios
+          printf '%s' 'aarch64-apple-ios' > apps/main_app/ios/Runner/Frameworks/.built-triple
 
       # Отдельная проверка архива: пустой файл или архив без Lua-символов
       # линкуется, но падает уже на старте приложения (`Undefined symbol`
       # проходит тихо только на этапе `-force_load`).
       - name: Целостность статического framework
-        if: steps.gate.outputs.run == 'true'
         run: |
           bin="ios/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi"
           test -s "$bin" || { echo "!! $bin пуст или отсутствует"; exit 1; }
@@ -204,30 +166,24 @@ jobs:
             exit 1
           }
 
-      - name: Build iOS app (${{ matrix.slice.name }})
-        if: steps.gate.outputs.run == 'true'
+      - name: Build iOS app (device)
         run: |
-          if [ "${{ matrix.slice.name }}" = device ]; then
-            # Именно ipa/archive, а не build ios: strip запускается на
-            # deployment postprocessing, и только там ловится потеря
-            # экспортируемых Rust-символов.
-            flutter build ipa --release --no-codesign \
-              --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
-            app="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app/Runner"
-            test -f "$app" || { echo "!! не найден $app"; exit 1; }
-            nm -g "$app" 2>/dev/null | grep -q frb_get_rust_content_hash || {
-              echo "!! в финальном Runner нет frb_get_rust_content_hash: strip вырезал FFI"
-              exit 1
-            }
-          else
-            flutter build ios --release --simulator \
-              --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
-          fi
+          # Именно ipa/archive, а не build ios: strip запускается на
+          # deployment postprocessing, и только там ловится потеря
+          # экспортируемых Rust-символов.
+          flutter build ipa --release --no-codesign \
+            --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
+          app="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app/Runner"
+          test -f "$app" || { echo "!! не найден $app"; exit 1; }
+          nm -g "$app" 2>/dev/null | grep -q frb_get_rust_content_hash || {
+            echo "!! в финальном Runner нет frb_get_rust_content_hash: strip вырезал FFI"
+            exit 1
+          }
 
       - name: Лог xcodebuild при неудаче
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-${{ matrix.slice.name }}-logs
+          name: ios-device-logs
           path: apps/main_app/build/ios
           if-no-files-found: ignore
