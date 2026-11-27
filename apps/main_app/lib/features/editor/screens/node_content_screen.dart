@@ -52,11 +52,15 @@ class NodeContentScreen extends ConsumerStatefulWidget {
   final String nodeId;
   final bool fromGameSession;
 
+  @visibleForTesting
+  final Future<void> Function(String questId, SavedNode node)? saveNodeOverride;
+
   const NodeContentScreen({
     super.key,
     required this.questId,
     required this.nodeId,
     this.fromGameSession = false,
+    this.saveNodeOverride,
   });
 
   @override
@@ -78,6 +82,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
 
   bool _isDirty = false;
   bool _isSaving = false;
+  int _editRevision = 0;
   bool _isLoading = true;
   bool _hasLoadError = false;
   Timer? _debounceTimer;
@@ -242,6 +247,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     final selection = _titleController.selection;
     setState(() {
       _contentItems = updatedItems;
+      _editRevision++;
       _isDirty = true;
       if (titleChanged) {
         _titleController.value = TextEditingValue(
@@ -381,6 +387,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
 
   void _markDirtyAndSave() {
     if (_isLoading || _hasLoadError) return;
+    _editRevision++;
     _detachBoundInstance();
     if (!_isDirty) {
       setState(() => _isDirty = true);
@@ -514,16 +521,20 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     // экрана — setState на defunct State запрещён. Сохранять нечего.
     if (!mounted) return true;
     if (_isLoading || _hasLoadError || _initialNode == null) return false;
-    if (_isSaving && !force && !isExiting) return false;
-
-    setState(() => _isSaving = true);
+    if (_saveLock != null && !force && !isExiting) return false;
 
     while (_saveLock != null) {
       await _saveLock!.future;
+      if (!mounted) return false;
     }
-    _saveLock = Completer<void>();
+    final lock = Completer<void>();
+    _saveLock = lock;
+    if (mounted) setState(() => _isSaving = true);
 
+    var result = false;
+    var hasNewerEdits = false;
     try {
+      final savedRevision = _editRevision;
       final updatedNode = SavedNode(
         id: _initialNode!.id,
         chapterId: _initialNode!.chapterId,
@@ -571,7 +582,12 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
         isTemplateMaster: _initialNode!.isTemplateMaster,
       );
 
-      await updateNode(widget.questId, updatedNode);
+      final saveNode = widget.saveNodeOverride;
+      if (saveNode != null) {
+        await saveNode(widget.questId, updatedNode);
+      } else {
+        await updateNode(widget.questId, updatedNode);
+      }
       final desiredTargets = _collectTargetNodeIdsFromItems(_contentItems);
       await syncOutgoingConnections(
         widget.questId,
@@ -609,14 +625,15 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
         print('[Templates] sync master failed: $e');
       }
 
-      if (mounted && !isExiting) {
+      hasNewerEdits = _editRevision != savedRevision;
+      if (mounted && !isExiting && !hasNewerEdits) {
         setState(() {
           _initialNode = updatedNode;
           _isDirty = false;
         });
         _docHandle?.markDirty(false);
       }
-      return true;
+      result = true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -628,13 +645,20 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
           ),
         );
       }
-      return false;
     } finally {
-      final lock = _saveLock;
+      final activeLock = _saveLock;
       _saveLock = null;
-      lock?.complete();
+      activeLock?.complete();
       if (mounted) setState(() => _isSaving = false);
+      if (hasNewerEdits && mounted) {
+        if (force || isExiting) {
+          result = await _saveNode(isExiting: isExiting, force: true);
+        } else {
+          unawaited(_saveNode());
+        }
+      }
     }
+    return result;
   }
 
   Future<void> _loadNodeData() async {
@@ -830,6 +854,7 @@ class _NodeContentScreenState extends ConsumerState<NodeContentScreen> {
     }
     if (changed && mounted) {
       setState(() => _contentItems = updated);
+      _editRevision++;
       _isDirty = true;
     }
   }

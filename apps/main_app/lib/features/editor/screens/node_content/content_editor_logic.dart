@@ -543,6 +543,7 @@ class ContentEditorLogic {
     void Function(ContentItem item)? onDraft,
   }) async {
     final draftId = const Uuid().v4();
+    ContentItem? latestDraft;
     final result = await EditorNestedDocuments.open<ContentItem>(
       context,
       questId: questId,
@@ -551,7 +552,11 @@ class ContentEditorLogic {
       builder: (_) => ModalEditorScreen(
         questId: questId,
         draftId: draftId,
-        onChanged: onDraft,
+        existingItem: latestDraft,
+        onChanged: (draft) {
+          latestDraft = draft;
+          onDraft?.call(draft);
+        },
       ),
     );
     return result;
@@ -559,8 +564,10 @@ class ContentEditorLogic {
 
   Future<ContentItem?> editModal({
     required ContentItem existing,
+    ContentItem Function()? getExisting,
     void Function(ContentItem item)? onChanged,
   }) async {
+    var latest = existing;
     final result = await EditorNestedDocuments.open<ContentItem>(
       context,
       questId: questId,
@@ -568,8 +575,11 @@ class ContentEditorLogic {
       title: tr('Модальное окно'),
       builder: (_) => ModalEditorScreen(
         questId: questId,
-        existingItem: existing,
-        onChanged: onChanged,
+        existingItem: getExisting?.call() ?? latest,
+        onChanged: (draft) {
+          latest = draft;
+          onChanged?.call(draft);
+        },
       ),
     );
     return result;

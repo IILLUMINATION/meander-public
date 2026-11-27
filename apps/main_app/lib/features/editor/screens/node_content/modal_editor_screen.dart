@@ -77,6 +77,7 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
       text: widget.existingItem?.placeholderText ?? tr('Закрыть'),
     );
     _targetNodeId = widget.existingItem?.targetNodeId;
+    _scriptAssetId = widget.existingItem?.scriptAssetId;
     _autoCloseDelayController = TextEditingController();
 
     // Загружаем кнопки если есть
@@ -87,18 +88,23 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
     // Проверяем, было ли настроено автозакрытие
     if (widget.existingItem?.targetNodeId == '_CLOSE_MODAL') {
       _autoClose = true;
+      _scriptAssetId = null;
       _autoCloseDelay = widget.existingItem?.text ?? '2';
       _autoCloseDelayController.text = _autoCloseDelay;
       // Флаг показа таймера — собственное поле модели.
       _showTimer = widget.existingItem?.showTimer ?? false;
     } else {
       _autoCloseDelayController.text = _autoCloseDelay;
-      // Обычный режим - загружаем название ноды
-      _updateTargetNodeName();
+      if (_scriptAssetId != null) {
+        _targetNodeId = null;
+        _targetNodeName = tr('Не выбрана');
+      } else if (_targetNodeId != null) {
+        unawaited(_updateTargetNodeName());
+      } else {
+        _targetNodeName = tr('Не выбрана');
+      }
     }
 
-    // Загружаем ID скрипта если есть
-    _scriptAssetId = widget.existingItem?.scriptAssetId;
     _lastAutosave = _snapshot(_buildContentItem());
     for (final controller in [
       _titleController,
@@ -480,7 +486,7 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
       // Сохраняем содержимое даже при автозакрытии!
       contentMarkdown = _contentController.text;
     } else {
-      targetNodeId = _targetNodeId;
+      targetNodeId = _scriptAssetId != null ? null : _targetNodeId;
       text = null;
       contentMarkdown = _contentController.text;
     }
@@ -500,7 +506,7 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
           ? tr('Закрыть')
           : _buttonTextController.text.trim(),
       targetNodeId: targetNodeId,
-      scriptAssetId: _scriptAssetId,
+      scriptAssetId: _autoClose ? null : _scriptAssetId,
       modalButtons: _modalButtons.isNotEmpty ? _modalButtons : null,
       // Настройки этого шита больше не занимают `scriptTriggers`: иначе
       // правка модалки стирала бы скрипты, привязанные через карточку элемента.
@@ -723,11 +729,11 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
                       children: [
                         ListTile(
                           contentPadding: EdgeInsets.zero,
-                          selected: !_autoClose,
+                          selected: !_autoClose && _scriptAssetId == null,
                           selectedTileColor: cs.primary.withValues(alpha: 0.1),
                           leading: Radio<bool>(
                             value: false,
-                            groupValue: _autoClose,
+                            groupValue: _scriptAssetId == null ? _autoClose : null,
                             onChanged: (value) {
                               setState(() {
                                 _autoClose = false;
@@ -757,7 +763,7 @@ class _ModalEditorScreenState extends ConsumerState<ModalEditorScreen> {
                             });
                           },
                         ),
-                        if (!_autoClose)
+                        if (!_autoClose && _scriptAssetId == null)
                           Padding(
                             padding: const EdgeInsets.only(left: 56, top: 8),
                             child: SizedBox(
