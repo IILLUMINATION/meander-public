@@ -20,8 +20,8 @@ scripts:
     packageFilters:
       flutter: false
   analyze:flutter:
-    description: Run `flutter analyze` in all Flutter packages
-    run: melos exec -c 1 -- "flutter analyze ."
+    description: Analyze all Flutter packages, failing on errors
+    run: melos exec -c 1 -- "flutter analyze --no-fatal-infos --no-fatal-warnings ."
     packageFilters:
       flutter: true
   test:
@@ -31,8 +31,8 @@ scripts:
       flutter: false
       dirExists: test
   test:flutter:
-    description: Run unit tests in all Flutter packages
-    run: melos exec -c 1 --fail-fast -- "flutter test"
+    description: Run Flutter tests in parallel within each package
+    run: melos exec -c 1 --fail-fast -- "flutter test --concurrency=8"
     packageFilters:
       flutter: true
       dirExists: test

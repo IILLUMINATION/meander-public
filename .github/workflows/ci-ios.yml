@@ -12,10 +12,10 @@ name: CI iOS
 #     Симулятор и `--no-codesign` не требуют ни сертификатов, ни App Store
 #     Connect API, поэтому job работает без секретов вообще.
 #
-# iOS-код нельзя скомпилировать на Linux: оба среза (симулятор и устройство)
-# обязательно собираются на каждом подходящем PR. Это ловит несовместимость
-# Flutter/Swift, CocoaPods и Rust FFI до TestFlight. Ручной запуск оставлен для
-# повторной сборки релизной ветки без создания PR.
+# iOS-код нельзя скомпилировать на Linux. На PR собирается debug-симулятор:
+# он ловит несовместимость Flutter/Swift, CocoaPods и Rust FFI без траты
+# macOS-минут на релизный архив. Device release/archive проверяется на main,
+# релизных тегах и ручном запуске — там же остаются проверки strip и символов.
 #
 # Чего CI НЕ доказывает: что приложение корректно ведёт себя на живом iPhone
 # (анимации, размытие фона, тапы по нижней кнопке шита). Это по-прежнему
@@ -42,9 +42,11 @@ on:
         'melos.yaml',
         '.github/workflows/ci-ios.yml',
       ]
-  # Релизный тег должен пройти ту же сборку, что и PR: иначе между мержем и
+  # Релизный тег должен пройти ту же сборку, что и main: иначе между мержем и
   # TestFlight остаётся окно, в котором сломанный iOS-билд никто не поймал.
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -73,11 +75,42 @@ jobs:
   config:
     name: guard-тесты iOS-конфига (Ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      slices: ${{ steps.slices.outputs.value }}
     defaults:
       run:
         working-directory: apps/main_app
     steps:
       - uses: actions/checkout@v4
+
+      - name: Выбрать срезы сборки
+        id: slices
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            value='[{"name":"simulator","rust_target":"aarch64-apple-ios-sim","ffi_flag":"--ios-sim","flutter_flag":"--simulator"}]'
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            wanted='${{ github.event.inputs.slices }}'
+            [ -z "$wanted" ] && wanted=both
+            case "$wanted" in
+              simulator)
+                value='[{"name":"simulator","rust_target":"aarch64-apple-ios-sim","ffi_flag":"--ios-sim","flutter_flag":"--simulator"}]'
+                ;;
+              device)
+                value='[{"name":"device","rust_target":"aarch64-apple-ios","ffi_flag":"--ios","flutter_flag":"--no-codesign"}]'
+                ;;
+              both)
+                value='[{"name":"simulator","rust_target":"aarch64-apple-ios-sim","ffi_flag":"--ios-sim","flutter_flag":"--simulator"},{"name":"device","rust_target":"aarch64-apple-ios","ffi_flag":"--ios","flutter_flag":"--no-codesign"}]'
+                ;;
+              *)
+                echo "::error::неизвестный срез: $wanted"
+                exit 1
+                ;;
+            esac
+          else
+            value='[{"name":"simulator","rust_target":"aarch64-apple-ios-sim","ffi_flag":"--ios-sim","flutter_flag":"--simulator"},{"name":"device","rust_target":"aarch64-apple-ios","ffi_flag":"--ios","flutter_flag":"--no-codesign"}]'
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
 
       - uses: subosito/flutter-action@v2
         with:
@@ -95,54 +128,31 @@ jobs:
     name: сборка (${{ matrix.slice.name }})
     needs: config
     runs-on: macos-15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        slice:
-          - name: simulator
-            rust_target: aarch64-apple-ios-sim
-            ffi_flag: --ios-sim
-            flutter_flag: --simulator
-          - name: device
-            rust_target: aarch64-apple-ios
-            ffi_flag: --ios
-            flutter_flag: --no-codesign
+        slice: ${{ fromJSON(needs.config.outputs.slices) }}
     defaults:
       run:
         working-directory: apps/main_app
     steps:
       - uses: actions/checkout@v4
 
-      # На ручном запуске можно попросить один срез; второй тогда пропускаем.
-      - name: Нужен ли этот срез
-        id: gate
-        run: |
-          wanted='${{ github.event.inputs.slices }}'
-          [ -z "$wanted" ] && wanted=both
-          if [ "$wanted" = both ] || [ "$wanted" = '${{ matrix.slice.name }}' ]; then
-            echo run=true >> "$GITHUB_OUTPUT"
-          else
-            echo run=false >> "$GITHUB_OUTPUT"
-            echo "::notice::срез «${{ matrix.slice.name }}» пропущен (выбран «$wanted»)"
-          fi
-
       # Дефолтный Xcode 16.4 на macos-15 не знает NWPath.isUltraConstrained,
       # который использует connectivity_plus 7.3.x. Без Xcode 26 device-срез
       # падает ещё до архива.
       - name: Xcode 26
-        if: steps.gate.outputs.run == 'true'
         run: |
           sudo xcode-select -s /Applications/Xcode_26.0.1.app/Contents/Developer
           xcodebuild -version
 
       - name: Rust toolchain + target
-        if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.slice.rust_target }}
 
       - name: Cargo cache
-        if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -153,7 +163,6 @@ jobs:
           restore-keys: cargo-${{ matrix.slice.rust_target }}-
 
       - uses: subosito/flutter-action@v2
-        if: steps.gate.outputs.run == 'true'
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -162,15 +171,12 @@ jobs:
       # Ветка 6.x, а не latest: melos 7/8 не читают `melos.yaml` этого
       # воркспейса и не поднимают его вовсе.
       - name: Install melos
-        if: steps.gate.outputs.run == 'true'
         run: dart pub global activate melos 6.3.3
 
       - name: Bootstrap workspace
-        if: steps.gate.outputs.run == 'true'
         run: melos bootstrap
 
       - name: Pods cache
-        if: steps.gate.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -183,15 +189,15 @@ jobs:
       # собрать и сам, но внутри лога xcodebuild это выглядит как «всё
       # зависло», а здесь сразу видно, если Rust под Apple не компилируется.
       - name: Rust FFI (${{ matrix.slice.rust_target }})
-        if: steps.gate.outputs.run == 'true'
         working-directory: ${{ github.workspace }}
-        run: ./scripts/build_ffi_apple.sh ${{ matrix.slice.ffi_flag }}
+        run: |
+          ./scripts/build_ffi_apple.sh ${{ matrix.slice.ffi_flag }}
+          printf '%s' '${{ matrix.slice.rust_target }}' > apps/main_app/ios/Runner/Frameworks/.built-triple
 
       # Отдельная проверка архива: пустой файл или архив без Lua-символов
       # линкуется, но падает уже на старте приложения (`Undefined symbol`
       # проходит тихо только на этапе `-force_load`).
       - name: Целостность статического framework
-        if: steps.gate.outputs.run == 'true'
         run: |
           bin="ios/Runner/Frameworks/libmnd_ffi.framework/libmnd_ffi"
           test -s "$bin" || { echo "!! $bin пуст или отсутствует"; exit 1; }
@@ -205,7 +211,6 @@ jobs:
           }
 
       - name: Build iOS app (${{ matrix.slice.name }})
-        if: steps.gate.outputs.run == 'true'
         run: |
           if [ "${{ matrix.slice.name }}" = device ]; then
             # Именно ipa/archive, а не build ios: strip запускается на
@@ -220,7 +225,7 @@ jobs:
               exit 1
             }
           else
-            flutter build ios --release --simulator \
+            flutter build ios --debug --simulator --no-codesign \
               --dart-define=MEANDER_API_BASE="${{ vars.MEANDER_API_BASE || 'https://meander.illuminat.dev' }}"
           fi
 

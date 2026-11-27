@@ -173,46 +173,96 @@ void main() {
     );
   });
 
-  group('iOS-сборка проверяется на PR', () {
-    test('сборка не спрятана за workflow_dispatch', () {
-      final ios = File('../../.github/workflows/ci-ios.yml').readAsStringSync();
-      final jobStart = ios.indexOf(RegExp(r'^  build-ios:', multiLine: true));
-      expect(jobStart, isNot(-1), reason: 'job build-ios пропал');
-      final body = ios.substring(jobStart);
-      final nextJob = RegExp(
-        r'^  [a-z][\w-]*:',
-        multiLine: true,
-      ).firstMatch(body.substring(1));
-      final scoped = nextJob == null
-          ? body
-          : body.substring(0, nextJob.start + 1);
+  group('Dart/Flutter CI', () {
+    final dart = File('../../.github/workflows/ci-dart.yml').readAsStringSync();
+    final melos = File('../../melos.yaml').readAsStringSync();
+
+    test('анализирует Flutter-пакеты, а не пустой Dart-фильтр', () {
+      expect(dart, contains('run: melos run analyze:flutter'));
+      expect(dart, isNot(contains('run: melos run analyze\n')));
+      expect(dart, isNot(contains('run: melos run test\n')));
       expect(
-        scoped,
-        isNot(contains("if: github.event_name != 'pull_request'")),
-        reason: 'iOS-код перестал собираться до мержа — так и уехал сломанный '
-            'билд в TestFlight',
+        melos,
+        contains(
+          'flutter analyze --no-fatal-infos --no-fatal-warnings .',
+        ),
       );
-      expect(scoped, contains('runs-on: macos-'));
     });
 
-    test('собираются оба среза: устройство и симулятор', () {
-      final ios = File('../../.github/workflows/ci-ios.yml').readAsStringSync();
-      expect(ios, contains('aarch64-apple-ios\n'));
-      expect(ios, contains('aarch64-apple-ios-sim'));
-      expect(ios, contains('--no-codesign'));
+    test('перед тестами собирает и подключает нативное ядро', () {
+      expect(dart, contains('./scripts/setup_ffi_link.sh'));
+      expect(dart, contains('cargo build --locked --release -p mnd-ffi'));
+      expect(
+        dart,
+        contains(
+          r'MND_FFI_SO: ${{ github.workspace }}/target/release/libmnd_ffi.so',
+        ),
+      );
+      expect(
+        dart,
+        contains(r'LD_LIBRARY_PATH: ${{ github.workspace }}/target/release'),
+      );
+    });
+
+    test('Rust-изменения запускают Dart/Flutter проверки', () {
+      final trigger = dart.substring(0, dart.indexOf('concurrency:'));
+      expect(trigger, contains("'crates/**'"));
+      expect(trigger, contains("'Cargo.lock'"));
+      expect(trigger, contains("'scripts/setup_ffi_link.sh'"));
+    });
+
+    test('тесты внутри пакета идут параллельно', () {
+      expect(melos, contains('flutter test --concurrency=8'));
+    });
+  });
+
+  group('Политика iOS-сборок', () {
+    final ios = File('../../.github/workflows/ci-ios.yml').readAsStringSync();
+
+    test('на PR собирается debug-симулятор без device-архива', () {
+      expect(
+        ios,
+        contains('flutter build ios --debug --simulator --no-codesign'),
+      );
+      expect(ios, isNot(contains('flutter build ios --release --simulator')));
+
+      final at = ios.indexOf(
+        r'if [ "${{ github.event_name }}" = "pull_request" ]; then',
+      );
+      expect(at, greaterThan(0), reason: 'PR-выбор среза пропал');
+      final branch = ios.substring(at, ios.indexOf('elif', at));
+      expect(branch, contains('"name":"simulator"'));
+      expect(branch, isNot(contains('"name":"device"')));
+    });
+
+    test('matrix берёт только выбранные config-джобом срезы', () {
+      expect(ios, contains('outputs:'));
+      expect(ios, contains(r'slices: ${{ steps.slices.outputs.value }}'));
+      expect(
+        ios,
+        contains(r'slice: ${{ fromJSON(needs.config.outputs.slices) }}'),
+      );
+    });
+
+    test('device release проверяется на main, тегах и ручном запуске', () {
+      expect(ios, contains('flutter build ipa --release --no-codesign'));
+      expect(ios, contains('frb_get_rust_content_hash'));
+      expect(ios, contains('push:'));
+      expect(ios, contains('branches:'));
+      expect(ios, contains('- main'));
+      expect(ios, contains('tags:'));
+      expect(ios, contains("- 'v*'"));
+      expect(ios, contains('workflow_dispatch:'));
+    });
+
+    test('предсобранное ядро не пересобирается Xcode-фазой', () {
+      expect(ios, contains('.built-triple'));
+      expect(ios, contains(r"printf '%s' '${{ matrix.slice.rust_target }}'"));
     });
 
     test('архив ядра проверяется на символы FRB и Lua', () {
-      final ios = File('../../.github/workflows/ci-ios.yml').readAsStringSync();
       expect(ios, contains('grep -q frb_'));
       expect(ios, contains('grep -q luaL_newstate'));
-    });
-
-    test('iOS-сборка запускается и на релизный тег', () {
-      final ios = File('../../.github/workflows/ci-ios.yml').readAsStringSync();
-      expect(ios, contains('push:'));
-      expect(ios, contains("tags:"));
-      expect(ios, contains("- 'v*'"));
     });
   });
 }

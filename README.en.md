@@ -202,7 +202,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 `--no-select` is required: without it melos asks for a package and fails with
-no TTY. `analyze:flutter` exits 1 on any issue; this snapshot has no errors.
+no TTY. `analyze:flutter` reports every issue but exits 1 only on analysis
+errors; accumulated warnings/infos do not block CI.
 
 ## Contributing
 

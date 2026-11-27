@@ -2,7 +2,17 @@ name: CI Flutter/Dart
 
 on:
   pull_request:
-    paths: ['apps/**', 'packages/**', 'melos.yaml', '.github/workflows/ci-dart.yml']
+    paths:
+      [
+        'apps/**',
+        'packages/**',
+        'crates/**',
+        'Cargo.toml',
+        'Cargo.lock',
+        'melos.yaml',
+        'scripts/setup_ffi_link.sh',
+        '.github/workflows/ci-dart.yml',
+      ]
 
 concurrency:
   group: dart-${{ github.ref }}
@@ -19,6 +29,7 @@ jobs:
   analyze:
     name: analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -34,12 +45,16 @@ jobs:
       - name: Bootstrap workspace
         run: melos bootstrap
 
-      - name: Analyze
-        run: melos run analyze
+      - name: Analyze Flutter packages
+        run: melos run analyze:flutter
 
   test:
     name: test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MND_FFI_SO: ${{ github.workspace }}/target/release/libmnd_ffi.so
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/release
     steps:
       - uses: actions/checkout@v4
 
@@ -55,8 +70,23 @@ jobs:
       - name: Bootstrap workspace
         run: melos bootstrap
 
-      - name: Test Dart packages
-        run: melos run test
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux-${{ runner.arch }}-
+
+      - name: Build Rust FFI
+        run: |
+          ./scripts/setup_ffi_link.sh
+          cargo build --locked --release -p mnd-ffi
 
       - name: Test Flutter packages
         run: melos run test:flutter
