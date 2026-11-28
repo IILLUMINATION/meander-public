@@ -393,14 +393,18 @@ class ItemEditorHelper {
     }
 
     if (item.type == 'modal') {
+      ContentItem liveItem() => _liveItem(getItem, index, item);
       final updated = await logic.editModal(
         existing: item,
+        getExisting: liveItem,
         onChanged: (draft) {
-          if (context.mounted) updateItem(index, keepLayerFields(item, draft));
+          if (context.mounted) {
+            updateItem(index, keepLayerFields(liveItem(), draft));
+          }
         },
       );
       if (updated != null && context.mounted) {
-        updateItem(index, keepLayerFields(item, updated));
+        updateItem(index, keepLayerFields(liveItem(), updated));
       }
       return;
     }
