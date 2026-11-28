@@ -168,6 +168,78 @@ void main() {
     );
   });
 
+  test('обход каталога не открывает файл вне квеста', () async {
+    stubPathProvider();
+    final questId = newQuest();
+    final outside = File('${appDir.path}/quests/outside.png')
+      ..writeAsBytesSync(base64Decode(_png));
+
+    expect(await QuestImageSource.resolve(questId, '../outside.png'), isNull);
+    expect(
+      await QuestImageSource.resolve(questId, 'res/images/../../outside.png'),
+      isNull,
+    );
+    expect(await outside.exists(), isTrue);
+  });
+
+  test('симлинк не открывает файл вне квеста', () async {
+    if (Platform.isWindows) return;
+    stubPathProvider();
+    final questId = newQuest();
+    final outside = File('${appDir.path}/quests/linked-outside.png')
+      ..writeAsBytesSync(base64Decode(_png));
+    final dir = Directory('${appDir.path}/quests/$questId/res/images')
+      ..createSync(recursive: true);
+    Link('${dir.path}/link.png').createSync(outside.path);
+
+    expect(
+      await QuestImageSource.resolve(questId, 'res/images/link.png'),
+      isNull,
+    );
+  });
+
+  test('кэш последнего файла переживает invalidate', () async {
+    stubPathProvider();
+    final questId = newQuest();
+    await writeImage(questId, 'cached.png');
+    final generation = QuestImageSource.generation;
+    final file = await QuestImageSource.resolve(questId, 'cached.png');
+    expect(file, isNotNull);
+    expect(
+      QuestImageSource.cachedFile(questId, 'cached.png')?.file.path,
+      file!.path,
+    );
+
+    QuestImageSource.invalidate();
+    final cached = QuestImageSource.cachedFile(questId, 'cached.png');
+    expect(cached?.file.path, file.path);
+    expect(cached?.generation, generation);
+
+    await QuestImageSource.resolve(questId, 'cached.png');
+    expect(
+      QuestImageSource.cachedFile(questId, 'cached.png')?.generation,
+      QuestImageSource.generation,
+    );
+  });
+
+  test('кэш не отдаёт файл, заменённый внешним симлинком', () async {
+    if (Platform.isWindows) return;
+    stubPathProvider();
+    final questId = newQuest();
+    await writeImage(questId, 'swapped.png');
+    final file = await QuestImageSource.resolve(questId, 'swapped.png');
+    expect(file, isNotNull);
+    expect(QuestImageSource.cachedFile(questId, 'swapped.png'), isNotNull);
+    final outside = File('${appDir.path}/quests/outside-cache.png')
+      ..writeAsBytesSync(base64Decode(_png));
+    await file!.delete();
+    await Link(file.path).create(outside.path);
+
+    QuestImageSource.invalidate();
+    expect(QuestImageSource.cachedFile(questId, 'swapped.png'), isNull);
+    expect(await QuestImageSource.resolve(questId, 'swapped.png'), isNull);
+  });
+
   test('без metadata.json имя не находится, но и не падает', () async {
     stubPathProvider();
 

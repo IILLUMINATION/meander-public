@@ -18,11 +18,18 @@
 library;
 
 import 'package:flutter/widgets.dart' show Characters;
+import 'package:mnd_core/models/inline_image.dart';
 
 /// План проявления конкретного текста. Строится один раз и кешируется:
 /// анимация пересчитывает только отсечку, а не разбор на каждый кадр.
 class TextRevealPlan {
-  TextRevealPlan._(this.source, this._cumVisible, this._srcEnd, this._closure);
+  TextRevealPlan._(
+    this.source,
+    this._cumVisible,
+    this._srcEnd,
+    this._closure,
+    this._imageBoundaryIndex,
+  );
 
   static final Map<String, TextRevealPlan> _cache = {};
   static const int _cacheMax = 16;
@@ -39,6 +46,7 @@ class TextRevealPlan {
   final List<int> _cumVisible;
   final List<int> _srcEnd;
   final List<String> _closure;
+  final Map<int, int> _imageBoundaryIndex;
 
   /// Видимых символов, соответствующих доле [t] (0..1).
   int visibleAt(double t) => (t * totalVisible).round().clamp(0, totalVisible);
@@ -46,7 +54,6 @@ class TextRevealPlan {
   /// Что отдать markdown-генератору, когда набрано [visible] символов.
   String prefixFor(int visible) {
     if (visible >= totalVisible) return source;
-    if (visible <= 0) return '';
     // Левая граница, где счётчик дошёл до [visible]: следующий за последним
     // набранным символом синтаксис (маркер нового пункта, закрывающие `**`)
     // в префикс НЕ берётся — иначе пустой `- ` показал бы лишнюю галочку.
@@ -60,8 +67,9 @@ class TextRevealPlan {
         hi = mid;
       }
     }
-    final cut = _srcEnd[lo];
-    final tail = _closure[lo];
+    final boundary = _imageBoundaryIndex[visible] ?? lo;
+    final cut = _srcEnd[boundary];
+    final tail = _closure[boundary];
     if (tail.isEmpty) return source.substring(0, cut);
     return '${source.substring(0, cut)}$tail';
   }
@@ -89,6 +97,7 @@ class TextRevealPlan {
     final cum = <int>[0];
     final ends = <int>[0];
     final closures = <String>[''];
+    final imageBoundaryIndex = <int, int>{};
     final open = <String>[];
     var i = 0;
     var atLineStart = true;
@@ -152,7 +161,13 @@ class TextRevealPlan {
 
       if (!inFence) {
         final token = _inlineTokenAt(source, i);
-        if (token != null && _isBalancedAt(source, i, token, open)) {
+        final imageInCode =
+            token != null &&
+            token.startsWith('[img=') &&
+            open.any((value) => value == '`' || value == '``');
+        if (token != null &&
+            !imageInCode &&
+            _isBalancedAt(source, i, token, open)) {
           final closer = _closerOf(token);
           if (open.isNotEmpty && open.last == closer && _isCloserOf(token)) {
             open.removeLast();
@@ -160,6 +175,9 @@ class TextRevealPlan {
             open.add(closer);
           }
           add(token, 0);
+          if (token.startsWith('[img=')) {
+            imageBoundaryIndex[cum.last] = ends.length - 1;
+          }
           atLineStart = false;
           continue;
         }
@@ -194,6 +212,7 @@ class TextRevealPlan {
       List.unmodifiable(cum),
       List.unmodifiable(ends),
       List.unmodifiable(closures),
+      Map.unmodifiable(imageBoundaryIndex),
     );
     _cache[source] = plan;
     return plan;
@@ -207,6 +226,7 @@ class TextRevealPlan {
     String token,
     List<String> open,
   ) {
+    if (token.startsWith('[img=')) return true;
     if (token == '[/color]' || token == '[/font]') {
       return open.isNotEmpty && open.last == token;
     }
@@ -277,6 +297,10 @@ final List<RegExp> _inlineTagExps = [
 ];
 
 String? _inlineTokenAt(String source, int at) {
+  final image = inlineImageTag.matchAsPrefix(source, at);
+  if (image != null && normalizeInlineImagePath(image.group(1)) != null) {
+    return image.group(0);
+  }
   for (final re in _inlineTagExps) {
     final m = re.matchAsPrefix(source, at);
     if (m != null) return m.group(0);

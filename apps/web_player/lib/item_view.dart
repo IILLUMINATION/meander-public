@@ -21,6 +21,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:mnd_core/engine/item_visibility.dart';
 import 'package:mnd_core/models/content_item.dart';
+import 'package:mnd_core/models/inline_image.dart';
+import 'package:mnd_core/utils/bounded_image_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'player.dart';
@@ -436,8 +438,9 @@ class _TextViewState extends State<_TextView>
     r'\[(?:color=#[0-9A-Fa-f]{6,8}|outline=#[0-9A-Fa-f]{6,8}(?::[0-9.]+)?|font=[^\]]+|/(?:color|outline|font))\]',
   );
 
-  static int _visibleChars(String text) =>
-      text.replaceAll(_inlineTag, '').replaceAll(RegExp(r'\s'), '').length;
+  static int _visibleChars(String text) => stripInlineImageTags(
+    text,
+  ).replaceAll(_inlineTag, '').replaceAll(RegExp(r'\s'), '').length;
 
   /// Доля набранного текста: префикс по числу видимых символов. Теги
   /// копируются целиком, а открытые на момент обрыва закрываются, поэтому
@@ -447,23 +450,57 @@ class _TextViewState extends State<_TextView>
     final target = (_visibleChars(text) * fraction).round();
     final out = StringBuffer();
     final open = <String>[];
+    final codeSpans = inlineCodeSpans(text);
+    var codeIndex = 0;
+    String? inlineCode;
     var seen = 0;
     var i = 0;
     while (i < text.length) {
-      final tag = _inlineTag.matchAsPrefix(text, i);
-      if (tag != null) {
-        final value = tag.group(0)!;
-        out.write(value);
-        if (value.startsWith('[/')) {
-          final name = value.substring(2, value.length - 1);
-          final index = open.lastIndexOf(name);
-          if (index >= 0) open.removeAt(index);
-        } else {
-          final eq = value.indexOf('=');
-          open.add(value.substring(1, eq < 0 ? value.length - 1 : eq));
+      if (inlineCode != null) {
+        if (text[i] == '`') {
+          final run = RegExp(r'`+').matchAsPrefix(text, i)!.group(0)!;
+          if (run == inlineCode) {
+            out.write(run);
+            i += run.length;
+            inlineCode = null;
+            continue;
+          }
         }
-        i = tag.end;
-        continue;
+      } else {
+        while (codeIndex < codeSpans.length && codeSpans[codeIndex].end <= i) {
+          codeIndex++;
+        }
+        final code =
+            codeIndex < codeSpans.length && codeSpans[codeIndex].start == i
+            ? codeSpans[codeIndex]
+            : null;
+        if (code != null) {
+          out.write(code.delimiter);
+          inlineCode = code.delimiter;
+          i += code.delimiter.length;
+          continue;
+        }
+        final image = inlineImageTag.matchAsPrefix(text, i);
+        if (image != null && normalizeInlineImagePath(image.group(1)) != null) {
+          out.write(image.group(0));
+          i = image.end;
+          continue;
+        }
+        final tag = _inlineTag.matchAsPrefix(text, i);
+        if (tag != null) {
+          final value = tag.group(0)!;
+          out.write(value);
+          if (value.startsWith('[/')) {
+            final name = value.substring(2, value.length - 1);
+            final index = open.lastIndexOf(name);
+            if (index >= 0) open.removeAt(index);
+          } else {
+            final eq = value.indexOf('=');
+            open.add(value.substring(1, eq < 0 ? value.length - 1 : eq));
+          }
+          i = tag.end;
+          continue;
+        }
       }
       if (!RegExp(r'\s').hasMatch(text[i])) {
         if (seen >= target) break;
@@ -472,6 +509,7 @@ class _TextViewState extends State<_TextView>
       out.write(text[i]);
       i++;
     }
+    if (inlineCode != null) out.write(inlineCode);
     for (final name in open.reversed) {
       out.write('[/$name]');
     }
@@ -768,6 +806,66 @@ class _MarkdownBlock extends StatelessWidget {
   }
 }
 
+class _QuestInlineImage extends StatelessWidget {
+  final QuestPlayer player;
+  final String path;
+  final TextStyle style;
+  final bool outlineOnly;
+
+  const _QuestInlineImage({
+    required this.player,
+    required this.path,
+    required this.style,
+    required this.outlineOnly,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final inherited = context
+        .dependOnInheritedWidgetOfExactType<DefaultTextStyle>()
+        ?.style;
+    final resolved = (inherited ?? const TextStyle()).merge(style);
+    final rawSide = (resolved.fontSize ?? 16.0) * (resolved.height ?? 1.2);
+    final side = rawSide.isFinite ? rawSide.clamp(1.0, 1024.0) : 19.2;
+    final missing = Icon(
+      Icons.broken_image_outlined,
+      size: side,
+      color: resolved.color ?? Colors.white,
+    );
+
+    final Widget child;
+    if (outlineOnly) {
+      child = const SizedBox.expand();
+    } else {
+      child = ListenableBuilder(
+        listenable: player.bundle,
+        builder: (context, _) {
+          final bytes = player.assetBytes(path);
+          if (bytes == null) return missing;
+          final pixelRatio = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1;
+          final ratio = pixelRatio.isFinite && pixelRatio > 0
+              ? pixelRatio
+              : 1.0;
+          final cacheSide = (side * ratio).round().clamp(1, 2048);
+          return Image(
+            image: BoundedImageProvider(MemoryImage(bytes), maxSide: cacheSide),
+            width: side,
+            height: side,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (context, error, stack) => missing,
+          );
+        },
+      );
+    }
+    return ExcludeSemantics(
+      excluding: outlineOnly,
+      child: SizedBox.square(dimension: side, child: child),
+    );
+  }
+}
+
 /// Инлайн-разбор: `[font=…]` → `[color=…]` → `**жирный**` / `*курсив*` /
 /// `` `код` `` / `[текст](ссылка)`. Ссылки `node://<id>` ведут в ноду.
 InlineSpan buildInlineSpan(
@@ -927,18 +1025,36 @@ List<InlineSpan> _inline(
     r'(?<!\*)\*([^*\n]+)\*(?!\*)',
     dotAll: true,
   ).firstMatch(text);
-  final code = RegExp(r'`([^`\n]+)`').firstMatch(text);
+  final codeSpans = inlineCodeSpans(text);
+  final codeSpan = codeSpans.isEmpty ? null : codeSpans.first;
+  RegExpMatch? image;
+  if (player != null) {
+    for (final match in inlineImageMatchesOutsideCode(text)) {
+      image = match;
+      break;
+    }
+  }
 
   final candidates =
-      <RegExpMatch?>[link, bold, italic, code].whereType<RegExpMatch>().toList()
+      <RegExpMatch?>[
+          link,
+          bold,
+          italic,
+          image,
+        ].whereType<RegExpMatch>().toList()
         ..sort((a, b) => a.start.compareTo(b.start));
   final first = candidates.isEmpty ? null : candidates.first;
+  final codeIsFirst =
+      codeSpan != null && (first == null || codeSpan.start < first.start);
 
-  if (first == null) return [TextSpan(text: text, style: style)];
+  if (first == null && !codeIsFirst) {
+    return [TextSpan(text: text, style: style)];
+  }
 
+  final firstStart = codeIsFirst ? codeSpan.start : first!.start;
   final spans = <InlineSpan>[
     ..._inline(
-      text.substring(0, first.start),
+      text.substring(0, firstStart),
       base,
       player: player,
       fontFamily: fontFamily,
@@ -946,58 +1062,85 @@ List<InlineSpan> _inline(
       fragmentStroke: fragmentStroke,
     ),
   ];
-  if (first == link) {
+  if (codeIsFirst) {
+    final span = codeSpan;
     spans.add(
       TextSpan(
-        text: first.group(1) ?? '',
-        style: style.copyWith(
-          color: Colors.cyanAccent,
-          decoration: TextDecoration.underline,
+        text: text.substring(
+          span.start + span.delimiter.length,
+          span.end - span.delimiter.length,
         ),
-        // В нижнем слое ссылки не ловят тап: срабатывает верхний, заливочный.
-        recognizer: outlineLayer != null
-            ? null
-            : (TapGestureRecognizer()
-                ..onTap = () {
-                  final raw = first.group(2) ?? '';
-                  final node = _nodeIdFromLink(raw);
-                  if (node != null) {
-                    player?.loadNode(node);
-                  } else {
-                    final uri = Uri.tryParse(raw);
-                    if (uri != null &&
-                        (uri.scheme == 'http' || uri.scheme == 'https')) {
-                      launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  }
-                }),
-      ),
-    );
-  } else if (first == bold) {
-    spans.add(
-      TextSpan(
-        text: first.group(1),
-        style: style.copyWith(fontWeight: FontWeight.bold),
-      ),
-    );
-  } else if (first == italic) {
-    spans.add(
-      TextSpan(
-        text: first.group(1),
-        style: style.copyWith(fontStyle: FontStyle.italic),
-      ),
-    );
-  } else {
-    spans.add(
-      TextSpan(
-        text: first.group(1),
         style: style.copyWith(fontFamily: 'monospace'),
       ),
     );
+  } else {
+    final match = first!;
+    if (match == link) {
+      spans.add(
+        TextSpan(
+          text: match.group(1) ?? '',
+          style: style.copyWith(
+            color: Colors.cyanAccent,
+            decoration: TextDecoration.underline,
+          ),
+          // В нижнем слое ссылки не ловят тап: срабатывает верхний, заливочный.
+          recognizer: outlineLayer != null
+              ? null
+              : (TapGestureRecognizer()
+                  ..onTap = () {
+                    final raw = match.group(2) ?? '';
+                    final node = _nodeIdFromLink(raw);
+                    if (node != null) {
+                      player?.loadNode(node);
+                    } else {
+                      final uri = Uri.tryParse(raw);
+                      if (uri != null &&
+                          (uri.scheme == 'http' || uri.scheme == 'https')) {
+                        launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    }
+                  }),
+        ),
+      );
+    } else if (match == bold) {
+      spans.addAll(
+        _inline(
+          match.group(1) ?? '',
+          base.copyWith(fontWeight: FontWeight.bold),
+          player: player,
+          fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
+        ),
+      );
+    } else if (match == italic) {
+      spans.addAll(
+        _inline(
+          match.group(1) ?? '',
+          base.copyWith(fontStyle: FontStyle.italic),
+          player: player,
+          fontFamily: fontFamily,
+          outlineLayer: outlineLayer,
+          fragmentStroke: fragmentStroke,
+        ),
+      );
+    } else if (match == image) {
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.bottom,
+          child: _QuestInlineImage(
+            player: player!,
+            path: normalizeInlineImagePath(match.group(1))!,
+            style: style,
+            outlineOnly: outlineLayer != null,
+          ),
+        ),
+      );
+    }
   }
   spans.addAll(
     _inline(
-      text.substring(first.end),
+      text.substring(codeIsFirst ? codeSpan.end : first!.end),
       base,
       player: player,
       fontFamily: fontFamily,

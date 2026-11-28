@@ -194,6 +194,7 @@ Runner → Signing & Capabilities) and is not stored in the repository.
 ## Checks
 
 ```bash
+melos run ffi:build:host            # .so for FFI tests
 melos run analyze:flutter --no-select
 melos run test:flutter --no-select
 cargo test --workspace
@@ -202,7 +203,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 `--no-select` is required: without it melos asks for a package and fails with
-no TTY. `analyze:flutter` exits 1 on any issue; this snapshot has no errors.
+no TTY. `analyze:flutter` fails only on compile errors: infos/warnings exist in
+this snapshot and do not block PRs. Without the `.so`, FFI tests in
+`mnd_core`/`mnd_player` are skipped; `web_player` integration tests require the
+built library.
 
 ## Contributing
 

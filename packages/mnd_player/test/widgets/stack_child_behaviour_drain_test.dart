@@ -131,35 +131,37 @@ void main() {
     return container;
   }
 
-  testWidgets('onAppear слоя не оставляет в движке непрослушанных команд', (
-    tester,
-  ) async {
-    // Наследие исполнения: звук, ссылка и кадр `wait` — в очередях движка.
-    engine.setStateVariable('_internal_audio_queue', [
-      {'type': 'play_sound', 'audio_id': 'a.mp3', 'volume': 1.0},
-    ]);
-    engine.setStateVariable('_internal_external_commands', [
-      {'type': 'open_link', 'url': 'https://example.com'},
-    ]);
-    engine.setStateVariable('_internal_delay_queue', [
-      {'type': 'delay', 'ms': 50, 'variables': {}, 'tables': {}, 'audio': []},
-    ]);
-    engine.setStateVariable('HP', 7);
+  group('слияние очередей onAppear', skip: skipIfNoSo, () {
+    testWidgets('onAppear слоя не оставляет в движке непрослушанных команд', (
+      tester,
+    ) async {
+      // Наследие исполнения: звук, ссылка и кадр `wait` — в очередях движка.
+      engine.setStateVariable('_internal_audio_queue', [
+        {'type': 'play_sound', 'audio_id': 'a.mp3', 'volume': 1.0},
+      ]);
+      engine.setStateVariable('_internal_external_commands', [
+        {'type': 'open_link', 'url': 'https://example.com'},
+      ]);
+      engine.setStateVariable('_internal_delay_queue', [
+        {'type': 'delay', 'ms': 50, 'variables': {}, 'tables': {}, 'audio': []},
+      ]);
+      engine.setStateVariable('HP', 7);
 
-    final container = await render(tester);
+      final container = await render(tester);
 
-    // Переменная обязана дойти до клиента — слить очереди, потеряв состояние,
-    // хуже, чем не слить ничего.
-    expect(container.read(gameStateProvider).variables['HP'], 7);
-    final drained = await tester.runAsync(() async {
-      return {
-        'audio': await engine.drainAudio(),
-        'external': await engine.drainExternal(),
-        'delays': await engine.drainDelaySteps(),
-      };
+      // Переменная обязана дойти до клиента — слить очереди, потеряв
+      // состояние, хуже, чем не слить ничего.
+      expect(container.read(gameStateProvider).variables['HP'], 7);
+      final drained = await tester.runAsync(() async {
+        return {
+          'audio': await engine.drainAudio(),
+          'external': await engine.drainExternal(),
+          'delays': await engine.drainDelaySteps(),
+        };
+      });
+      expect(drained!['audio'], {'commands': isEmpty});
+      expect(drained['external'], {'commands': isEmpty});
+      expect(drained['delays'], isEmpty);
     });
-    expect(drained!['audio'], {'commands': isEmpty});
-    expect(drained['external'], {'commands': isEmpty});
-    expect(drained['delays'], isEmpty);
   });
 }

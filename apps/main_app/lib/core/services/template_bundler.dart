@@ -8,6 +8,7 @@ import 'package:canvas_app/features/editor/utils/template_applier.dart';
 import 'package:canvas_app/core/utils/archive_entry_paths.dart';
 import 'package:canvas_app/models/template_model.dart';
 import 'package:crypto/crypto.dart';
+import 'package:mnd_core/models/inline_image.dart';
 import 'package:path/path.dart' as p;
 import 'package:mnd_core/utils/quest_paths.dart';
 
@@ -368,21 +369,48 @@ class TemplateBundler {
     Map<String, String> remap,
   ) {
     if (remap.isEmpty) return payload;
-    final encoded = jsonEncode(payload);
-    var result = encoded;
-    for (final entry in remap.entries) {
-      result = result.replaceAll('"${entry.key}"', '"${entry.value}"');
-      // Также обрабатываем имя файла без папки (поле может содержать
-      // только имя — например, backgroundAssetId).
-      final oldBase = p.basename(entry.key);
-      final newBase = p.basename(entry.value);
-      if (oldBase != newBase) {
-        result = result.replaceAll('"$oldBase"', '"$newBase"');
+
+    String? replacementFor(String value) {
+      final direct = remap[value];
+      if (direct != null) return direct;
+      final normalized = normalizeInlineImagePath(value);
+      if (normalized != null && remap[normalized] != null) {
+        return remap[normalized];
       }
+      for (final entry in remap.entries) {
+        if (value == p.basename(entry.key)) return p.basename(entry.value);
+      }
+      return null;
     }
-    final decoded = jsonDecode(result);
-    if (decoded is Map<String, dynamic>) return decoded;
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+
+    String remapString(String value) {
+      final exact = replacementFor(value);
+      if (exact != null) return exact;
+      return value.replaceAllMapped(inlineImageTag, (match) {
+        final source = match.group(1)!;
+        if (normalizeInlineImagePath(source) == null) return match.group(0)!;
+        final replacement =
+            replacementFor(source) ??
+            replacementFor(normalizeInlineImagePath(source)!);
+        return replacement == null ? match.group(0)! : '[img=$replacement]';
+      });
+    }
+
+    dynamic rewrite(dynamic value) {
+      if (value is Map) {
+        return {
+          for (final entry in value.entries)
+            remapString(entry.key.toString()): rewrite(entry.value),
+        };
+      }
+      if (value is List) return [for (final item in value) rewrite(item)];
+      if (value is String) return remapString(value);
+      return value;
+    }
+
+    final rewritten = rewrite(payload);
+    if (rewritten is Map<String, dynamic>) return rewritten;
+    if (rewritten is Map) return Map<String, dynamic>.from(rewritten);
     return payload;
   }
 
